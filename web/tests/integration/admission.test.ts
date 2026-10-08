@@ -430,7 +430,101 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
         { ...context(), requestId: reasonedOverride.requestId },
         reasonedOverride,
       );
-      expect(await getAdmission(context(), overridden.admissionId)).toMatchObject({ clinicianAssessment: { overrideReason: "Synthetic clinician-directed destination change" } });
+      expect(
+        await getAdmission(context(), overridden.admissionId),
+      ).toMatchObject({
+        clinicianAssessment: {
+          overrideReason: "Synthetic clinician-directed destination change",
+        },
+      });
+
+      // More than one full worklist of ongoing episodes must survive newer history.
+      const ongoing = await Promise.all(
+        Array.from({ length: 55 }, async (_, i) => {
+          const bed = await createBed(ac(), {
+            label: `Synthetic volume ${i}`,
+            category: "GENERAL",
+            reason: "synthetic volume regression",
+          });
+          const data = {
+            ...input(0),
+            bedId: bed.id,
+            patientDetails: {
+              ...input(0).patientDetails,
+              name: `Synthetic volume patient ${i}`,
+            },
+          };
+          return createAdmission(
+            { ...context(), requestId: data.requestId },
+            data,
+          );
+        }),
+      );
+      await owner.query(
+        "update hims.admissions set registered_at='2020-01-01T00:00:00Z' where status in ('PENDING','ADMITTED')",
+      );
+      const historyBed = await createBed(ac(), {
+        label: "Synthetic history",
+        category: "GENERAL",
+        reason: "synthetic history regression",
+      });
+      for (let i = 0; i < 51; i++) {
+        const data = { ...input(0), bedId: historyBed.id };
+        const episode = await createAdmission(
+          { ...context(), requestId: data.requestId },
+          data,
+        );
+        await cancelAdmission(context(), {
+          admissionId: episode.admissionId,
+          reason: "synthetic newer cancellation",
+        });
+      }
+      const otherData = {
+        ...input(0),
+        bedId: historyBed.id,
+        admittingDoctorId: otherDoctor.id,
+      };
+      const otherEpisode = await createAdmission(
+        { ...context(), requestId: otherData.requestId },
+        otherData,
+      );
+      await cancelAdmission(context(), {
+        admissionId: otherEpisode.admissionId,
+        reason: "synthetic other doctor history",
+      });
+      const ongoingCount = (
+        await runtime.query(
+          "select count(*)::int as count from hims.admissions where status in ('PENDING','ADMITTED')",
+        )
+      ).rows[0].count;
+      for (const ctx of [context(), ac(), doctorCtx]) {
+        const { worklist } = await admissionWorkspace(ctx);
+        expect(
+          worklist.filter(
+            (row) => row.status === "PENDING" || row.status === "ADMITTED",
+          ),
+        ).toHaveLength(ongoingCount);
+        expect(worklist.map((row) => row.id)).toEqual(
+          expect.arrayContaining(ongoing.map((row) => row.admissionId)),
+        );
+        expect(
+          worklist.some(
+            (row) =>
+              row.id === episodes[2].admissionId && row.status === "ADMITTED",
+          ),
+        ).toBe(true);
+        expect(
+          worklist.filter((row) => row.status === "CANCELLED"),
+        ).toHaveLength(50);
+        expect(worklist[0].status).not.toBe("CANCELLED");
+        expect(worklist[0]).not.toHaveProperty("phone");
+        expect(worklist[0]).not.toHaveProperty("clinicianAssessment");
+      }
+      expect(
+        (await admissionWorkspace(doctorCtx)).worklist.some(
+          (row) => row.id === otherEpisode.admissionId,
+        ),
+      ).toBe(false);
     });
   }, 60000);
 });

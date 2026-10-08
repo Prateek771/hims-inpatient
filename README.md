@@ -2,7 +2,7 @@
 
 A staff-facing Hospital Information Management System for one hospital, connecting admission, clinical work, live charges, insurance paperwork, human discharge clearances and final discharge documents.
 
-The owner approved the clean, minimal Figma direction on **9 October 2026**. The repository contains a runnable Next.js shell, PostgreSQL audit history, Better Auth staff login, administrator account management, versioned hospital settings and automated checks. Patient admissions and department workflows are the next build phases. The first version serves one hospital with separate role dashboards; multihospital tenancy is future work.
+The owner approved the clean, minimal Figma direction on **9 October 2026**. The repository contains a runnable Next.js shell, PostgreSQL audit history, Better Auth staff login, administrator account management, versioned hospital settings, patient registration, pending admissions, physical bed reservations and automated checks. Admission activation, charges and department workflows follow in the build plan. The first version serves one hospital with separate role dashboards; multihospital tenancy is future work. See the [current build status](docs/agent/BUILD_HANDOFF.md) for review and acceptance evidence.
 
 Private GitHub repository: [Prateek771/hims-inpatient](https://github.com/Prateek771/hims-inpatient). Work only in `C:\Users\prate\OneDrive\Desktop\INS`, on `codex/hims-development`. Verified, reviewed and authorized checkpoints are integrated into `main`; no separate checkout is used.
 
@@ -16,6 +16,7 @@ Private GitHub repository: [Prateek771/hims-inpatient](https://github.com/Pratee
 - [Verified setup status and limitations](docs/SETUP_STATUS.md)
 - [Local database setup and test isolation](docs/DATABASE_SETUP.md)
 - [Staff login and local development accounts](docs/STAFF_ACCESS.md)
+- [Patient intake and physical beds](docs/ADMISSION.md)
 - [Approved Figma screens and prototype](docs/DESIGN_REFERENCE.md)
 - [Preserved Figma prototype source files](docs/design/prototype/README.md)
 - [Agent working instructions](AGENTS.md)

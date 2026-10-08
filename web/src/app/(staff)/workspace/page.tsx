@@ -85,6 +85,10 @@ export default async function Workspace() {
       {staff.role === "DOCTOR" && (
         <section className="card">
           <h2>Patients admitted under you</h2>
+          <p>
+            All your pending and admitted episodes, followed by your latest 50
+            closed episodes.
+          </p>
           {doctorWorklist.length ? (
             <ul className="patient-results">
               {doctorWorklist.map((a) => (

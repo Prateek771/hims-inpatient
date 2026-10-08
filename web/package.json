@@ -11,7 +11,7 @@
     "test:unit": "node scripts/vitest.mjs run --project unit",
     "test:integration": "node scripts/vitest.mjs run --project integration",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "node --experimental-strip-types scripts/migrate.ts",
+    "db:migrate": "node --experimental-strip-types scripts/migrate-cli.ts",
     "test:e2e": "node scripts/playwright.mjs test",
     "test:install": "node scripts/playwright.mjs install chromium",
     "check": "npm run test:unit && npm run test:integration && npm run lint && npm run typecheck && npm run build && npm run test:e2e",

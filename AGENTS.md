@@ -39,7 +39,7 @@
 
 ## Verification and current state
 
-- The Next.js and PostgreSQL foundation is under `web/`; see [architecture](ARCHITECTURE.md), [setup status](docs/SETUP_STATUS.md) and the [build plan](docs/superpowers/plans/2026-10-09-hims-inpatient.md). Better Auth staff login, administrator account management, versioned settings and isolated tests exist. Admission, department workflows and paperwork agents remain later tasks. One hospital first; separate role dashboards remain required, without claiming multihospital tenancy.
+- The Next.js and PostgreSQL application is under `web/`; see [architecture](ARCHITECTURE.md), [setup status](docs/SETUP_STATUS.md) and the [build plan](docs/superpowers/plans/2026-10-09-hims-inpatient.md). Better Auth staff login, administrator account management, versioned settings, pending admissions/physical beds and isolated tests exist. Activation/billing, department workflows and paperwork agents remain later tasks. One hospital first; separate role dashboards remain required, without claiming multihospital tenancy.
 - Actual root command: `npm --prefix web run check` runs unit tests, actual PostgreSQL integration tests, lint, type checks, a production build and Chromium browser/HTTP checks. Missing database access fails the integration check. `npm --prefix web audit --omit=dev` audits runtime dependencies. See [database setup](docs/DATABASE_SETUP.md) for local provisioning.
 - For documentation/setup changes, check local links, source integrity, `git diff --check`, staged contents, repository/remote status and applicable ignore rules.
 - Once code exists, use its actual documented commands and meaningful checks for the affected flow; record those commands in project context. Do not weaken checks to obtain a pass.

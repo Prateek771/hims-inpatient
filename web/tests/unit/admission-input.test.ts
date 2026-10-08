@@ -27,6 +27,24 @@ const sample = {
 };
 
 describe("ordinary admission input boundaries", () => {
+  it("requires 7 to 15 digits in a supplied phone while allowing formatting", () => {
+    for (const phone of ["-------", "(((((((", "123-456", "1234567890123456"]) {
+      expect(
+        admissionInput.safeParse({
+          ...sample,
+          patientDetails: { ...sample.patientDetails, phone },
+        }).success,
+      ).toBe(false);
+    }
+    for (const phone of ["123-4567", "+91 (999) 999-9999", "123456789012345"]) {
+      expect(
+        admissionInput.safeParse({
+          ...sample,
+          patientDetails: { ...sample.patientDetails, phone },
+        }).success,
+      ).toBe(true);
+    }
+  });
   it("allows unavailable contact without fabricating a phone number", () => {
     expect(
       admissionInput.safeParse({

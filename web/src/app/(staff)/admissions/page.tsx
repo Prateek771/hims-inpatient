@@ -83,6 +83,10 @@ export default async function AdmissionsPage({
       </section>
       <section className="card">
         <h2>Admission worklist</h2>
+        <p>
+          All pending and admitted episodes, followed by the latest 50 closed
+          episodes.
+        </p>
         <div className="table-scroll">
           <table>
             <thead>

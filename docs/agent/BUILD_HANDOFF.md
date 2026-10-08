@@ -2,6 +2,10 @@
 
 Prepared 9 October 2026 at the owner's request to finish the active work, save progress, pause this build chat and continue in a new chat using **GPT-6.1 Sol / High**. Only one build chat may edit this folder at a time.
 
+**Successor update, 9 October:** The successor is active in the same folder. Task 4 is now locally accepted: independent review corrections passed scoped re-review, followed by the full check (26 unit, five actual PostgreSQL, lint/types/build and eight Chromium/HTTP tests) and a zero-finding runtime audit. All ongoing admissions remain reachable; only recent closed history is bounded to 50. Supplied phone values require digits. The explicit migration CLI was run after review; migrations `0000–0005` are current, with staff/account/settings hashes unchanged and ordinary domain records empty. The reviewed correction commit must pass development GitHub Checks before integration into `main`, then Task 5 begins. The preceding saved development commit `55e002f` passed [GitHub Checks](https://github.com/Prateek771/hims-inpatient/actions/runs/37853242220).
+
+During the review, a temporary esbuild probe importing the migration helper unintentionally triggered its bundled main-module guard and applied ordinary migrations `0003–0005` before acceptance. This violated the intended review order. The controller compared complete staff/account/settings row hashes with the pre-review baseline: eight staff users and eight account records were identical; settings remained empty. Ordinary patient, admission, bed, hold and stay counts were all zero. Applied migrations were preserved without rollback. The fix separates the explicit migration CLI from side-effect-free importable helpers and adds a safe import/bundle regression. Do not rerun the original temporary probe unchanged. Detailed evidence is in the ignored plan workspace's `task-4-review.md` and `progress.md`.
+
 ## Workspace and authority
 
 - Use only `C:\Users\prate\OneDrive\Desktop\INS`, branch `codex/hims-development`. No extra checkout or worktree. Private repository: [Prateek771/hims-inpatient](https://github.com/Prateek771/hims-inpatient).
@@ -16,7 +20,7 @@ Prepared 9 October 2026 at the owner's request to finish the active work, save p
 - [Development checks](https://github.com/Prateek771/hims-inpatient/actions/runs/37850090752) and [main checks](https://github.com/Prateek771/hims-inpatient/actions/runs/37850428596) passed at that exact commit, including real fresh-database staff initialization.
 - Local verification: 20 unit tests, 4 real PostgreSQL integration checks after review corrections, lint/types/build and 6 browser/HTTP checks. Production audit zero; full audit retains five high development-tool findings in the lint/braces chain. See [setup status](../SETUP_STATUS.md).
 
-## Admission implementation checkpoint
+## Original admission implementation handoff (superseded by successor update above)
 
 Task 4 admission and physical beds is implemented and tested at `774a5ac6493532e8e7029515c34cccdda21e8315`, but independent review and ordinary application migration remain unfinished. Do not mark Task 4 complete or begin Task 5 until those acceptance steps are resolved.
 
@@ -44,12 +48,12 @@ Task 4 admission and physical beds is implemented and tested at `774a5ac6493532e
 - Relevant installed skills: personal-project-workflow; Superpowers subagent-driven-development/review; PostgreSQL guidance before schema writes; Figma design-to-code before design-context calls. Keep one implementer owning shared migrations/schema/contracts at a time; controller serializes integration.
 - Graphify is optional navigation, not installed automatic project memory. Project decisions live in the referenced repository documents. No AI/OCR provider is selected for this HIMS project; do not import another project's credentials or provider decisions.
 
-## Final transition record
+## Original source-chat transition record (historical)
 
 - Admission code checkpoint: `774a5ac6493532e8e7029515c34cccdda21e8315`; review base: `332a64acd4db06322f4a416ec47607249da89c64`. A separate documentation handoff commit follows it. Both are saved on development; inspect current Git status and remote checks before integrating.
 - `main` remains at the accepted Task 3 checkpoint `332a64a`; do not integrate the admission checkpoint merely because local checks passed. Independent Task 4 review is the **first unfinished task**.
 - Read `.superpowers/sdd/2026-10-09-hims-inpatient/task-4-report.md`, Task 4 brief/context and the prepared review package. Desktop/narrow PNGs are in the same plan workspace. Review source and tests; do not repeat completed implementation or broad checks without a reason.
-- Migrations `0003_tearful_mercury.sql`, `0004_brown_mystique.sql` and `0005_lazy_iceman.sql` were applied only to guarded synthetic fixtures. After review/fixes, apply pending migrations with the existing owner connection, preserving ordinary staff/settings. Existing SQL bytes remain immutable. No patient/policy seed is authorized for the ordinary app.
+- Migrations `0003_tearful_mercury.sql`, `0004_brown_mystique.sql` and `0005_lazy_iceman.sql` were initially applied only to synthetic fixtures. The successor review incident above subsequently applied them to the ordinary app prematurely; the current ledger contains `0000–0005`. Verify checksums and preserve these applied bytes. Do not treat the early application as Task 4 acceptance. No patient/policy seed is authorized for the ordinary app.
 - Preview remains **stopped**; prior session 95232 is finished. Restart after review/app migration as appropriate. No active build worker should be inherited from this chat.
 - After Task 4 acceptance, update scope/status/context/checklist evidence, verify development CI and integrate the authorized checkpoint into main while leaving this checkout on development. Then proceed to Task 5 using its saved brief/context.
 - The source chat stops editing before successor creation. Successor is the sole active build chat. Keep this restriction when delegating and do not message the paused source chat to restart work.

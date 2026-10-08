@@ -8,7 +8,7 @@
 
 **Tech Stack:** Owner-selected Next.js, PostgreSQL, LangGraph and Better Auth (staff login confirmed 9 October 2026). Foundation uses TypeScript, Tailwind from the official Next.js scaffold, Drizzle/node-postgres, Zod, Vitest and Playwright. Add barcode/QR libraries only when their tasks need them. AI/OCR providers remain unselected.
 
-**Spec:** [Confirmed scope](../../PROJECT_SCOPE.md), [approved design reference](../../DESIGN_REFERENCE.md) and [agent rules](../../../AGENTS.md). Recorded 9 October 2026 against setup baseline `8c674f7633883d690d717015ec58b64e03c5d701`. Tasks 1-3 are implemented, locally verified and independently reviewed; Tasks 4-16 remain to build. See [setup status](../../SETUP_STATUS.md) for actual evidence, installed packages and limitations.
+**Spec:** [Confirmed scope](../../PROJECT_SCOPE.md), [approved design reference](../../DESIGN_REFERENCE.md) and [agent rules](../../../AGENTS.md). Recorded 9 October 2026 against setup baseline `8c674f7633883d690d717015ec58b64e03c5d701`. Tasks 1-4 are implemented, locally verified and independently reviewed; Tasks 5-16 remain to build. See [setup status](../../SETUP_STATUS.md) for actual evidence, installed packages and limitations.
 
 ## Global constraints
 
@@ -124,11 +124,11 @@ Tests use a separate synthetic PostgreSQL database. The fixture/reset helper ref
 
 **Interfaces:** consumes server context/access, settings and audit. Produces `createAdmission(ctx, { patientId?, patientDetails?, admittingDoctorId, clinicianAssessment, bedId, paymentRoute, expectedStayDays, requestId }): Promise<{ admissionId, patientId, ipCode }>` and `cancelAdmission(ctx, { admissionId, reason })`. `paymentRoute` is `SELF_PAY | INSURED`; verified insurance data belongs to Task 10.
 
-- [ ] Write assertions: 20 simultaneous admissions yield 20 unique IP codes; cancelling never reuses a code; two requests for one bed yield one success; failure leaves no partial occupancy; a repeat admission keeps UHID but gets a new IP. Retry the same request and assert one episode.
-- [ ] Implement a transactional yearly counter/unique code, permanent patient identity, clinician-entered complaint/vitals/triage, destination override reason and bed reservation. Keep registration time and actual admission/occupancy time distinct; the room-stay segment begins when the admission is activated, with its tariff version. Handle sequence overflow without truncation or reuse.
-- [ ] Add minimal administrator bed-inventory controls using configured room categories, so beds can be created and safely disabled through the application. Do not require SQL seeds or silently remove an occupied/reserved bed. Task 3 defines categories; this task owns physical beds and their availability.
-- [ ] Build the admission form/worklist with validated inputs and explicit `PENDING` versus `ADMITTED` state. Saving/reserving a pending episode does not satisfy a required deposit or start room charging. Task 5 activates it after deposit checks; urgent no-deposit admission uses the admin exception command introduced in Task 12. Do not invent a bypass meanwhile.
-- [ ] Run the admission integration/E2E files, lint/typecheck; inspect Figma alignment; commit `feat: add patient admission and bed allocation`.
+- [x] Write assertions: 20 simultaneous admissions yield 20 unique IP codes; cancelling never reuses a code; two requests for one bed yield one success; failure leaves no partial occupancy; a repeat admission keeps UHID but gets a new IP. Retry the same request and assert one episode.
+- [x] Implement a transactional yearly counter/unique code, permanent patient identity, clinician-entered complaint/vitals/triage, destination override reason and bed reservation. Keep registration time and actual admission/occupancy time distinct; the room-stay segment begins when the admission is activated, with its tariff version. Handle sequence overflow without truncation or reuse.
+- [x] Add minimal administrator bed-inventory controls using configured room categories, so beds can be created and safely disabled through the application. Do not require SQL seeds or silently remove an occupied/reserved bed. Task 3 defines categories; this task owns physical beds and their availability.
+- [x] Build the admission form/worklist with validated inputs and explicit `PENDING` versus `ADMITTED` state. Saving/reserving a pending episode does not satisfy a required deposit or start room charging. Task 5 activates it after deposit checks; urgent no-deposit admission uses the admin exception command introduced in Task 12. Do not invent a bypass meanwhile.
+- [x] Run the admission integration/E2E files, lint/typecheck; inspect Figma alignment; commit `feat: add patient admission and bed allocation`.
 
 ## Task 5: Deterministic ledger, deposits, receipts and room charges
 
@@ -291,4 +291,4 @@ Use clearly labeled synthetic configuration until these are supplied. Technical 
 
 ## Plan review and implementation handoff
 
-All tasks remain unchecked. Recommended execution: one task at a time with a fresh reviewer on financial/state/access changes; parallel work only on stable, disjoint slices. Before application implementation, the owner reviews this proposed plan and confirms the execution approach. Keep the root instructions and the approved product/UI decisions controlling throughout.
+The owner authorized continuous phase execution with subagents. Tasks1-4 are accepted locally; subsequent tasks remain unchecked. Recommended execution: one task at a time with a fresh reviewer on financial/state/access changes; parallel work only on stable, disjoint slices. Before application implementation, the owner reviews this proposed plan and confirms the execution approach. Keep the root instructions and the approved product/UI decisions controlling throughout.

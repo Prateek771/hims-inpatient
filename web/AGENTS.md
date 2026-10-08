@@ -4,7 +4,7 @@ Root [AGENTS.md](../AGENTS.md) and the owner's scope apply here. This applicatio
 
 - From the repository root, use `npm --prefix web run check` for unit/integration tests, lint, type checks, production build and browser checks. `test:e2e` uses the built application on port 3100; run build first. Install browsers with `npm --prefix web run test:install`.
 - Follow [architecture](../ARCHITECTURE.md), [current context](../docs/agent/project-context.md) and [approved Figma](../docs/DESIGN_REFERENCE.md). Keep server logic outside client components and read relevant installed framework documentation before using new APIs.
-- The foundation has audit/settings schema, separate database owner/runtime accounts, Better Auth staff access and administrator settings. Patient transactions remain pending. Preserve existing local staff accounts. `/api/health` asserts liveness, `/api/health/ready` checks database/schema access. Keep real data and credentials out of tests/Git.
+- The application has audit/settings schema, separate database owner/runtime accounts, Better Auth staff access, administrator settings and pending patient admissions/bed reservations. Activation/billing and department transactions remain later tasks. Preserve existing local staff accounts. `/api/health` asserts liveness, `/api/health/ready` checks database/schema access. Keep real data and credentials out of tests/Git.
 - Unit and actual PostgreSQL integration suites must execute. Test fixtures use only the explicitly configured synthetic database and never fall back to the application URL. Do not silently skip unavailable checks or claim them as passed.
 
 <!-- BEGIN:nextjs-agent-rules -->

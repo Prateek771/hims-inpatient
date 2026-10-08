@@ -56,6 +56,10 @@ export const admissionInput = z
           .string()
           .trim()
           .regex(/^[+\d ()-]{7,25}$/)
+          .refine((value) => {
+            const digits = value.replace(/\D/g, "").length;
+            return digits >= 7 && digits <= 15;
+          }, "Enter a phone number with 7 to 15 digits")
           .optional(),
       })
       .refine(
@@ -507,6 +511,10 @@ export async function getAdmission(ctx: CommandContext, admissionId: string) {
 
 export async function admissionWorkspace(ctx: CommandContext) {
   const staff = await admissionOperator(ctx, ["ADMISSION", "ADMIN", "DOCTOR"]);
+  const doctorScope =
+    staff.role === "DOCTOR"
+      ? eq(admissions.admittingDoctorId, staff.id)
+      : undefined;
   const bedRows = await db
     .select({
       id: beds.id,
@@ -531,12 +539,32 @@ export async function admissionWorkspace(ctx: CommandContext) {
     .innerJoin(patients, eq(patients.id, admissions.patientId))
     .innerJoin(beds, eq(beds.id, admissions.bedId))
     .where(
-      staff.role === "DOCTOR"
-        ? eq(admissions.admittingDoctorId, staff.id)
-        : undefined,
+      and(
+        doctorScope,
+        or(
+          inArray(admissions.status, ["PENDING", "ADMITTED"]),
+          inArray(
+            admissions.id,
+            db
+              .select({ id: admissions.id })
+              .from(admissions)
+              .where(
+                and(
+                  doctorScope,
+                  inArray(admissions.status, ["CANCELLED", "DISCHARGED"]),
+                ),
+              )
+              .orderBy(desc(admissions.registeredAt), desc(admissions.id))
+              .limit(50),
+          ),
+        ),
+      ),
     )
-    .orderBy(desc(admissions.registeredAt))
-    .limit(50);
+    .orderBy(
+      sql`case when ${admissions.status} in ('PENDING','ADMITTED') then 0 else 1 end`,
+      desc(admissions.registeredAt),
+      desc(admissions.id),
+    );
   const doctors =
     staff.role === "ADMISSION"
       ? await db

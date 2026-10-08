@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
-import { Client } from "pg";
+import type { Client } from "pg";
 
 export function loadLocalEnvironment() {
   // Next intentionally excludes .env.local in test mode; the dedicated local
@@ -45,22 +45,5 @@ export async function migrate(client: Client) {
     await client.query(`GRANT SELECT, INSERT ON hims.patients, hims.room_stays TO ${runtime}; GRANT SELECT, INSERT, UPDATE ON hims.beds, hims.admissions, hims.admission_counters TO ${runtime}; GRANT SELECT, INSERT, DELETE ON hims.bed_holds TO ${runtime};`);
   } finally {
     await client.query("SELECT pg_advisory_unlock(729104209)");
-  }
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  loadLocalEnvironment();
-  const url = process.env.MIGRATION_DATABASE_URL;
-  if (!url) throw new Error("MIGRATION_DATABASE_URL is required; runtime credentials are never a fallback");
-  const client = new Client({ connectionString: url, connectionTimeoutMillis: 3000 });
-  try {
-    await client.connect();
-    await migrate(client);
-    console.log("HIMS migrations applied");
-  } catch {
-    console.error("HIMS migration failed; inspect database access and migration state without exposing credentials");
-    process.exitCode = 1;
-  } finally {
-    await client.end();
   }
 }
