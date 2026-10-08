@@ -35,11 +35,12 @@
 - Use synthetic data for prototypes/tests. Keep real patient records, credentials, private uploads, database files and dumps out of Git. Real insurance-document processing belongs only in the authorized application workflow with configured providers, access controls and minimized disclosure; do not send patient files through ad hoc tools or unrelated AI requests.
 - Do not reset/reseed a database, rewrite applied migrations, remove unrelated changes, introduce external integrations or replace selected providers without authorization.
 - The owner selected `C:\Users\prate\OneDrive\Desktop\INS` as the only project working folder on 9 October 2026. Keep project code, plans, design source files and progress documents inside it. Do not create or use another checkout, managed worktree or external project-output folder unless the owner explicitly changes this decision. Git branches may be used within this folder; preserve unrelated work.
+- The working branch is `codex/hims-development`. Push verified changes there before integrating an authorized, reviewed checkpoint into `main`. Leave this checkout on the development branch for continuing work; no automatic deployment is configured.
 
 ## Verification and current state
 
-- The repository contains scope/reference documents and a proposed [build plan](docs/superpowers/plans/2026-10-09-hims-inpatient.md). There is no application, database schema or product dependency setup yet. See [tooling](docs/TOOLING.md) for installed skills and recommendations.
-- No application test/build commands exist yet. Do not invent commands or report application checks as passed.
+- The Next.js foundation is under `web/`; see [architecture](ARCHITECTURE.md), [setup status](docs/SETUP_STATUS.md) and the [build plan](docs/superpowers/plans/2026-10-09-hims-inpatient.md). Database/LangGraph packages are installed, but there is no HIMS schema, staff login or paperwork agent implementation yet.
+- Actual root command: `npm --prefix web run check` runs lint, type checks, a production build and Chromium browser/HTTP checks. `npm --prefix web audit --omit=dev` audits runtime dependencies. No unit or database integration suite exists yet; record them when implemented.
 - For documentation/setup changes, check local links, source integrity, `git diff --check`, staged contents, repository/remote status and applicable ignore rules.
 - Once code exists, use its actual documented commands and meaningful checks for the affected flow; record those commands in project context. Do not weaken checks to obtain a pass.
 - Load relevant Figma skills before Figma tools, and PostgreSQL guidance before schema/migration authoring. Use current primary documentation when needed.

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Owner-selected Next.js, PostgreSQL and LangGraph. Proposed implementation choices: TypeScript, Tailwind from the official Next.js scaffold, Drizzle/node-postgres, Better Auth, Zod, Vitest and Playwright. Add barcode/QR libraries only when their tasks need them. AI/OCR providers remain unselected.
 
-**Spec:** [Confirmed scope](../../PROJECT_SCOPE.md), [approved design reference](../../DESIGN_REFERENCE.md) and [agent rules](../../../AGENTS.md). Recorded 9 October 2026 against setup baseline `8c674f7633883d690d717015ec58b64e03c5d701`. This document is a proposed build plan; its tasks have not been implemented or tested.
+**Spec:** [Confirmed scope](../../PROJECT_SCOPE.md), [approved design reference](../../DESIGN_REFERENCE.md) and [agent rules](../../../AGENTS.md). Recorded 9 October 2026 against setup baseline `8c674f7633883d690d717015ec58b64e03c5d701`. Task 1's foundation is implemented and locally verified; Tasks 2-16 remain planned. See [setup status](../../SETUP_STATUS.md) for actual evidence, installed packages and limitations.
 
 ## Global constraints
 
@@ -64,7 +64,7 @@ Store times as `timestamptz`; display/configure the hospital timezone (initial s
 
 ## Verification commands to establish in Task 1
 
-These are **planned scripts**, not existing or passed checks. Task 1 creates the application/quality/unit/browser scripts; Task 2 adds database/integration scripts and Task 5 adds the worker script when their real entrypoints exist. Record their actual behavior in context.
+Task 1 has created the application/quality/unit/browser scripts. Lint, type checks, build and three browser/HTTP checks pass; the unit runner is configured but has no domain suite yet and is not reported as a passed check. Task 2 adds database/integration scripts and Task 5 adds the worker script when their real entrypoints exist. Record their actual behavior in context.
 
 | Command from repository root | Script/result |
 |---|---|
@@ -86,11 +86,13 @@ Tests use a separate synthetic PostgreSQL database. The fixture/reset helper ref
 
 **Interfaces:** consumes the approved Figma foundations; produces the app shell, planned scripts above and HTTP `/api/health` reporting liveness without secrets (DB readiness is added in Task 2).
 
-- [ ] Scaffold with the official CLI into `web/`, avoiding a nested Git repository. Verified planning baseline: Next.js/create-next-app `16.4.0`, installed Node `24.11.1`; recheck supported security patch/compatibility at execution and lock resolved versions. Suggested command: `npx create-next-app@16.4.0 web --ts --eslint --tailwind --app --src-dir --use-npm --import-alias "@/*" --disable-git --no-react-compiler --no-cache-components --no-agent-feedback --yes`.
-- [ ] Before UI code, inspect the relevant current Figma frame with the required Figma skills. Use IBM Plex Sans, teal `#087F82`, navy `#122C3A`, light canvas, readable tables, labeled states and keyboard focus. Bundle approved font files locally so builds do not depend on a font download.
-- [ ] Add Vitest Node projects and Playwright; write `shell.spec.ts` asserting heading/landmarks, usable keyboard focus and no browser errors. Run `npm --prefix web run test:e2e -- shell.spec.ts`; the test must first expose missing shell behavior, then pass after implementation.
-- [ ] Create dev/start/lint/typecheck/unit/browser/build scripts; add database/integration/worker scripts only in their owning tasks. Keep sanitized `.env.example` trackable; generated child ignore rules must not hide it. Keep private runtime storage outside `public/` and ignored.
-- [ ] Run lint, typecheck, shell E2E and build; inspect the shell beside Figma, record observed results and commit `feat: establish HIMS application shell`.
+- [x] Scaffold with the official CLI into `web/`, avoiding a nested Git repository. Next.js/create-next-app `16.4.0` was reverified with installed Node `24.11.1` and locked. Used the suggested TypeScript/ESLint/Tailwind/App Router/src-dir CLI flags, disabled nested Git/compiler/cache-components/agent-feedback and retained framework agent guidance.
+- [x] Inspect Figma frame `4:3` through the required design-to-code skill before UI code. Implement the shared shell with local IBM Plex Sans, teal `#087F82`, navy `#122C3A`, light canvas, readable sections, honest setup status and keyboard focus. The actual overview/role data remains in later tasks.
+- [x] Configure the Vitest Node unit project and Playwright; write `shell.spec.ts` for real landmarks, keyboard focus, prototype link, browser errors, narrow-screen overflow and minimal health JSON. Observe the starter fail for missing shell/HTTP 404, then pass all three cases after implementation. The final suite uses the built production app.
+- [x] Create dev/start/lint/typecheck/unit/browser/build scripts; keep `.env.example` trackable and browser/npm cache/report output ignored inside this project. Database/integration/worker scripts remain in their owning tasks.
+- [x] Run lint, typecheck, production build and shell E2E; visually inspect desktop/narrow shell screenshots against approved foundations and record evidence in setup status. Commit the foundation checkpoint with the repository workflow updates.
+
+**Owner-authorized setup adjustment:** Install and lock the selected PostgreSQL/Drizzle, LangGraph/PostgreSQL saver and Zod foundation packages now, before the later feature tasks consume them. This is package setup only; no schema, authentication, provider or AI workflow is activated. The explicit single-folder/development-to-main branch workflow supersedes any isolated-worktree instructions from earlier planning. Full audit's upstream dev-tool findings are retained in setup status; production audit reports zero findings.
 
 ## Task 2: PostgreSQL foundation, audit and safe test fixtures
 

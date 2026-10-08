@@ -1,6 +1,6 @@
 # Tooling for this HIMS project
 
-Inspected **9 October 2026**. Choose tools that reduce repeated work or verify an important boundary; installing more agent frameworks does not itself make code smaller or correct. Product dependencies are added at the task that needs them, with a lockfile and observed checks.
+Inspected **9 October 2026**. Choose tools that reduce repeated work or verify an important boundary; installing more agent frameworks does not itself make code smaller or correct. The owner authorized foundation stack installation; the selected framework, database/LangGraph libraries and verification tools are now locked in `web/package-lock.json`. [Setup evidence and limitations](SETUP_STATUS.md) distinguishes package installation from working hospital features.
 
 ## Already available on this computer/session
 
@@ -21,7 +21,7 @@ The named `.agents/skills/graphify/SKILL.md` and `.codex/skills/graphify/SKILL.m
 
 [Graphify-Labs/graphify](https://github.com/Graphify-Labs/graphify) builds navigable code/document relationship graphs. Local AST extraction helps an agent ask which modules depend on something; semantic/document extraction can use the assistant/model backend. It does not replace source reading, tests, role enforcement or owner decisions. [Security model](https://github.com/Graphify-Labs/graphify/blob/v8/SECURITY.md)
 
-**Recommendation:** keep the existing CLI and trial it after the admission/billing modules exist, when relationship questions become repetitive. This documents-only repository currently offers little code structure to graph. Do not add it as a mandatory build/runtime dependency.
+**Recommendation:** keep the existing CLI and trial it after the admission/billing modules exist, when relationship questions become repetitive. The current starter shell offers little domain code structure to graph. Do not add it as a mandatory build/runtime dependency.
 
 Codex/Windows integration is documented, but has not been exercised on this project. The installer edits AGENTS.md and `.codex/hooks.json`; its Codex Desktop hook is intentionally inactive, so installation does not guarantee automatic fresh graphs in Desktop. Review those edits and preserve the hospital/AI/financial boundaries. [Codex skill](https://github.com/Graphify-Labs/graphify/blob/v8/graphify/skill-codex.md), [installer](https://github.com/Graphify-Labs/graphify/blob/v8/graphify/install.py)
 
@@ -40,14 +40,16 @@ A useful trial indexes source/schema and synthetic documentation only, excludes 
 
 Next.js DevTools is a development tool; run it against the synthetic local development app. Its runtime views can expose app/log context to the coding assistant. Review its telemetry/client configuration and verify access to the intended app, rather than attaching to a real hospital session automatically.
 
-## Proposed product dependencies, not additional agent systems
+## Product dependencies and remaining integrations
 
 - **Drizzle + node-postgres:** typed SQL access and reviewed migrations for local PostgreSQL, with a normal bounded pool. Stable npm `drizzle-orm` was `0.45.4`; current docs also show RC examples, which must not be copied as a stable choice accidentally. [Official PostgreSQL guide](https://orm.drizzle.team/docs/get-started-postgresql)
 - **Better Auth:** maintained staff password/session handling with Next.js/Drizzle integration and admin-managed users, avoiding a home-grown login system. Public registration and unrelated account/impersonation capabilities stay disabled. [Next.js integration](https://better-auth.com/docs/integrations/next), [Drizzle adapter](https://better-auth.com/docs/adapters/drizzle), [admin API](https://better-auth.com/docs/plugins/admin)
 - **LangGraph JS + PostgreSQL checkpointer:** owner-selected bounded paperwork workflow without another backend language or a paid agent platform. Persistent checkpoints support paused human review across restarts; in-memory state does not. Model/OCR provider remains the owner's later decision. [LangGraph JS repository](https://github.com/langchain-ai/langgraphjs), [checkpointers](https://docs.langchain.com/oss/javascript/langgraph/checkpointers)
 - **Zod, Vitest and small barcode/QR utilities:** input validation, focused server tests and correct encoders when needed. Add [React PDF](https://github.com/diegomura/react-pdf) at the document task for actual downloadable PDFs with page numbering. Avoid creating custom encoders, a UI framework replacement or a general agent orchestration platform.
 
-Prisma is a credible database alternative, and Auth.js is a credible authentication alternative; replacing libraries before implementation is inexpensive. Changing ORM/schema tooling or session tables after working migrations/users exist costs migration and retesting. The plan proposes one of each, not parallel stacks. No new product package, agent skill, hook or MCP server was installed by this planning/research task.
+The foundation now installs Next.js/React/TypeScript/Tailwind, Drizzle/node-postgres, LangGraph/core/PostgreSQL saver, Zod, Vitest/Vite, Playwright and local IBM Plex Sans. Better Auth, barcode/QR/PDF packages and model/OCR provider clients remain later tasks. No new agent skill, hook, Graphify index or MCP connection was installed. No HIMS schema, staff account or AI agent was created by installing these libraries.
+
+Prisma is a credible database alternative, and Auth.js is a credible authentication alternative; changing ORM/schema tooling or session tables after working migrations/users exist costs migration and retesting. Use one of each, not parallel stacks. Preserve the owner-selected framework/database/agent stack.
 
 ## Practical agent workflow
 

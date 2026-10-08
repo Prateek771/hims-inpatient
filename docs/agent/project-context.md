@@ -18,7 +18,9 @@ Last verified: **9 October 2026**. This is a compact navigation record, not a bu
 - Private GitHub repository: [Prateek771/hims-inpatient](https://github.com/Prateek771/hims-inpatient), default branch `main`, `origin` = `https://github.com/Prateek771/hims-inpatient.git`. Privacy and the initial remote commit were verified through GitHub CLI with network access.
 - Development planning commit `1f4622538651cb6050d1494d4896bed5babae74a` was fast-forwarded into `main` during consolidation. The separate development checkout is retired; its committed history remains preserved in Git. Use branches within this folder when needed.
 - Previously external Figma builder/state files are preserved under [docs/design/prototype](../design/prototype/README.md). Temporary plan/tooling copies matched the committed files before cleanup. Original supplied documents remain in `docs/reference/`; the editable approved design remains in Figma.
-- The proposed [implementation plan](../superpowers/plans/2026-10-09-hims-inpatient.md) and [tooling review](../TOOLING.md) are saved; all implementation tasks remain unchecked. No application code, product packages, schema or running service exists yet. Application checks are not available; commands in the plan are future scripts, not passed checks.
+- Active work uses `codex/hims-development` in this same folder. Push verified commits there, review GitHub Checks, then integrate authorized checkpoints into `main` and return to development. The owner authorized the foundation setup/merge on 9 October 2026; no deployment is configured.
+- Foundation code is under `web/`: Next.js shell, approved visual tokens/local font, minimal `/api/health`, locked database/LangGraph packages and browser checks. See [architecture](../../ARCHITECTURE.md), [contributing](../../CONTRIBUTING.md) and [setup evidence/limitations](../SETUP_STATUS.md). Remaining [build tasks](../superpowers/plans/2026-10-09-hims-inpatient.md) implement the actual hospital flows.
+- PostgreSQL 18.6 was already installed and accepted connections on `127.0.0.1:5432`. No existing service/database/record was changed and no HIMS schema or runtime/migration/test database credentials have been configured. Staff auth, domain modules and paperwork agents are still pending.
 
 ## Navigation and checks
 
@@ -31,6 +33,11 @@ Last verified: **9 October 2026**. This is a compact navigation record, not a bu
 | Approved role screens and Figma locators | [DESIGN_REFERENCE.md](../DESIGN_REFERENCE.md) |
 | Preserved original sources and integrity hashes | [Source index](../reference/README.md) |
 | Documentation/setup verification | Local-link existence, source SHA-256 comparisons, `git diff --check`, staged file review, `git status`, remote/head verification and ignore checks |
-| Future application checks | Record actual commands here after application setup; none have been defined or run |
+| Development server | `npm --prefix web run dev` (root); shell at localhost:3000 |
+| Complete foundation checks | `npm --prefix web run check`: lint, type check, production build and three production-server Chromium/HTTP checks |
+| Browser installation | `npm --prefix web run test:install`; binaries inside ignored `INS/tmp/playwright-browsers` |
+| Runtime dependency audit | `npm --prefix web audit --omit=dev`; 0 findings at setup; full audit's 9 dev-tool findings are recorded in setup status |
+| PostgreSQL liveness | `powershell -File scripts/check-postgres.ps1`; checks availability without connecting as a database user or asserting HIMS readiness |
+| Pending test suites | Unit runner configured but no unit tests yet; integration/schema/role/clinical/billing/AI tests arrive with their implementations, not silently skipped passes |
 
 Keep this record compact and current after material verified changes. Preserve decision provenance; clearly label defaults/unknowns in the scope. Do not store secrets, patient records or guesses about completed software.
