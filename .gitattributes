@@ -5,3 +5,6 @@
 *.png binary
 # Preserve the original supplied requirements source byte-for-byte.
 docs/reference/SKILL.md -text
+# Preserve historical Figma generation file line endings.
+docs/design/prototype/hims-figma-builder.js -text
+docs/design/prototype/hims-figma-state.json -text

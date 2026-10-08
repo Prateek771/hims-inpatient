@@ -13,11 +13,11 @@ Last verified: **9 October 2026**. This is a compact navigation record, not a bu
 
 ## Repository state
 
-- Primary local folder: `C:\Users\prate\OneDrive\Desktop\INS`.
+- Only project working folder: `C:\Users\prate\OneDrive\Desktop\INS`, selected by the owner on 9 October 2026. Keep all project code, plans, design source files and progress documents here. Do not create another checkout or store project outputs elsewhere without an explicit change from the owner.
 - Local Git initialized on `main`; initial scope/design/source commit: `7f42681c2fe1fd3a3bf6d5a69a8ab25a491f2082`.
 - Private GitHub repository: [Prateek771/hims-inpatient](https://github.com/Prateek771/hims-inpatient), default branch `main`, `origin` = `https://github.com/Prateek771/hims-inpatient.git`. Privacy and the initial remote commit were verified through GitHub CLI with network access.
-- Attached managed worktree: `C:\Users\prate\.codex\worktrees\hims-development\INS`, branch `codex/hims-development`. Use this checkout for development; the primary folder remains on `main`. Obtain the current attachment/path from Codex if it is later moved or archived.
-- The task's restricted shell may not recognize this worktree outside its initial writable roots. Verification with full repository access confirmed it is a valid clean linked worktree; do not change `core.bare` or rebuild Git metadata in response to that sandbox symptom.
+- Development planning commit `1f4622538651cb6050d1494d4896bed5babae74a` was fast-forwarded into `main` during consolidation. The separate development checkout is retired; its committed history remains preserved in Git. Use branches within this folder when needed.
+- Previously external Figma builder/state files are preserved under [docs/design/prototype](../design/prototype/README.md). Temporary plan/tooling copies matched the committed files before cleanup. Original supplied documents remain in `docs/reference/`; the editable approved design remains in Figma.
 - The proposed [implementation plan](../superpowers/plans/2026-10-09-hims-inpatient.md) and [tooling review](../TOOLING.md) are saved; all implementation tasks remain unchecked. No application code, product packages, schema or running service exists yet. Application checks are not available; commands in the plan are future scripts, not passed checks.
 
 ## Navigation and checks

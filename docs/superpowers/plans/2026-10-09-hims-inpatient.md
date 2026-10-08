@@ -42,7 +42,7 @@
 | Paperwork assistance | 14 | Durable, bounded LangGraph workflow with human review |
 | Whole hospital review | 15-16 | Accurate overview/alerts, integrated checks and local pilot readiness evidence |
 
-Use `codex/hims-development` in the attached managed worktree. Finish and review one slice before starting a dependent slice; commit each accepted task. After Tasks 4-5, Tasks 6/8/9 can be researched or implemented in separate managed worktrees when interfaces are stable. One integrator owns the schema export, migrations, package lock and shared contracts; do not have several agents edit them simultaneously. A graph/index is a navigation aid, never permission or proof. No task requires Graphify.
+Work only in `C:\Users\prate\OneDrive\Desktop\INS`, per the owner's 9 October 2026 decision. Do not create separate worktrees or external project-output folders. Finish and review one slice before starting a dependent slice; commit each accepted task. Branches may be used within this checkout. One integrator owns the schema export, migrations, package lock and shared contracts; do not have several agents edit them simultaneously. A graph/index is a navigation aid, never permission or proof. No task requires Graphify.
 
 ## Proposed file and interface map
 

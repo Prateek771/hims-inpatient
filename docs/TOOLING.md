@@ -11,7 +11,7 @@ Inspected **9 October 2026**. Choose tools that reduce repeated work or verify a
 | Superpowers | Installed skills under `C:\Users\prate\.codex\plugins\cache\superpowers-dev\superpowers\6.4.2\skills` | Task-sized planning, debugging, test-first development and review; proportional to the change and subject to owner instructions |
 | Figma tools/skills | Exposed in this session; approved guide frame `4:2` reread successfully | Use exact role screens/foundations from [design reference](DESIGN_REFERENCE.md) |
 | PostgreSQL guidance | Installed at `C:\Users\prate\.agents\skills\supabase-postgres-best-practices\SKILL.md` | Use for local PostgreSQL design; it does not require adopting the Supabase platform |
-| Git/GitHub CLI | Repository/worktree already connected to private GitHub | Isolated branches, reviewed commits and repeatable handoffs |
+| Git/GitHub CLI | Main project folder connected to private GitHub | Branches within the owner's single working folder, reviewed commits and repeatable handoffs |
 | Node/npm | Commands reported Node `24.11.1`, npm `11.19.0` | Compatible with the inspected Next.js minimum `20.9`; no runtime replacement proposed |
 | Graphify CLI | `graphify --version` reported `0.9.61`; `uv tool list` showed `graphifyy v0.9.61` with `graphify` and `graphify-mcp` | Package is present; project indexing and agent integration are separate |
 

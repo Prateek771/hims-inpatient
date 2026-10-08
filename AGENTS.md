@@ -34,7 +34,7 @@
 - Link records to the admission episode. Protect unique admission codes, exact transfer boundaries and charge-event deduplication.
 - Use synthetic data for prototypes/tests. Keep real patient records, credentials, private uploads, database files and dumps out of Git. Real insurance-document processing belongs only in the authorized application workflow with configured providers, access controls and minimized disclosure; do not send patient files through ad hoc tools or unrelated AI requests.
 - Do not reset/reseed a database, rewrite applied migrations, remove unrelated changes, introduce external integrations or replace selected providers without authorization.
-- Use an attached managed worktree for development when available. Inspect it before creating another. Keep the primary checkout and user work intact.
+- The owner selected `C:\Users\prate\OneDrive\Desktop\INS` as the only project working folder on 9 October 2026. Keep project code, plans, design source files and progress documents inside it. Do not create or use another checkout, managed worktree or external project-output folder unless the owner explicitly changes this decision. Git branches may be used within this folder; preserve unrelated work.
 
 ## Verification and current state
 

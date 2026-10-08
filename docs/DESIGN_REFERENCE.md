@@ -7,6 +7,7 @@ The owner approved the clean, minimal sections and data presentation on **9 Octo
 - File key: `I4LQwHYp5IKZq0JQPZyM7X`
 - File: **HIMS • Inpatient Care Workspace — Prototype**
 - Pages: **01 · Role prototypes** (`0:1`), **02 · UI foundations** (`3:2`).
+- Preserved builder and saved design state: [local prototype source](design/prototype/README.md). These are historical generation files; inspect current Figma screens before implementing or changing the design.
 
 ## Role and screen locators
 
