@@ -41,7 +41,7 @@ export async function migrate(client: Client) {
       }
     }
     // Role names are fixed above, never derived from untrusted SQL input.
-    await client.query(`REVOKE ALL ON SCHEMA hims FROM PUBLIC; GRANT USAGE ON SCHEMA hims TO ${runtime}; REVOKE ALL ON ALL TABLES IN SCHEMA hims FROM PUBLIC, ${runtime}; GRANT SELECT ON hims.hospital_settings, hims.setting_versions, hims.audit_events TO ${runtime}; GRANT INSERT ON hims.hospital_settings, hims.setting_versions, hims.audit_events TO ${runtime}; GRANT UPDATE ON hims.hospital_settings TO ${runtime}; REVOKE CREATE ON SCHEMA public FROM PUBLIC, ${runtime}; REVOKE ALL ON public.hims_migrations FROM PUBLIC, ${runtime};`);
+    await client.query(`REVOKE ALL ON SCHEMA hims FROM PUBLIC; GRANT USAGE ON SCHEMA hims TO ${runtime}; REVOKE ALL ON ALL TABLES IN SCHEMA hims FROM PUBLIC, ${runtime}; GRANT SELECT ON hims.hospital_settings, hims.setting_versions, hims.audit_events TO ${runtime}; GRANT INSERT ON hims.hospital_settings, hims.setting_versions, hims.audit_events TO ${runtime}; GRANT UPDATE ON hims.hospital_settings TO ${runtime}; GRANT SELECT, INSERT, UPDATE ON hims.staff_user, hims.staff_account, hims.staff_session, hims.staff_verification TO ${runtime}; GRANT DELETE ON hims.staff_session, hims.staff_verification TO ${runtime}; REVOKE CREATE ON SCHEMA public FROM PUBLIC, ${runtime}; REVOKE ALL ON public.hims_migrations FROM PUBLIC, ${runtime};`);
   } finally {
     await client.query("SELECT pg_advisory_unlock(729104209)");
   }

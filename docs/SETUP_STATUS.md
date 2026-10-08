@@ -17,7 +17,7 @@ The untouched framework starter failed the browser baseline on missing hospital 
 
 `npm ls --depth=0` had no invalid/missing peers. Vitest and Drizzle Kit version commands worked. Source-reference integrity, local links and Git whitespace are checked before commit. GitHub Checks repeats source/build/browser checks and the production dependency audit on development/main pushes and main PRs.
 
-A separate read-only review found no remaining issues in the initial shell checkpoint. PostgreSQL foundation review and verification are recorded separately below; staff access, hospital transactions, AI persistence and deployment readiness remain later scope.
+A separate read-only review found no remaining issues in the initial shell checkpoint. PostgreSQL and staff-access verification are recorded below; hospital transactions, AI persistence and deployment readiness remain later scope.
 
 ## PostgreSQL foundation
 
@@ -31,10 +31,16 @@ See [local database setup](DATABASE_SETUP.md). Generated connection strings are 
 
 ## Known limitations
 
-- `npm audit --omit=dev` reports **0 vulnerabilities**. Full audit reports **9 development dependency findings: 5 high and 4 moderate**. Five entries share the lint chain `@next/eslint-plugin-next -> fast-glob -> micromatch -> braces`; the [braces advisory](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) had no published patched version in the registry at setup. Four moderate entries share Drizzle Kit's older esbuild-loader chain; see the [esbuild advisory](https://github.com/advisories/GHSA-67mh-4wv8-2f99). No force fix, unverified override or framework downgrade was applied. Follow upstream fixes through Dependabot and rerun the full audit before real-data use.
+- `npm audit --omit=dev` reports **0 vulnerabilities**. Full audit now reports **5 high development dependency findings**, all in the lint chain `@next/eslint-plugin-next -> fast-glob -> micromatch -> braces`; the [braces advisory](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm) had no published patched version in the registry at setup. A scoped override of `@esbuild-kit/core-utils`' esbuild to `0.25.12` removed the four older-loader findings; migration generation and application checks passed with it. No force fix or framework downgrade was applied. Follow upstream fixes through Dependabot and rerun the full audit before real-data use.
 - ESLint 9.39.5 is deprecated/unsupported upstream, but the installed Next.js React/import/accessibility lint plugins reject ESLint 10. Keep required lint rules until a compatible supported toolchain is available; see [ESLint support policy](https://eslint.org/version-support/).
 - npm reported blocked/unapproved dependency install scripts. No blanket approval was granted; the actual lint/build/browser/Vitest/Drizzle commands were checked successfully with the installed native packages.
-- Staff login, patient transactions, insurance-paperwork agents and external payment/insurer connections are not implemented. Database foundations do not imply those flows work.
-- No deployment or real-patient readiness is claimed. Settings payloads will receive domain-specific validation and administration screens in later tasks; no real financial policy is assumed.
+- Patient transactions and insurance-paperwork agents remain pending. External payment/insurer connections are outside the current scope.
+- No deployment or real-patient readiness is claimed. Versioned settings are validated and editable by administrators, but no real financial policy is assumed. Deposits currently support an explicit fixed amount or no-deposit rule; formula-based rules need a defined reference rate. Login throttling is process-local and needs a shared store before multiple app replicas.
 
-Next build step: Better Auth staff access and hospital settings. Follow the [build plan](superpowers/plans/2026-10-09-hims-inpatient.md).
+## Staff access and settings
+
+Better Auth and its Drizzle adapter are pinned to 1.7.7. Shared login, role-aware landing screens, administrator staff management and versioned hospital/category/tariff/deposit/alert settings are implemented. Public signup and raw administrative auth endpoints are blocked. Session revocation, current role checks and last-administrator protection are enforced on the server. The owner-authorized eight local demo accounts were initialized without seeding patients or financial policy; credentials remain ignored. See [staff access](STAFF_ACCESS.md).
+
+The complete check passed 20 unit tests, 3 PostgreSQL integration checks, lint, typecheck, production build and 6 browser/HTTP checks. Independent review caught a disabled-account test that reused an already-revoked session; the corrected test proves access immediately before disabling and denial afterward with the correct password. A new simultaneous-admin-demotion test verifies one administrator survives. The affected integration suite then passed all 4 checks, with lint/typecheck and whitespace checks passing. No application behavior changed in this review correction. Actual bootstrap CLI success/refusal, direct-request authorization, settings history and desktop/narrow-screen login/settings layouts were checked. Independent review accepted the phase with no unresolved findings.
+
+Next build step: patient admission and physical bed allocation. Follow the [build plan](superpowers/plans/2026-10-09-hims-inpatient.md).

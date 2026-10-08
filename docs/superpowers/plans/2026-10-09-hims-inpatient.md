@@ -113,10 +113,10 @@ Tests use a separate synthetic PostgreSQL database. The fixture/reset helper ref
 
 **Interfaces:** produces `requireStaff(): Promise<{ id: string; role: StaffRole }>`, `requireAdmissionAccess(ctx, admissionId, action)`, and admin-only staff/settings commands used by later features. Better Auth owns passwords/session handling; domain checks own professional/financial authority.
 
-- [ ] Write negative tests for public signup, forged role/actor fields, disabled staff, unauthorized patient lookup and direct wrong-role mutations. Verify failure before implementing guards. Define a small explicit role/action/field matrix, including assigned-care access and department worklists; do not return all clinical fields to every staff role.
-- [ ] Use Better Auth's Next.js/Drizzle integration and admin-managed accounts; disable public signup. Configure only staff-account management permissions needed here, excluding impersonation/deletion powers. Recheck active role/access on the server; administrative status does not confer doctor/pharmacy/nursing signing authority.
-- [ ] Implement admin staff/bed-category/tariff/deposit/alert-rule screens. Version changes instead of repricing existing stays. Use password/session library controls, login throttling, safe errors and session revocation; no plaintext passwords in seeds/logs. Synthetic test credentials stay confined to test fixtures.
-- [ ] Run access integration tests, `staff-access.spec.ts`, lint/typecheck/build; verify direct requests fail even when UI controls are hidden; commit `feat: add hospital staff access and settings`.
+- [x] Write negative tests for public signup, forged role/actor fields, disabled staff, unauthorized patient lookup and direct wrong-role mutations. Verify failure before implementing guards. Define a small explicit role/action/field matrix, including assigned-care access and department worklists; do not return all clinical fields to every staff role.
+- [x] Use Better Auth's Next.js/Drizzle integration and admin-managed accounts; disable public signup. Configure only staff-account management permissions needed here, excluding impersonation/deletion powers. Recheck active role/access on the server; administrative status does not confer doctor/pharmacy/nursing signing authority.
+- [x] Implement admin staff/bed-category/tariff/deposit/alert-rule screens. Version changes instead of repricing existing stays. Use password/session library controls, login throttling, safe errors and session revocation; no plaintext passwords in seeds/logs. Synthetic test credentials stay confined to test fixtures.
+- [x] Run access integration tests, `staff-access.spec.ts`, lint/typecheck/build; verify direct requests fail even when UI controls are hidden; commit `feat: add hospital staff access and settings`.
 
 ## Task 4: Patient identity, admission and occupied beds
 
@@ -126,6 +126,7 @@ Tests use a separate synthetic PostgreSQL database. The fixture/reset helper ref
 
 - [ ] Write assertions: 20 simultaneous admissions yield 20 unique IP codes; cancelling never reuses a code; two requests for one bed yield one success; failure leaves no partial occupancy; a repeat admission keeps UHID but gets a new IP. Retry the same request and assert one episode.
 - [ ] Implement a transactional yearly counter/unique code, permanent patient identity, clinician-entered complaint/vitals/triage, destination override reason and bed reservation. Keep registration time and actual admission/occupancy time distinct; the room-stay segment begins when the admission is activated, with its tariff version. Handle sequence overflow without truncation or reuse.
+- [ ] Add minimal administrator bed-inventory controls using configured room categories, so beds can be created and safely disabled through the application. Do not require SQL seeds or silently remove an occupied/reserved bed. Task 3 defines categories; this task owns physical beds and their availability.
 - [ ] Build the admission form/worklist with validated inputs and explicit `PENDING` versus `ADMITTED` state. Saving/reserving a pending episode does not satisfy a required deposit or start room charging. Task 5 activates it after deposit checks; urgent no-deposit admission uses the admin exception command introduced in Task 12. Do not invent a bypass meanwhile.
 - [ ] Run the admission integration/E2E files, lint/typecheck; inspect Figma alignment; commit `feat: add patient admission and bed allocation`.
 
@@ -254,7 +255,7 @@ Tests use a separate synthetic PostgreSQL database. The fixture/reset helper ref
 
 ## Task 16: Whole-flow verification, backup/restore and local pilot handoff
 
-**Files:** create `.github/workflows/ci.yml`, `web/tests/e2e/inpatient-journey.spec.ts`, `docs/LOCAL_PILOT.md`; update README, AGENTS and project context with real commands, completed tasks and limitations.
+**Files:** extend the existing `.github/workflows/checks.yml`; create `web/tests/e2e/inpatient-journey.spec.ts` and `docs/LOCAL_PILOT.md`; update README, AGENTS and project context with real commands, completed tasks and limitations. Reuse the existing verification workflow rather than adding a duplicate CI job.
 
 **Interfaces:** consumes all preceding tasks; produces reproducible setup/check instructions and evidence for the intended local pilot. This is not an external deployment or permission to use real patient data.
 

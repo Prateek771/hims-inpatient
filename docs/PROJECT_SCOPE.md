@@ -35,6 +35,8 @@ Patients benefit through coordinated care, transparent bills and complete discha
 | Design direction | The Figma prototype is approved; preserve its clean, minimal hospital layout and role-specific presentation |
 | Technology | Next.js frontend/backend, local PostgreSQL for now, LangGraph human-in-the-loop workflows |
 | Staff login | Better Auth, selected by the owner on 9 October 2026; administrator-managed staff accounts, with no public signup |
+| Initial local accounts | Owner requested simple temporary demo logins on 9 October 2026: one login screen and distinct role emails for attributable actions. Credentials stay out of Git; these are development accounts, not verified hospital staff identities. |
+| Role dashboards and SaaS direction | Owner reaffirmed separate role dashboards following the approved design, reversing the brief request to skip them. Build one hospital first, with configurable hospital identity and clear module/access boundaries for later SaaS expansion. Multi-hospital tenancy, subscriptions and self-service hospital onboarding are not implemented or promised by this first version. |
 
 ## 1. Patient intake and identity creation
 

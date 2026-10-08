@@ -14,6 +14,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "playwright-report/**",
     "test-results/**",
+    "tmp/**", // Generated local CLI bundles, not source.
   ]),
 ]);
 

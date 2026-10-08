@@ -29,4 +29,6 @@ git diff --check
 
 Follow [database setup](docs/DATABASE_SETUP.md) and apply migrations before complete checks. Unit and real PostgreSQL integration tests execute; missing access fails the check. Playwright owns an isolated local server on port 3100 and shuts it down afterward. Browser binaries and local test output are ignored. Never report an empty or skipped suite as passed.
 
+Follow [staff access](docs/STAFF_ACCESS.md) for one-time local login initialization. Preserve existing accounts; the bootstrap deliberately refuses a database that already contains staff. CI additionally runs the actual demo bootstrap against its fresh synthetic application database.
+
 Never commit credentials, real patient records, private uploads, database files or dumps. No existing database resets, applied-migration rewrites or provider replacements are authorized by these setup commands.

@@ -54,6 +54,10 @@ jobs:
           HIMS_SETUP_ADMIN_PASSWORD: hims-ci-only
       - name: Apply HIMS migrations
         run: npm run db:migrate
+      - name: Verify fresh local staff setup
+        run: npm run auth:bootstrap -- --demo
+        env:
+          HIMS_DEMO_PASSWORD: SyntheticCISetupOnly123!
       - name: Unit checks
         run: npm run test:unit
       - name: PostgreSQL integration checks

@@ -34,6 +34,8 @@ try {
     `MIGRATION_DATABASE_URL=${connection(targets[0].owner, targets[0].database)}`,
     `TEST_DATABASE_URL=${connection(targets[1].owner, targets[1].database)}`,
     `TEST_RUNTIME_DATABASE_URL=${connection(targets[1].runtime, targets[1].database)}`,
+    `BETTER_AUTH_SECRET=${randomBytes(48).toString('base64url')}`,
+    'BETTER_AUTH_URL=http://localhost:3000',
     '',
   ].join('\n'), { flag: 'wx', mode: 0o600 });
   for (const role of roleNames) {

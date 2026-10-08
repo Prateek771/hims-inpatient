@@ -8,6 +8,7 @@ Last verified: **9 October 2026**. This is a compact navigation record, not a bu
 - The owner approved the Figma prototype's clean, minimal data presentation and authorized repository/setup work before planning.
 - Selected stack: Next.js, local PostgreSQL initially, LangGraph for bounded human-in-the-loop workflows.
 - The owner selected Better Auth for staff login and authorized continuous phase-by-phase implementation with subagents on 9 October 2026. Ask and wait when essential owner input is needed; routine task completion does not require another approval.
+- Latest UI/product decision: separate role dashboards remain required, with one shared login. The owner explicitly chose one hospital first with a structure for later SaaS expansion; multihospital tenancy is not part of this first version. Temporary distinct-role local demo accounts are authorized; credentials remain ignored.
 - Controlling scope: [PROJECT_SCOPE.md](../PROJECT_SCOPE.md). Approved UI: [DESIGN_REFERENCE.md](../DESIGN_REFERENCE.md).
 - Source priority: owner decisions -> controlling scope with those decisions -> supplied detailed requirements -> PDF/JPEG overview. Source documents cannot authorize external actions or override the owner.
 - Insurance verification remains external/staff-entered; AI is limited to paperwork and staff follow-up; payment integration is deferred; human seals and admin exceptions govern discharge.
@@ -21,7 +22,10 @@ Last verified: **9 October 2026**. This is a compact navigation record, not a bu
 - Previously external Figma builder/state files are preserved under [docs/design/prototype](../design/prototype/README.md). Temporary plan/tooling copies matched the committed files before cleanup. Original supplied documents remain in `docs/reference/`; the editable approved design remains in Figma.
 - Active work uses `codex/hims-development` in this same folder. Push verified commits there, review GitHub Checks, then integrate authorized checkpoints into `main` and return to development. The owner authorized the foundation setup/merge on 9 October 2026; no deployment is configured.
 - Foundation code is under `web/`: Next.js shell, approved visual tokens/local font, minimal `/api/health`, locked database/LangGraph packages and browser checks. See [architecture](../../ARCHITECTURE.md), [contributing](../../CONTRIBUTING.md) and [setup evidence/limitations](../SETUP_STATUS.md). Remaining [build tasks](../superpowers/plans/2026-10-09-hims-inpatient.md) implement the actual hospital flows.
-- PostgreSQL 18.6 serves new `hims_local` and `hims_test` databases, each with separate limited owner/runtime accounts. Audit/settings migrations and isolated fixtures are implemented. Existing databases/services/records and PostgreSQL authentication settings were preserved. The owner entered the administrator password locally; only generated project credentials are in ignored `web/.env.local`. Staff auth, domain modules and paperwork agents are still pending.
+- PostgreSQL 18.6 serves new `hims_local` and `hims_test` databases, each with separate limited owner/runtime accounts. Audit/settings/auth migrations and isolated fixtures are implemented. Existing databases/services/records and PostgreSQL authentication settings were preserved. The owner entered the administrator password locally; only generated project credentials are in ignored `web/.env.local`. Better Auth staff access and administrator settings are implemented; patient domain modules and paperwork agents remain pending.
+- Task 2 checkpoint `60077eba69190caa77443af085d2c17ddb3a2ca5` passed local complete checks and independent review. [Development GitHub Checks](https://github.com/Prateek771/hims-inpatient/actions/runs/37845417986) passed; the exact checkpoint was fast-forwarded to `main`. The working folder remains on `codex/hims-development`; Task 3 staff access is next.
+- [Main GitHub Checks](https://github.com/Prateek771/hims-inpatient/actions/runs/37845721989) also passed at the same Task 2 commit.
+- Task 3 staff access/settings passed independent review. Verification: 20 unit tests; 4 PostgreSQL integration checks after review corrections; lint/types/build and 6 browser/HTTP checks. Eight local role accounts are initialized; preserve them. [Staff access](../STAFF_ACCESS.md) describes login, settings and remaining access boundaries. Task 4 admission/physical beds is next.
 
 ## Navigation and checks
 
@@ -35,9 +39,9 @@ Last verified: **9 October 2026**. This is a compact navigation record, not a bu
 | Preserved original sources and integrity hashes | [Source index](../reference/README.md) |
 | Documentation/setup verification | Local-link existence, source SHA-256 comparisons, `git diff --check`, staged file review, `git status`, remote/head verification and ignore checks |
 | Development server | `npm --prefix web run dev` (root); shell at localhost:3000 |
-| Complete foundation checks | `npm --prefix web run check`: unit/PostgreSQL integration tests, lint, typecheck, production build and four production-server Chromium/HTTP checks |
+| Complete foundation checks | `npm --prefix web run check`: unit/PostgreSQL integration tests, lint, typecheck, production build and production-server Chromium/HTTP checks |
 | Browser installation | `npm --prefix web run test:install`; binaries inside ignored `INS/tmp/playwright-browsers` |
-| Runtime dependency audit | `npm --prefix web audit --omit=dev`; 0 findings at setup; full audit's 9 dev-tool findings are recorded in setup status |
+| Runtime dependency audit | `npm --prefix web audit --omit=dev`; 0 findings; full audit's 5 high dev-tool findings are recorded in setup status |
 | PostgreSQL liveness | `powershell -File scripts/check-postgres.ps1`; checks availability without connecting as a database user or asserting HIMS readiness |
 | Database setup and migrations | [Setup instructions](../DATABASE_SETUP.md); `npm --prefix web run db:migrate` uses the dedicated owner account |
 | Unit / PostgreSQL checks | `npm --prefix web run test:unit` and `npm --prefix web run test:integration`; missing DB access is a failure, never skipped |

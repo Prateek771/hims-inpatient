@@ -8,6 +8,8 @@ const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 if (process.argv[2] === "test") {
   const { prepareTestDatabase } = await import("./test-database.ts");
   await prepareTestDatabase();
+  const { prepareAuthFixtures } = await import("./auth-fixtures.mjs");
+  await prepareAuthFixtures();
 }
 const result = spawnSync(
   process.execPath,

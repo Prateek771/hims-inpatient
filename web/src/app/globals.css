@@ -59,3 +59,17 @@ main { padding: 32px; max-width: 1280px; }
   .section-list li { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .owner { text-align: left; }
 }
+.login { max-width: 520px; margin: 48px auto; }
+.fields { display: grid; gap: 16px; max-width: 640px; margin-top: 16px; }
+.fields label { display: grid; gap: 6px; font-weight: 500; }
+input, select { min-width: 0; width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 12px; background: white; color: var(--navy); font: inherit; }
+button { border: 0; cursor: pointer; font: inherit; }
+button:disabled { opacity: .6; cursor: wait; }
+.fields .button { margin: 0; justify-self: start; }
+.fields .checkbox { display: flex; align-items: center; }
+.checkbox input { width: 20px; min-height: 20px; }
+details { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 12px; }
+summary { cursor: pointer; font-weight: 500; overflow-wrap: anywhere; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; }
+dl div { display: flex; gap: 12px; flex-wrap: wrap; }
+dd { margin: 0; overflow-wrap: anywhere; }
