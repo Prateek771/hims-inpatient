@@ -38,7 +38,7 @@
 
 ## Verification and current state
 
-- The repository starts with documents and reference assets only. There is no application, database schema, dependency setup or build plan yet.
+- The repository contains scope/reference documents and a proposed [build plan](docs/superpowers/plans/2026-10-09-hims-inpatient.md). There is no application, database schema or product dependency setup yet. See [tooling](docs/TOOLING.md) for installed skills and recommendations.
 - No application test/build commands exist yet. Do not invent commands or report application checks as passed.
 - For documentation/setup changes, check local links, source integrity, `git diff --check`, staged contents, repository/remote status and applicable ignore rules.
 - Once code exists, use its actual documented commands and meaningful checks for the affected flow; record those commands in project context. Do not weaken checks to obtain a pass.

@@ -2,13 +2,15 @@
 
 A staff-facing Hospital Information Management System for one hospital, connecting admission, clinical work, live charges, insurance paperwork, human discharge clearances and final discharge documents.
 
-The owner approved the clean, minimal Figma direction on **9 October 2026**. The repository currently holds the confirmed scope and setup documents; application development and a build plan have not started.
+The owner approved the clean, minimal Figma direction on **9 October 2026**. The repository holds the confirmed scope, setup documents, proposed build plan and tooling review. Application development has not started.
 
 Private GitHub repository: [Prateek771/hims-inpatient](https://github.com/Prateek771/hims-inpatient). `main` holds the setup baseline; `codex/hims-development` is the isolated development branch.
 
 ## Project references
 
 - [Confirmed scope and owner decisions](docs/PROJECT_SCOPE.md)
+- [Proposed implementation plan](docs/superpowers/plans/2026-10-09-hims-inpatient.md)
+- [Tooling and installed agent skills](docs/TOOLING.md)
 - [Approved Figma screens and prototype](docs/DESIGN_REFERENCE.md)
 - [Agent working instructions](AGENTS.md)
 - [Current project context](docs/agent/project-context.md)
