@@ -1,0 +1,31 @@
+# Application dependencies and generated output
+node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Credentials and local environment; a sanitized template may be committed
+.env*
+!.env.example
+*.pem
+*.key
+
+# Runtime data and private hospital/patient files
+/data/
+/pgdata/
+/database-dumps/
+/backups/
+/private-uploads/
+/patient-documents/
+*.dump
+*.backup
+
+# Local tooling and temporary files
+.worktrees/
+.vercel/
+*.log
+tmp/
+.DS_Store
+Thumbs.db
