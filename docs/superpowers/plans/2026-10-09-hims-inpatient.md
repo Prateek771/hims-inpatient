@@ -8,7 +8,7 @@
 
 **Tech Stack:** Owner-selected Next.js, PostgreSQL, LangGraph and Better Auth (staff login confirmed 9 October 2026). Foundation uses TypeScript, Tailwind from the official Next.js scaffold, Drizzle/node-postgres, Zod, Vitest and Playwright. Add barcode/QR libraries only when their tasks need them. AI/OCR providers remain unselected.
 
-**Spec:** [Confirmed scope](../../PROJECT_SCOPE.md), [approved design reference](../../DESIGN_REFERENCE.md) and [agent rules](../../../AGENTS.md). Recorded 9 October 2026 against setup baseline `8c674f7633883d690d717015ec58b64e03c5d701`. Tasks 1-2 are implemented, locally verified and independently reviewed; Tasks 3-16 remain planned. See [setup status](../../SETUP_STATUS.md) for actual evidence, installed packages and limitations.
+**Spec:** [Confirmed scope](../../PROJECT_SCOPE.md), [approved design reference](../../DESIGN_REFERENCE.md) and [agent rules](../../../AGENTS.md). Recorded 9 October 2026 against setup baseline `8c674f7633883d690d717015ec58b64e03c5d701`. Tasks 1-3 are implemented, locally verified and independently reviewed; Tasks 4-16 remain to build. See [setup status](../../SETUP_STATUS.md) for actual evidence, installed packages and limitations.
 
 ## Global constraints
 
@@ -64,7 +64,7 @@ Store times as `timestamptz`; display/configure the hospital timezone (initial s
 
 ## Verification commands to establish in Task 1
 
-Tasks 1-2 provide application, database, unit/integration and browser commands. The complete check executes 19 unit assertions, one real PostgreSQL integration scenario, lint, typecheck, production build and four browser/HTTP cases. Task 5 adds the room worker when its real entrypoint exists. Record subsequent verified commands and results in context.
+Tasks 1-3 provide application, database, staff access and unit/integration/browser commands. At the accepted staff-access checkpoint, checks cover 20 unit tests, four actual PostgreSQL integration checks and six browser/HTTP cases, plus lint/typecheck/build. Task 5 adds the room worker when its real entrypoint exists. Record subsequent verified commands and results in context.
 
 | Command from repository root | Script/result |
 |---|---|
@@ -139,6 +139,7 @@ Tests use a separate synthetic PostgreSQL database. The fixture/reset helper ref
 - [ ] Write tests for exact paise arithmetic, same event/receipt retried once, pending-to-final charge without an extra line, excessive reversal rejection, allocation not creating a second payment, unauthorized/premature refunds and partial receipts. Assert net `12000000n - 500000n = 11500000n` paise. Tampered client totals/rates and invalid fractional quantities must fail rather than override server tariffs.
 - [ ] Implement `activateAdmission(ctx, { admissionId, arrivedAt, expectedVersion, exceptionId?, requestId })` using the configured deposit requirement and recorded receipts. Ordinary activation without a required deposit fails and leaves the episode pending/bed reserved; a sufficient deposit activates it and starts the stay once. Task 12 adds a validated admin exception path and its no-deposit test; an arbitrary exception ID is not a bypass.
 - [ ] Implement immutable posted charges/receipts with linked reversals, deterministic totals and versioning; deposits stay liabilities until allocated. Refund/deposit-adjustment commands require billing authority/reason during Gate 4 audit after the first three current clearances, before the final seal; Task 11 supplies that precondition. Show receipt evidence as manually entered, never bank-verified by HIMS.
+- [ ] Extend the existing versioned administrator settings with non-room billable items and prices (doctor/procedure, medicine/consumable, lab/radiology), explicit units and permitted quantity scale. Keep stable item identity separate from price version; internal posting resolves/pins the configured rate and validates the source department. Later department tasks link their actual orders/movements to these items. No client-entered rate override, guessed unit conversion or SQL-only price setup. Package pricing must prevent duplicate constituent charges before it can be offered; ordinary item fees remain the initial supported configuration.
 - [ ] Implement configurable hourly/24-hour-block tariff arithmetic including grace/rounding inputs; test exact full-day boundaries and transfer cutoffs. No guessed tax or grace policy for real bills. Rates are snapshotted/versioned for the stay.
 - [ ] Add a small recoverable room worker using persisted per-stay cursors, source-event uniqueness and a PostgreSQL advisory lock. On restart it catches up missed intervals; concurrent workers do not double-post. Final bill calculation catches up through the exact cutoff even if the worker was unavailable.
 - [ ] Run money/billing/worker restart tests, lint/typecheck; show charges, manual receipts, top-ups, allocations/refunds and outstanding amounts; commit `feat: add live ledger and manual receipts`.

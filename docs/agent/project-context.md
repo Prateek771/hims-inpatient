@@ -2,6 +2,8 @@
 
 Last verified: **9 October 2026**. This is a compact navigation record, not a build plan.
 
+**Active handoff:** Read [BUILD_HANDOFF.md](BUILD_HANDOFF.md) before editing. Task 4 admission implementation is saved at `774a5ac6493532e8e7029515c34cccdda21e8315`; all local checks passed (24 unit, 5 PostgreSQL, 8 browser plus lint/types/build), but independent review and ordinary database migration remain unfinished. The owner requested a new GPT-6.1 Sol / High chat in this same folder; the source chat pauses and only the successor edits. Task 4 review is the first unfinished step, then Task 5 billing. `main` remains the accepted Task 3 release.
+
 ## Confirmed direction
 
 - New standalone, single-hospital inpatient HIMS; this repository is separate from other insurance projects.
@@ -23,9 +25,11 @@ Last verified: **9 October 2026**. This is a compact navigation record, not a bu
 - Active work uses `codex/hims-development` in this same folder. Push verified commits there, review GitHub Checks, then integrate authorized checkpoints into `main` and return to development. The owner authorized the foundation setup/merge on 9 October 2026; no deployment is configured.
 - Foundation code is under `web/`: Next.js shell, approved visual tokens/local font, minimal `/api/health`, locked database/LangGraph packages and browser checks. See [architecture](../../ARCHITECTURE.md), [contributing](../../CONTRIBUTING.md) and [setup evidence/limitations](../SETUP_STATUS.md). Remaining [build tasks](../superpowers/plans/2026-10-09-hims-inpatient.md) implement the actual hospital flows.
 - PostgreSQL 18.6 serves new `hims_local` and `hims_test` databases, each with separate limited owner/runtime accounts. Audit/settings/auth migrations and isolated fixtures are implemented. Existing databases/services/records and PostgreSQL authentication settings were preserved. The owner entered the administrator password locally; only generated project credentials are in ignored `web/.env.local`. Better Auth staff access and administrator settings are implemented; patient domain modules and paperwork agents remain pending.
-- Task 2 checkpoint `60077eba69190caa77443af085d2c17ddb3a2ca5` passed local complete checks and independent review. [Development GitHub Checks](https://github.com/Prateek771/hims-inpatient/actions/runs/37845417986) passed; the exact checkpoint was fast-forwarded to `main`. The working folder remains on `codex/hims-development`; Task 3 staff access is next.
+- Task 2 checkpoint `60077eba69190caa77443af085d2c17ddb3a2ca5` passed local complete checks and independent review. [Development GitHub Checks](https://github.com/Prateek771/hims-inpatient/actions/runs/37845417986) passed; the exact checkpoint was fast-forwarded to `main` before Task 3 began.
 - [Main GitHub Checks](https://github.com/Prateek771/hims-inpatient/actions/runs/37845721989) also passed at the same Task 2 commit.
 - Task 3 staff access/settings passed independent review. Verification: 20 unit tests; 4 PostgreSQL integration checks after review corrections; lint/types/build and 6 browser/HTTP checks. Eight local role accounts are initialized; preserve them. [Staff access](../STAFF_ACCESS.md) describes login, settings and remaining access boundaries. Task 4 admission/physical beds is next.
+- Task 3 checkpoint `332a64acd4db06322f4a416ec47607249da89c64` passed [development GitHub Checks](https://github.com/Prateek771/hims-inpatient/actions/runs/37850090752), including fresh database and actual staff-bootstrap setup. The exact reviewed commit was fast-forwarded to `main`; this checkout remains on development for Task 4.
+- [Main GitHub Checks](https://github.com/Prateek771/hims-inpatient/actions/runs/37850428596) passed for the same Task 3 checkpoint.
 
 ## Navigation and checks
 

@@ -31,4 +31,6 @@ Follow [database setup](docs/DATABASE_SETUP.md) and apply migrations before comp
 
 Follow [staff access](docs/STAFF_ACCESS.md) for one-time local login initialization. Preserve existing accounts; the bootstrap deliberately refuses a database that already contains staff. CI additionally runs the actual demo bootstrap against its fresh synthetic application database.
 
+On Windows, the local Next.js CSS build worker has twice exited before connecting; clearing generated build files recovered the earlier checkpoint. If that exact failure recurs, first stop only this project's known preview process, verify the absolute target is this checkout's generated `web/.next` directory, clear that cache and retry the unchanged build. Do not remove source, dependencies or database files, and do not treat this recovery as proof of the upstream cause. Restart the preview after validation.
+
 Never commit credentials, real patient records, private uploads, database files or dumps. No existing database resets, applied-migration rewrites or provider replacements are authorized by these setup commands.
