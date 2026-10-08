@@ -1,0 +1,1526 @@
+{
+  "id": "585efdd7-9aed-4e21-8839-3d8fb1661739",
+  "prevId": "29e91231-de81-4a7e-8f9c-8ad95f10ec77",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "hims.audit_events": {
+      "name": "audit_events",
+      "schema": "hims",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "actor_type": {
+          "name": "actor_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "event": {
+          "name": "event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "before_version": {
+          "name": "before_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "after_version": {
+          "name": "after_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "audit_events_entity_time": {
+          "name": "audit_events_entity_time",
+          "columns": [
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "audit_events_actor_time": {
+          "name": "audit_events_actor_time",
+          "columns": [
+            {
+              "expression": "actor_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "actor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "occurred_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "audit_events_actor": {
+          "name": "audit_events_actor",
+          "value": "(\"hims\".\"audit_events\".\"actor_type\" = 'staff' AND length(trim(\"hims\".\"audit_events\".\"actor_id\")) > 0) OR (\"hims\".\"audit_events\".\"actor_type\" = 'system' AND \"hims\".\"audit_events\".\"actor_id\" = 'room-charge')"
+        },
+        "audit_events_required_text": {
+          "name": "audit_events_required_text",
+          "value": "length(trim(\"hims\".\"audit_events\".\"source\")) > 0 AND length(trim(\"hims\".\"audit_events\".\"request_id\")) > 0 AND length(trim(\"hims\".\"audit_events\".\"event\")) > 0 AND length(trim(\"hims\".\"audit_events\".\"entity_type\")) > 0 AND length(trim(\"hims\".\"audit_events\".\"entity_id\")) > 0 AND length(trim(\"hims\".\"audit_events\".\"reason\")) > 0"
+        },
+        "audit_events_versions": {
+          "name": "audit_events_versions",
+          "value": "(\"hims\".\"audit_events\".\"before_version\" IS NULL OR \"hims\".\"audit_events\".\"before_version\" > 0) AND (\"hims\".\"audit_events\".\"after_version\" IS NULL OR \"hims\".\"audit_events\".\"after_version\" > 0)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "hims.hospital_settings": {
+      "name": "hospital_settings",
+      "schema": "hims",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "timezone": {
+          "name": "timezone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'Asia/Kolkata'"
+        },
+        "identity": {
+          "name": "identity",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "hims.setting_versions": {
+      "name": "setting_versions",
+      "schema": "hims",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "hospital_id": {
+          "name": "hospital_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_type": {
+          "name": "actor_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "setting_versions_hospital_id_hospital_settings_id_fk": {
+          "name": "setting_versions_hospital_id_hospital_settings_id_fk",
+          "tableFrom": "setting_versions",
+          "tableTo": "hospital_settings",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "hospital_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "setting_versions_hospital_kind_version": {
+          "name": "setting_versions_hospital_kind_version",
+          "nullsNotDistinct": false,
+          "columns": [
+            "hospital_id",
+            "kind",
+            "version"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "setting_versions_positive": {
+          "name": "setting_versions_positive",
+          "value": "\"hims\".\"setting_versions\".\"version\" > 0"
+        },
+        "setting_versions_kind": {
+          "name": "setting_versions_kind",
+          "value": "\"hims\".\"setting_versions\".\"kind\" in ('tariff', 'rule')"
+        },
+        "setting_versions_actor": {
+          "name": "setting_versions_actor",
+          "value": "\"hims\".\"setting_versions\".\"actor_type\" = 'staff' AND length(trim(\"hims\".\"setting_versions\".\"actor_id\")) > 0"
+        },
+        "setting_versions_reason": {
+          "name": "setting_versions_reason",
+          "value": "length(trim(\"hims\".\"setting_versions\".\"reason\")) > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "hims.staff_account": {
+      "name": "staff_account",
+      "schema": "hims",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "account_id": {
+          "name": "account_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "access_token": {
+          "name": "access_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token": {
+          "name": "refresh_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "id_token": {
+          "name": "id_token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "access_token_expires_at": {
+          "name": "access_token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "refresh_token_expires_at": {
+          "name": "refresh_token_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope": {
+          "name": "scope",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "password": {
+          "name": "password",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "staff_account_user_idx": {
+          "name": "staff_account_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "staff_account_user_id_staff_user_id_fk": {
+          "name": "staff_account_user_id_staff_user_id_fk",
+          "tableFrom": "staff_account",
+          "tableTo": "staff_user",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "hims.staff_session": {
+      "name": "staff_session",
+      "schema": "hims",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "token": {
+          "name": "token",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "ip_address": {
+          "name": "ip_address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "impersonated_by": {
+          "name": "impersonated_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "staff_session_user_idx": {
+          "name": "staff_session_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "staff_session_user_id_staff_user_id_fk": {
+          "name": "staff_session_user_id_staff_user_id_fk",
+          "tableFrom": "staff_session",
+          "tableTo": "staff_user",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "staff_session_token_unique": {
+          "name": "staff_session_token_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "token"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "hims.staff_user": {
+      "name": "staff_user",
+      "schema": "hims",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email_verified": {
+          "name": "email_verified",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "image": {
+          "name": "image",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'ADMISSION'"
+        },
+        "banned": {
+          "name": "banned",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "ban_reason": {
+          "name": "ban_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "ban_expires": {
+          "name": "ban_expires",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "staff_user_email_unique": {
+          "name": "staff_user_email_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "email"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "hims.staff_verification": {
+      "name": "staff_verification",
+      "schema": "hims",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "identifier": {
+          "name": "identifier",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "staff_verification_identifier_idx": {
+          "name": "staff_verification_identifier_idx",
+          "columns": [
+            {
+              "expression": "identifier",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "hims.admission_counters": {
+      "name": "admission_counters",
+      "schema": "hims",
+      "columns": {
+        "hospital_id": {
+          "name": "hospital_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "year": {
+          "name": "year",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value": {
+          "name": "value",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "admission_counters_hospital_id_hospital_settings_id_fk": {
+          "name": "admission_counters_hospital_id_hospital_settings_id_fk",
+          "tableFrom": "admission_counters",
+          "tableTo": "hospital_settings",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "hospital_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "admission_counters_hospital_id_year_pk": {
+          "name": "admission_counters_hospital_id_year_pk",
+          "columns": [
+            "hospital_id",
+            "year"
+          ]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "admission_counter_positive": {
+          "name": "admission_counter_positive",
+          "value": "\"hims\".\"admission_counters\".\"value\" > 0"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "hims.admissions": {
+      "name": "admissions",
+      "schema": "hims",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "hospital_id": {
+          "name": "hospital_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "patient_id": {
+          "name": "patient_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ip_code": {
+          "name": "ip_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING'"
+        },
+        "admitting_doctor_id": {
+          "name": "admitting_doctor_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "clinician_assessment": {
+          "name": "clinician_assessment",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bed_id": {
+          "name": "bed_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payment_route": {
+          "name": "payment_route",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expected_stay_days": {
+          "name": "expected_stay_days",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "registered_at": {
+          "name": "registered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "admitted_at": {
+          "name": "admitted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancelled_at": {
+          "name": "cancelled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "cancellation_reason": {
+          "name": "cancellation_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "request_payload": {
+          "name": "request_payload",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "admission_retry_idx": {
+          "name": "admission_retry_idx",
+          "columns": [
+            {
+              "expression": "created_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "patient_active_admission_idx": {
+          "name": "patient_active_admission_idx",
+          "columns": [
+            {
+              "expression": "patient_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"hims\".\"admissions\".\"status\" in ('PENDING','ADMITTED')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "admissions_doctor_idx": {
+          "name": "admissions_doctor_idx",
+          "columns": [
+            {
+              "expression": "admitting_doctor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "admissions_bed_idx": {
+          "name": "admissions_bed_idx",
+          "columns": [
+            {
+              "expression": "bed_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "admissions_hospital_idx": {
+          "name": "admissions_hospital_idx",
+          "columns": [
+            {
+              "expression": "hospital_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "admissions_hospital_id_hospital_settings_id_fk": {
+          "name": "admissions_hospital_id_hospital_settings_id_fk",
+          "tableFrom": "admissions",
+          "tableTo": "hospital_settings",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "hospital_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "admissions_patient_id_patients_id_fk": {
+          "name": "admissions_patient_id_patients_id_fk",
+          "tableFrom": "admissions",
+          "tableTo": "patients",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "patient_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "admissions_admitting_doctor_id_staff_user_id_fk": {
+          "name": "admissions_admitting_doctor_id_staff_user_id_fk",
+          "tableFrom": "admissions",
+          "tableTo": "staff_user",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "admitting_doctor_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "admissions_bed_id_beds_id_fk": {
+          "name": "admissions_bed_id_beds_id_fk",
+          "tableFrom": "admissions",
+          "tableTo": "beds",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "bed_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "admissions_created_by_staff_user_id_fk": {
+          "name": "admissions_created_by_staff_user_id_fk",
+          "tableFrom": "admissions",
+          "tableTo": "staff_user",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "admissions_ip_code_unique": {
+          "name": "admissions_ip_code_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "ip_code"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "admission_status": {
+          "name": "admission_status",
+          "value": "\"hims\".\"admissions\".\"status\" in ('PENDING','ADMITTED','CANCELLED','DISCHARGED')"
+        },
+        "admission_route": {
+          "name": "admission_route",
+          "value": "\"hims\".\"admissions\".\"payment_route\" in ('SELF_PAY','INSURED')"
+        },
+        "admission_days": {
+          "name": "admission_days",
+          "value": "\"hims\".\"admissions\".\"expected_stay_days\" between 1 and 365"
+        },
+        "admission_activation_time": {
+          "name": "admission_activation_time",
+          "value": "(\"hims\".\"admissions\".\"status\" in ('ADMITTED','DISCHARGED')) = (\"hims\".\"admissions\".\"admitted_at\" is not null)"
+        },
+        "admission_cancel_record": {
+          "name": "admission_cancel_record",
+          "value": "\"hims\".\"admissions\".\"status\" <> 'CANCELLED' or (\"hims\".\"admissions\".\"cancelled_at\" is not null and length(trim(\"hims\".\"admissions\".\"cancellation_reason\")) > 0)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "hims.bed_holds": {
+      "name": "bed_holds",
+      "schema": "hims",
+      "columns": {
+        "bed_id": {
+          "name": "bed_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "admission_id": {
+          "name": "admission_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "held_at": {
+          "name": "held_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "bed_holds_bed_id_beds_id_fk": {
+          "name": "bed_holds_bed_id_beds_id_fk",
+          "tableFrom": "bed_holds",
+          "tableTo": "beds",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "bed_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "bed_holds_admission_id_admissions_id_fk": {
+          "name": "bed_holds_admission_id_admissions_id_fk",
+          "tableFrom": "bed_holds",
+          "tableTo": "admissions",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "admission_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "bed_holds_admission_id_unique": {
+          "name": "bed_holds_admission_id_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "admission_id"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "hims.beds": {
+      "name": "beds",
+      "schema": "hims",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category_version_id": {
+          "name": "category_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "active": {
+          "name": "active",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "beds_category_idx": {
+          "name": "beds_category_idx",
+          "columns": [
+            {
+              "expression": "category",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "beds_category_version_id_setting_versions_id_fk": {
+          "name": "beds_category_version_id_setting_versions_id_fk",
+          "tableFrom": "beds",
+          "tableTo": "setting_versions",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "category_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "beds_label_unique": {
+          "name": "beds_label_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "label"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "hims.patients": {
+      "name": "patients",
+      "schema": "hims",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "uhid": {
+          "name": "uhid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "date_of_birth": {
+          "name": "date_of_birth",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "age_years_at_registration": {
+          "name": "age_years_at_registration",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sex": {
+          "name": "sex",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phone": {
+          "name": "phone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "registered_at": {
+          "name": "registered_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "registered_by": {
+          "name": "registered_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "patients_name_idx": {
+          "name": "patients_name_idx",
+          "columns": [
+            {
+              "expression": "name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "patients_registered_by_staff_user_id_fk": {
+          "name": "patients_registered_by_staff_user_id_fk",
+          "tableFrom": "patients",
+          "tableTo": "staff_user",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "registered_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "patients_uhid_unique": {
+          "name": "patients_uhid_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "uhid"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "patients_sex": {
+          "name": "patients_sex",
+          "value": "\"hims\".\"patients\".\"sex\" in ('FEMALE','MALE','OTHER','UNKNOWN')"
+        },
+        "patient_age_identity": {
+          "name": "patient_age_identity",
+          "value": "(\"hims\".\"patients\".\"date_of_birth\" is not null) <> (\"hims\".\"patients\".\"age_years_at_registration\" is not null)"
+        },
+        "patient_age_range": {
+          "name": "patient_age_range",
+          "value": "\"hims\".\"patients\".\"age_years_at_registration\" is null or \"hims\".\"patients\".\"age_years_at_registration\" between 0 and 130"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "hims.room_stays": {
+      "name": "room_stays",
+      "schema": "hims",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "admission_id": {
+          "name": "admission_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "bed_id": {
+          "name": "bed_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "tariff_version_id": {
+          "name": "tariff_version_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "ended_at": {
+          "name": "ended_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "room_stays_admission_idx": {
+          "name": "room_stays_admission_idx",
+          "columns": [
+            {
+              "expression": "admission_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "room_stays_bed_idx": {
+          "name": "room_stays_bed_idx",
+          "columns": [
+            {
+              "expression": "bed_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "room_stays_tariff_idx": {
+          "name": "room_stays_tariff_idx",
+          "columns": [
+            {
+              "expression": "tariff_version_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "room_stay_active_admission_idx": {
+          "name": "room_stay_active_admission_idx",
+          "columns": [
+            {
+              "expression": "admission_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"hims\".\"room_stays\".\"ended_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "room_stays_admission_id_admissions_id_fk": {
+          "name": "room_stays_admission_id_admissions_id_fk",
+          "tableFrom": "room_stays",
+          "tableTo": "admissions",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "admission_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "room_stays_bed_id_beds_id_fk": {
+          "name": "room_stays_bed_id_beds_id_fk",
+          "tableFrom": "room_stays",
+          "tableTo": "beds",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "bed_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "room_stays_tariff_version_id_setting_versions_id_fk": {
+          "name": "room_stays_tariff_version_id_setting_versions_id_fk",
+          "tableFrom": "room_stays",
+          "tableTo": "setting_versions",
+          "schemaTo": "hims",
+          "columnsFrom": [
+            "tariff_version_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "room_stay_boundary": {
+          "name": "room_stay_boundary",
+          "value": "\"hims\".\"room_stays\".\"ended_at\" is null or \"hims\".\"room_stays\".\"ended_at\" > \"hims\".\"room_stays\".\"started_at\""
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {
+    "hims": "hims"
+  },
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

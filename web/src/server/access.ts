@@ -123,7 +123,7 @@ export async function requireAdmissionAccess(
   admissionId: string,
   action: string,
   requestHeaders?: Headers,
-): Promise<never> {
+): Promise<Staff> {
   const staff = await requireStaff(requestHeaders);
   if (
     ctx.actor.type !== "staff" ||
@@ -134,9 +134,19 @@ export async function requireAdmissionAccess(
     )
   )
     throw new DomainError("FORBIDDEN", "Admission access denied");
-  // Task 4/6 must enforce a real admission lookup and persisted care/department assignment before returning a projection.
-  throw new DomainError(
-    "FORBIDDEN",
-    "Admission access unavailable until admission records are implemented",
-  );
+  const implemented = {
+    ADMIN: ["overview"],
+    ADMISSION: ["intake", "bed-allocation"],
+    DOCTOR: ["clinical-read"],
+  };
+  if (
+    !(staff.role in implemented) ||
+    !(implemented[staff.role as keyof typeof implemented] as string[]).includes(
+      action,
+    )
+  )
+    throw new DomainError("FORBIDDEN", "Admission access denied");
+  const { getAdmission } = await import("./admissions/commands");
+  await getAdmission(ctx, admissionId);
+  return staff;
 }

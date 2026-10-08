@@ -62,7 +62,10 @@ test("actual login, admin staff creation, settings history and wrong-role direct
   await expect(
     page.getByRole("heading", { name: "Welcome, Synthetic E2E ADMIN" }),
   ).toBeVisible();
-  await page.getByRole("link", { name: "Manage staff" }).click();
+  await page
+    .getByRole("main")
+    .getByRole("link", { name: "Manage staff" })
+    .click();
   const create = page
     .getByRole("heading", { name: "Create staff account" })
     .locator("..");

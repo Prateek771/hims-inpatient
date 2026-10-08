@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { requireStaff } from "@/server/access";
+import { requireStaff, staffContext } from "@/server/access";
+import { admissionWorkspace } from "@/server/admissions/commands";
 import { AccountControls } from "@/components/account-controls";
 const areas = {
   ADMIN: ["Hospital overview", "Beds, discharge blockers and exceptions"],
@@ -35,6 +36,11 @@ const areas = {
 export default async function Workspace() {
   const staff = await requireStaff();
   const [title, work] = areas[staff.role];
+  const doctorWorklist =
+    staff.role === "DOCTOR"
+      ? (await admissionWorkspace(staffContext(staff, "doctor-worklist")))
+          .worklist
+      : [];
   return (
     <>
       <p className="eyebrow">
@@ -58,7 +64,40 @@ export default async function Workspace() {
             <Link className="button" href="/admin/settings">
               Hospital settings
             </Link>
+            <Link className="button" href="/admin/beds">
+              Bed inventory
+            </Link>
           </div>
+        </section>
+      )}
+      {staff.role === "ADMISSION" && (
+        <section className="card">
+          <h2>Patient intake</h2>
+          <p>
+            Find permanent patient identities, reserve an available bed and
+            register a pending admission.
+          </p>
+          <Link className="button" href="/admissions">
+            Admissions &amp; beds
+          </Link>
+        </section>
+      )}
+      {staff.role === "DOCTOR" && (
+        <section className="card">
+          <h2>Patients admitted under you</h2>
+          {doctorWorklist.length ? (
+            <ul className="patient-results">
+              {doctorWorklist.map((a) => (
+                <li key={a.id}>
+                  <Link href={`/patients/${a.id}`}>
+                    {a.name} · {a.ipCode} · {a.status}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>No admission episodes recorded under you.</p>
+          )}
         </section>
       )}
       <AccountControls />

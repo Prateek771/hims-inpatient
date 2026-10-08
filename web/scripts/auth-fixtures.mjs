@@ -2,6 +2,7 @@ import { build } from "esbuild";
 import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { getTestDatabaseConfig } from "./test-database-guard.ts";
 export async function prepareAuthFixtures() {
   const { runtimeUrl } = getTestDatabaseConfig();
@@ -18,6 +19,11 @@ export async function prepareAuthFixtures() {
       {
         name: "server-only-fixtures",
         setup(b) {
+          // Standalone Node ESM needs the extension that Next's bundler normally resolves.
+          b.onResolve({ filter: /^next\/headers$/ }, () => ({
+            path: pathToFileURL(resolve("node_modules/next/headers.js")).href,
+            external: true,
+          }));
           b.onResolve({ filter: /^server-only$/ }, () => ({
             path: "server-only",
             namespace: "empty",
@@ -38,6 +44,12 @@ export async function prepareAuthFixtures() {
     },
     encoding: "utf8",
   });
-  if (result.status !== 0)
+  if (result.status !== 0) {
+    // Fixture diagnostics expose only error class/code, never SQL, URLs or credentials.
+    const diagnostic = result.stderr
+      .split("\n")
+      .find((line) => line.startsWith('{"fixtureError":'));
+    if (diagnostic) console.error(diagnostic);
     throw new Error("Synthetic auth fixture preparation failed");
+  }
 }

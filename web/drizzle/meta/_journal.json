@@ -22,6 +22,27 @@
       "when": 1791494371252,
       "tag": "0002_tidy_purifiers",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1791496781397,
+      "tag": "0003_tearful_mercury",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791497213488,
+      "tag": "0004_brown_mystique",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1791497603297,
+      "tag": "0005_lazy_iceman",
+      "breakpoints": true
     }
   ]
 }

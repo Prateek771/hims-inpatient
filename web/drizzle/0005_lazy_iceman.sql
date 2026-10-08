@@ -1,0 +1,1 @@
+ALTER TABLE "hims"."patients" ALTER COLUMN "phone" DROP NOT NULL;

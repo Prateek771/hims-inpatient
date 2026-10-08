@@ -1,0 +1,4 @@
+ALTER TABLE "hims"."patients" ALTER COLUMN "date_of_birth" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "hims"."patients" ADD COLUMN "age_years_at_registration" integer;--> statement-breakpoint
+ALTER TABLE "hims"."patients" ADD CONSTRAINT "patient_age_identity" CHECK (("hims"."patients"."date_of_birth" is not null) <> ("hims"."patients"."age_years_at_registration" is not null));--> statement-breakpoint
+ALTER TABLE "hims"."patients" ADD CONSTRAINT "patient_age_range" CHECK ("hims"."patients"."age_years_at_registration" is null or "hims"."patients"."age_years_at_registration" between 0 and 130);
