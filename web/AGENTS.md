@@ -2,10 +2,10 @@
 
 Root [AGENTS.md](../AGENTS.md) and the owner's scope apply here. This application lives inside the single approved `INS` working folder. Use `codex/hims-development`; do not create another checkout.
 
-- From the repository root, use `npm --prefix web run check` for lint, type checks, production build and browser checks. `test:e2e` uses the built application on port 3100; run build first. Install browsers with `npm --prefix web run test:install`.
+- From the repository root, use `npm --prefix web run check` for unit/integration tests, lint, type checks, production build and browser checks. `test:e2e` uses the built application on port 3100; run build first. Install browsers with `npm --prefix web run test:install`.
 - Follow [architecture](../ARCHITECTURE.md), [current context](../docs/agent/project-context.md) and [approved Figma](../docs/DESIGN_REFERENCE.md). Keep server logic outside client components and read relevant installed framework documentation before using new APIs.
-- The starter has no staff access, patient transactions or HIMS database schema. The health endpoint asserts liveness only. Keep real data and credentials out of tests/Git.
-- Unit and database integration suites are not implemented yet. Do not silently skip unavailable or empty suites or claim them as passed.
+- The foundation has audit/settings schema and separate database owner/runtime accounts; staff access and patient transactions are pending. `/api/health` asserts liveness, `/api/health/ready` checks database/schema access. Keep real data and credentials out of tests/Git.
+- Unit and actual PostgreSQL integration suites must execute. Test fixtures use only the explicitly configured synthetic database and never fall back to the application URL. Do not silently skip unavailable checks or claim them as passed.
 
 <!-- BEGIN:nextjs-agent-rules -->
 

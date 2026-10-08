@@ -1,4 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
+import { getTestDatabaseConfig } from "./scripts/test-database-guard";
+
+const { runtimeUrl } = getTestDatabaseConfig();
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -16,6 +19,6 @@ export default defineConfig({
     url: "http://127.0.0.1:3100",
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { NEXT_TELEMETRY_DISABLED: "1" },
+    env: { NEXT_TELEMETRY_DISABLED: "1", DATABASE_URL: runtimeUrl },
   },
 });

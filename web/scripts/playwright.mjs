@@ -5,6 +5,10 @@ import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
 const appRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+if (process.argv[2] === "test") {
+  const { prepareTestDatabase } = await import("./test-database.ts");
+  await prepareTestDatabase();
+}
 const result = spawnSync(
   process.execPath,
   [require.resolve("@playwright/test/cli"), ...process.argv.slice(2)],

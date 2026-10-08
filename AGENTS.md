@@ -39,8 +39,8 @@
 
 ## Verification and current state
 
-- The Next.js foundation is under `web/`; see [architecture](ARCHITECTURE.md), [setup status](docs/SETUP_STATUS.md) and the [build plan](docs/superpowers/plans/2026-10-09-hims-inpatient.md). Database/LangGraph packages are installed, but there is no HIMS schema, staff login or paperwork agent implementation yet.
-- Actual root command: `npm --prefix web run check` runs lint, type checks, a production build and Chromium browser/HTTP checks. `npm --prefix web audit --omit=dev` audits runtime dependencies. No unit or database integration suite exists yet; record them when implemented.
+- The Next.js and PostgreSQL foundation is under `web/`; see [architecture](ARCHITECTURE.md), [setup status](docs/SETUP_STATUS.md) and the [build plan](docs/superpowers/plans/2026-10-09-hims-inpatient.md). Database schema, audit and isolated tests exist; Better Auth staff login and paperwork agents are later tasks.
+- Actual root command: `npm --prefix web run check` runs unit tests, actual PostgreSQL integration tests, lint, type checks, a production build and Chromium browser/HTTP checks. Missing database access fails the integration check. `npm --prefix web audit --omit=dev` audits runtime dependencies. See [database setup](docs/DATABASE_SETUP.md) for local provisioning.
 - For documentation/setup changes, check local links, source integrity, `git diff --check`, staged contents, repository/remote status and applicable ignore rules.
 - Once code exists, use its actual documented commands and meaningful checks for the affected flow; record those commands in project context. Do not weaken checks to obtain a pass.
 - Load relevant Figma skills before Figma tools, and PostgreSQL guidance before schema/migration authoring. Use current primary documentation when needed.

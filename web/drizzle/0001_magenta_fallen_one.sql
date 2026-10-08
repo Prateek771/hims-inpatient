@@ -1,0 +1,3 @@
+ALTER TABLE "hims"."audit_events" DROP CONSTRAINT "audit_events_required_text";--> statement-breakpoint
+ALTER TABLE "hims"."audit_events" ALTER COLUMN "request_id" SET NOT NULL;--> statement-breakpoint
+ALTER TABLE "hims"."audit_events" ADD CONSTRAINT "audit_events_required_text" CHECK (length(trim("hims"."audit_events"."source")) > 0 AND length(trim("hims"."audit_events"."request_id")) > 0 AND length(trim("hims"."audit_events"."event")) > 0 AND length(trim("hims"."audit_events"."entity_type")) > 0 AND length(trim("hims"."audit_events"."entity_id")) > 0 AND length(trim("hims"."audit_events"."reason")) > 0);

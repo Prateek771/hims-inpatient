@@ -33,3 +33,10 @@ test("health endpoint exposes liveness without pretending the database is config
   expect(await response.json()).toEqual({ status: "ok", service: "hims-inpatient" });
   expect(response.headers()["cache-control"]).toContain("no-store");
 });
+
+test("readiness verifies the configured PostgreSQL schema without exposing details", async ({ request }) => {
+  const response = await request.get("/api/health/ready");
+  expect(response.status()).toBe(200);
+  expect(await response.json()).toEqual({ status: "ready" });
+  expect(response.headers()["cache-control"]).toContain("no-store");
+});

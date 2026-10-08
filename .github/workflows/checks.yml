@@ -17,7 +17,19 @@ jobs:
   web:
     name: Web checks
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: hims-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: web
@@ -36,6 +48,16 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Create isolated synthetic databases
+        run: node scripts/bootstrap-local-database.mjs
+        env:
+          HIMS_SETUP_ADMIN_PASSWORD: hims-ci-only
+      - name: Apply HIMS migrations
+        run: npm run db:migrate
+      - name: Unit checks
+        run: npm run test:unit
+      - name: PostgreSQL integration checks
+        run: npm run test:integration
       - name: Lint
         run: npm run lint
       - name: Type check

@@ -6,9 +6,9 @@
 
 **Architecture:** One Next.js application in `web/`, one local PostgreSQL database and feature-owned server modules. Server Components read authorized data; Server Actions call the same transactional domain commands used by the few required Route Handlers. A small Node worker posts due room charges; LangGraph JS uses PostgreSQL checkpoints only for insurance-paperwork assistance.
 
-**Tech Stack:** Owner-selected Next.js, PostgreSQL and LangGraph. Proposed implementation choices: TypeScript, Tailwind from the official Next.js scaffold, Drizzle/node-postgres, Better Auth, Zod, Vitest and Playwright. Add barcode/QR libraries only when their tasks need them. AI/OCR providers remain unselected.
+**Tech Stack:** Owner-selected Next.js, PostgreSQL, LangGraph and Better Auth (staff login confirmed 9 October 2026). Foundation uses TypeScript, Tailwind from the official Next.js scaffold, Drizzle/node-postgres, Zod, Vitest and Playwright. Add barcode/QR libraries only when their tasks need them. AI/OCR providers remain unselected.
 
-**Spec:** [Confirmed scope](../../PROJECT_SCOPE.md), [approved design reference](../../DESIGN_REFERENCE.md) and [agent rules](../../../AGENTS.md). Recorded 9 October 2026 against setup baseline `8c674f7633883d690d717015ec58b64e03c5d701`. Task 1's foundation is implemented and locally verified; Tasks 2-16 remain planned. See [setup status](../../SETUP_STATUS.md) for actual evidence, installed packages and limitations.
+**Spec:** [Confirmed scope](../../PROJECT_SCOPE.md), [approved design reference](../../DESIGN_REFERENCE.md) and [agent rules](../../../AGENTS.md). Recorded 9 October 2026 against setup baseline `8c674f7633883d690d717015ec58b64e03c5d701`. Tasks 1-2 are implemented, locally verified and independently reviewed; Tasks 3-16 remain planned. See [setup status](../../SETUP_STATUS.md) for actual evidence, installed packages and limitations.
 
 ## Global constraints
 
@@ -58,13 +58,13 @@ Work only in `C:\Users\prate\OneDrive\Desktop\INS`, per the owner's 9 October 20
 
 Keep modules together by feature. Do not create a generic repository layer, plugin framework, microservices, vector database, payment adapter or separate Python backend.
 
-Define in Task 2 and reuse: `Money = bigint` (integer paise); `StaffRole = ADMIN | ADMISSION | DOCTOR | NURSE | PHARMACY | LAB | INSURANCE | BILLING`; `Gate = DOCTOR | PHARMACY | NURSING | BILLING`; `CommandContext = { actorId: string; requestId: string }`. Context is built server-side from the authenticated session; commands recheck active staff/permission before writes. Client bodies never supply actor/role. IDs are strings; timestamps are ISO instants at boundaries; money crosses JSON as decimal paise strings. Domain commands return typed values or a typed error with `UNAUTHORIZED`, `FORBIDDEN`, `VALIDATION`, `CONFLICT` or `PRECONDITION` codes; adapters translate safely without patient data in logs.
+Define in Task 2 and reuse: `Money = bigint` (integer paise); `StaffRole = ADMIN | ADMISSION | DOCTOR | NURSE | PHARMACY | LAB | INSURANCE | BILLING`; `Gate = DOCTOR | PHARMACY | NURSING | BILLING`; `CommandContext = { actor: AuditActor; source: string; requestId: string }`, where `AuditActor` distinguishes authenticated staff from the internal room-charge job. Context is built server-side from the authenticated session; commands recheck active staff/permission before writes. Client bodies never supply actor/role. IDs are strings; timestamps are ISO instants at boundaries; money crosses JSON as decimal paise strings. Domain commands return typed values or a typed error with `UNAUTHORIZED`, `FORBIDDEN`, `VALIDATION`, `CONFLICT` or `PRECONDITION` codes; adapters translate safely without patient data in logs.
 
 Store times as `timestamptz`; display/configure the hospital timezone (initial synthetic default `Asia/Kolkata`). Store money as `bigint` paise and co-pay as basis points, never binary floating-point money. Database constraints protect unique IP/source-event/receipt identities and active bed occupancy. Short transactions lock admissions and beds in a consistent order; do not hold locks across AI/network calls. Runtime DB credentials are distinct from migration credentials; the runtime is not a PostgreSQL superuser.
 
 ## Verification commands to establish in Task 1
 
-Task 1 has created the application/quality/unit/browser scripts. Lint, type checks, build and three browser/HTTP checks pass; the unit runner is configured but has no domain suite yet and is not reported as a passed check. Task 2 adds database/integration scripts and Task 5 adds the worker script when their real entrypoints exist. Record their actual behavior in context.
+Tasks 1-2 provide application, database, unit/integration and browser commands. The complete check executes 19 unit assertions, one real PostgreSQL integration scenario, lint, typecheck, production build and four browser/HTTP cases. Task 5 adds the room worker when its real entrypoint exists. Record subsequent verified commands and results in context.
 
 | Command from repository root | Script/result |
 |---|---|
@@ -96,14 +96,16 @@ Tests use a separate synthetic PostgreSQL database. The fixture/reset helper ref
 
 ## Task 2: PostgreSQL foundation, audit and safe test fixtures
 
-**Files:** create `web/src/server/{db.ts,contracts.ts,audit.ts}`, `web/src/server/schema/{index.ts,core.ts}`, `web/drizzle.config.ts`, `web/scripts/{migrate.ts,test-database.ts}`, `web/tests/integration/database.test.ts`; add `web/src/app/api/health/route.ts` readiness checks and generated reviewed migrations.
+**Files:** create `web/src/server/{db.ts,contracts.ts,audit.ts}`, `web/src/server/schema/{index.ts,core.ts}`, `web/drizzle.config.ts`, `web/scripts/{migrate.ts,test-database.ts}`, `web/tests/integration/database.test.ts`; add separate `web/src/app/api/health/ready/route.ts` readiness checks and generated reviewed migrations.
 
-**Interfaces:** produces pooled `db`, exported schema, `appendAudit(tx, ctx, { event, entityId, reason, beforeVersion, afterVersion })`, and `withTestDatabase` fixtures for subsequent tests. Settings contain hospital identity/timezone and versioned tariffs/rules; do not create all future tables now.
+**Interfaces:** produces pooled `db`, exported schema, `appendAudit(tx, ctx, { event, entityType, entityId, reason, beforeVersion, afterVersion })`, and `withTestDatabase` fixtures for subsequent tests. Settings contain hospital identity/timezone and versioned tariffs/rules; do not create all future tables now.
 
-- [ ] Inspect existing PostgreSQL availability without changing services, reading credential values into output or resetting data. Configure a new project database/runtime role and separate synthetic test DB through an explicitly supplied local setup; preserve anything already present.
-- [ ] Write `database.test.ts`: migrations build an empty dedicated test DB; foreign-key failures roll back; runtime cannot update/delete audit rows; test reset refuses the ordinary app DB. Verify the tests fail until the foundation exists.
-- [ ] Implement the pool with bounded connections, separate migration privileges, transaction helpers and append-only audit; add source/actor/time/version references and indexes on the actual lookup/FK paths. Distinguish human actors from the internal room-charge system actor; an automated job cannot claim a staff signature or invoke human-clearance commands.
-- [ ] Generate and inspect SQL, apply it only to the intended new/test DB, rerun integration tests plus lint/typecheck and commit `feat: add PostgreSQL foundation and audit`.
+- [x] Inspect existing PostgreSQL availability without changing services, reading credential values into output or resetting data. Configure a new project database/runtime role and separate synthetic test DB through an explicitly supplied local setup; preserve anything already present.
+- [x] Write `database.test.ts`: migrations build an empty dedicated test DB; foreign-key failures roll back; runtime cannot update/delete audit rows; test reset refuses the ordinary app DB. Verify the tests fail until the foundation exists.
+- [x] Implement the pool with bounded connections, separate migration privileges, transaction helpers and append-only audit; add source/actor/time/version references and indexes on the actual lookup/FK paths. Distinguish human actors from the internal room-charge system actor; an automated job cannot claim a staff signature or invoke human-clearance commands.
+- [x] Generate and inspect SQL, apply it only to the intended new/test DB, rerun integration tests plus lint/typecheck and commit `feat: add PostgreSQL foundation and audit`.
+
+**Verified adjustment:** Browser tests explicitly use the guarded synthetic database. Both URL diagnostics and CLI setup errors avoid disclosing credentials. Vitest temporary output stays in `INS/tmp/vitest`. Independent review accepted both corrections. No staff authorization or hospital financial policy is implied by this foundation.
 
 ## Task 3: Staff login, server permissions and hospital settings
 

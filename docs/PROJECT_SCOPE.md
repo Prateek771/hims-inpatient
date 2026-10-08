@@ -34,6 +34,7 @@ Patients benefit through coordinated care, transparent bills and complete discha
 | Exceptions | Admin manages exceptional cases, records authority/reason/follow-up and outstanding obligations |
 | Design direction | The Figma prototype is approved; preserve its clean, minimal hospital layout and role-specific presentation |
 | Technology | Next.js frontend/backend, local PostgreSQL for now, LangGraph human-in-the-loop workflows |
+| Staff login | Better Auth, selected by the owner on 9 October 2026; administrator-managed staff accounts, with no public signup |
 
 ## 1. Patient intake and identity creation
 
