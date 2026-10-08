@@ -14,8 +14,10 @@ Last verified: **9 October 2026**. This is a compact navigation record, not a bu
 ## Repository state
 
 - Primary local folder: `C:\Users\prate\OneDrive\Desktop\INS`.
-- Local Git initialized on `main`; source documents and setup records are being saved.
-- GitHub connection and managed development worktree are pending setup verification.
+- Local Git initialized on `main`; initial scope/design/source commit: `7f42681c2fe1fd3a3bf6d5a69a8ab25a491f2082`.
+- Private GitHub repository: [Prateek771/hims-inpatient](https://github.com/Prateek771/hims-inpatient), default branch `main`, `origin` = `https://github.com/Prateek771/hims-inpatient.git`. Privacy and the initial remote commit were verified through GitHub CLI with network access.
+- Attached managed worktree: `C:\Users\prate\.codex\worktrees\hims-development\INS`, branch `codex/hims-development`. Use this checkout for development; the primary folder remains on `main`. Obtain the current attachment/path from Codex if it is later moved or archived.
+- The task's restricted shell may not recognize this worktree outside its initial writable roots. Verification with full repository access confirmed it is a valid clean linked worktree; do not change `core.bare` or rebuild Git metadata in response to that sandbox symptom.
 - No application code, packages, schema, running service or build plan exists yet. No application checks are available.
 
 ## Navigation and checks
