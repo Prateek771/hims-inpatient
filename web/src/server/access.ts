@@ -58,7 +58,7 @@ export function staffContext(staff: Staff, source: string): CommandContext {
 export const admissionPermissions = {
   ADMIN: {
     scope: "operational",
-    actions: ["overview", "exception", "billing-clearance"],
+    actions: ["overview", "money", "exception", "billing-clearance"],
     fields: ["identity", "bed", "status", "money", "clearance"],
   },
   ADMISSION: {
@@ -135,7 +135,8 @@ export async function requireAdmissionAccess(
   )
     throw new DomainError("FORBIDDEN", "Admission access denied");
   const implemented = {
-    ADMIN: ["overview"],
+    ADMIN: ["overview", "money"],
+    BILLING: ["money"],
     ADMISSION: ["intake", "bed-allocation"],
     DOCTOR: ["clinical-read"],
   };
@@ -146,6 +147,11 @@ export async function requireAdmissionAccess(
     )
   )
     throw new DomainError("FORBIDDEN", "Admission access denied");
+  if (action === "money") {
+    const { getBill } = await import("./billing/commands");
+    await getBill(ctx, admissionId);
+    return staff;
+  }
   const { getAdmission } = await import("./admissions/commands");
   await getAdmission(ctx, admissionId);
   return staff;

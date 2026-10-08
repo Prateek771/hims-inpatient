@@ -13,7 +13,7 @@ One Next.js application serves the staff interface and backend. PostgreSQL store
 | `web/src/components/` | Reused interface elements; currently the approved visual shell |
 | `web/tests/e2e/` | Browser and HTTP checks against a real local Next.js server |
 | `web/scripts/` | Browser wrapper, local database provisioning, migration runner and guarded synthetic database fixtures |
-| `web/src/server/` | PostgreSQL pool, Better Auth, server access checks, staff/settings commands, admission identity/reservations and audit |
+| `web/src/server/` | PostgreSQL pool, Better Auth, server access checks, staff/settings commands, admission identity/reservations, deterministic billing and audit |
 | `web/drizzle/` | Generated SQL and schema snapshots; applied SQL checksums are verified before further migrations |
 | `web/package-lock.json` | Locked application/tool dependencies for repeatable installation |
 | `tmp/` | Ignored npm cache, browser binaries and temporary verification output |
@@ -28,4 +28,8 @@ LangGraph and its PostgreSQL saver are installed. They will be configured in the
 
 Better Auth owns password hashing and database sessions; protected commands recheck current role and active status. Staff changes revoke sessions, and serialized administration preserves the last active administrator. Public signup and raw administrative auth endpoints are blocked. Settings append immutable versions with stale-edit protection. See [staff access](docs/STAFF_ACCESS.md). Persisted admissions establish scoped admission-desk, administrator operational and recorded-admitting-doctor reads; unimplemented department assignments remain closed.
 
-Permanent patient identity, pending admission episodes and exclusive physical-bed holds exist. Registration/reservation does not start a room stay or charging; billing activation owns that transition. Pending cancellation preserves identity, IP code and history. See [admission](docs/ADMISSION.md) and [current acceptance status](docs/agent/BUILD_HANDOFF.md). `/api/health` reports application liveness; `/api/health/ready` checks access to the foundational schema and returns a minimal 503 when unavailable. Use synthetic data until the later pilot safeguards are complete. Follow the [implementation plan](docs/superpowers/plans/2026-10-09-hims-inpatient.md) for the remaining modules.
+Permanent patient identity, pending admission episodes and exclusive physical-bed holds exist. Registration/reservation does not start a room stay or charging; billing activation checks configured policies, patient deposit and actual occupancy before starting a tariff-pinned stay. Pending cancellation preserves identity, IP code and history. See [admission](docs/ADMISSION.md) and [current acceptance status](docs/agent/BUILD_HANDOFF.md).
+
+Billing uses bigint paise, exact explicit-unit quantities and immutable charges, finalizations, reversals, receipts and allocations. Financial mutations serialize on their admission. Source identity prevents duplicate charges; separate cash identity protects against counting the same receipt under another retry key. Room reconciliation posts cumulative differences through a cutoff using persisted cursors. Its transaction primitive is shared with future transfers/discharge; importing the worker never starts polling. See [billing](docs/BILLING.md). Department sources, payer responsibility, discharge gates and refunds remain later workflows.
+
+`/api/health` reports application liveness; `/api/health/ready` checks access to the foundational schema and returns a minimal 503 when unavailable. Use synthetic data until the later pilot safeguards are complete. Follow the [implementation plan](docs/superpowers/plans/2026-10-09-hims-inpatient.md) for the remaining modules.

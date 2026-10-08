@@ -98,3 +98,14 @@ th { font-weight: 500; color: var(--muted); }
 dl { margin-top: 16px; display: grid; gap: 12px; }
 @media (max-width: 1050px) { .admission-columns { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 600px) { .admission-fields { grid-template-columns: minmax(0, 1fr); } .search-row { flex-wrap: wrap; } .search-row label { flex-basis: 100%; } .span-two { grid-column: auto; } }
+.billing-metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 16px; }
+.metric { padding: 20px; }
+.metric strong { display: block; font-size: 26px; font-weight: 600; margin: 8px 0; overflow-wrap: anywhere; }
+.metric > p:first-child { font-size: 12px; }
+.billing-columns { display: grid; grid-template-columns: minmax(0,1.9fr) minmax(280px,1fr); gap: 24px; align-items: start; }
+.billing-columns .table-scroll { min-width: 0; }
+.billing-columns td { overflow-wrap: anywhere; }
+.billing-columns .caption { font-size: 11px; }
+.billing-subheading { margin-top: 24px; }
+@media (max-width: 1050px) { .billing-columns { grid-template-columns: minmax(0,1fr); } .billing-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 600px) { .billing-metrics { grid-template-columns: minmax(0,1fr); gap: 0; } .billing-columns table { min-width: 560px; } }

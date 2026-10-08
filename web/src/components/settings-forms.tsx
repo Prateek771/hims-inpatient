@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { formatINR } from "@/server/billing/money";
 type Version = {
   id: string;
   kind: string;
@@ -95,9 +96,9 @@ export function SettingsForms({
     const value: Record<string, unknown> = { type };
     for (const [key, v] of f.entries()) {
       if (key !== "reason" && key !== "expectedVersion")
-        value[key] = ["graceMinutes", "percent"].includes(key) ? Number(v) : v;
+        value[key] = ["graceMinutes", "percent", "quantityScale"].includes(key) ? Number(v) : v;
     }
-    if (type === "bed-category") value.active = f.get("active") === "on";
+    if (["bed-category", "billable-item"].includes(type)) value.active = f.get("active") === "on";
     try {
       const response = await fetch("/api/admin/settings", {
         method: "POST",
@@ -133,7 +134,7 @@ export function SettingsForms({
               0,
               ...versions
                 .filter(
-                  (v) => v.kind === (type === "tariff" ? "tariff" : "rule"),
+                  (v) => v.kind === (["tariff", "billable-item"].includes(type) ? "tariff" : "rule"),
                 )
                 .map((v) => v.version),
             )}
@@ -211,6 +212,26 @@ export function SettingsForms({
             type="number"
             value="0"
           />
+          <label>Grace behavior<select name="graceMode"><option value="deduct-once">Deduct grace once from the start of each stay</option></select></label>
+          <p>Grace is subtracted once per half-open stay. Remaining elapsed time uses the selected exact or started-unit rounding; no recurring daily grace is assumed.</p>
+          <p>An explicitly saved zero room tariff is supported; an absent tariff never implies free accommodation.</p>
+        </>,
+      )}
+      {section(
+        "Billable items and prices",
+        "billable-item",
+        <>
+          <Field label="Stable item code" name="code" />
+          <Field label="Item name" name="name" />
+          <Choice label="Charge category" name="category" choices={["consultation", "procedure", "medicine", "consumable", "lab", "radiology"]} />
+          <Choice label="Source department" name="department" choices={["DOCTOR", "PHARMACY", "NURSE", "LAB"]} />
+          <Field label="Billing unit (e.g. session, test, tablet)" name="unit" />
+          <Field label="Permitted quantity decimal places (0–6)" name="quantityScale" type="number" value="0" />
+          <Field label="Unit price (INR)" name="amount" type="number" />
+          <label className="checkbox"><input type="checkbox" name="active" defaultChecked />Item active</label>
+          <p>Item code, category, source department and unit/scale stay fixed across price versions. Different units require another code; no automatic dose or stock conversions.</p>
+          <p>Zero unit price is an explicit administrator policy version. Missing or inactive configuration still blocks posting.</p>
+          <p>Doctor consultation/procedure → DOCTOR; medicine → PHARMACY; consumable → NURSE; lab/radiology → LAB. Missing/inactive prices block posting. Tax, bundled packages and doctor-specific fee mappings are not configured here.</p>
         </>,
       )}
       {section(
@@ -268,6 +289,7 @@ export function SettingsForms({
                     hospital: "Hospital details",
                     "bed-category": "Bed category",
                     tariff: "Room tariff",
+                    "billable-item": "Billable item price",
                     deposit: "Deposit rule",
                     alert: "Follow-up alert",
                   } as Record<string, string>
@@ -292,6 +314,10 @@ export function SettingsForms({
                             basis: "Billing unit / alert basis",
                             rounding: "Rounding",
                             graceMinutes: "Grace period (minutes)",
+                            graceMode: "Grace behavior",
+                            quantityScale: "Permitted decimal places",
+                            department: "Source department",
+                            unit: "Billing unit",
                             route: "Payment route",
                             requirement: "Requirement",
                             percent: "Threshold (%)",
@@ -300,7 +326,7 @@ export function SettingsForms({
                       </dt>
                       <dd>
                         {key === "amount"
-                          ? (Number(value) / 100).toFixed(2)
+                          ? formatINR(BigInt(String(value)))
                           : String(value)}
                       </dd>
                     </div>

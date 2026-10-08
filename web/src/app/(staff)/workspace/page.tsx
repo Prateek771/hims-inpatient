@@ -104,6 +104,7 @@ export default async function Workspace() {
           )}
         </section>
       )}
+      {["ADMIN", "BILLING"].includes(staff.role) && <section className="card"><h2>Charges and manual receipts</h2><p>Review real ledger entries, held deposits, allocations and patient/insurer cash recorded by staff.</p><Link className="button" href="/billing">Open charges and receipts</Link></section>}
       <AccountControls />
     </>
   );

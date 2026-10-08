@@ -1,14 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { useStaffSession } from "../support/browser-session";
 
 test("admission desk reserves a pending stay and safely cancels it", async ({
   page,
 }, testInfo) => {
-  await page.goto("/login");
-  await page.getByLabel("Email").fill("admission@e2e.fixture.invalid");
-  await page
-    .getByLabel("Password", { exact: true })
-    .fill("SyntheticE2EOnly123!");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await useStaffSession(page, "ADMISSION");
   await expect(
     page.getByRole("heading", { name: "Welcome, Synthetic E2E ADMISSION" }),
   ).toBeVisible();
@@ -92,12 +88,7 @@ test("admission desk reserves a pending stay and safely cancels it", async ({
 test("administrator can add beds and admission staff cannot manage inventory", async ({
   page,
 }) => {
-  await page.goto("/login");
-  await page.getByLabel("Email").fill("admin@e2e.fixture.invalid");
-  await page
-    .getByLabel("Password", { exact: true })
-    .fill("SyntheticE2EOnly123!");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await useStaffSession(page, "ADMIN");
   await expect(
     page.getByRole("heading", { name: "Welcome, Synthetic E2E ADMIN" }),
   ).toBeVisible();
@@ -116,14 +107,7 @@ test("administrator can add beds and admission staff cannot manage inventory", a
     .fill("Synthetic browser disable");
   await row.getByRole("button", { name: "Disable bed" }).click();
   await expect(row.getByText("Disabled", { exact: true })).toBeVisible();
-  await page.goto("/workspace");
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
-  await expect(page).toHaveURL(/login/);
-  await page.getByLabel("Email").fill("admission@e2e.fixture.invalid");
-  await page
-    .getByLabel("Password", { exact: true })
-    .fill("SyntheticE2EOnly123!");
-  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await useStaffSession(page, "ADMISSION");
   await expect(
     page.getByRole("heading", { name: "Welcome, Synthetic E2E ADMISSION" }),
   ).toBeVisible();

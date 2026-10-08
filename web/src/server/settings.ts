@@ -47,6 +47,16 @@ export const settingInput = z.strictObject({
       basis: z.enum(["hour", "24-hours"]),
       rounding: z.enum(["exact", "started-unit"]),
       graceMinutes: z.number().int().min(0).max(1440),
+      graceMode: z.literal("deduct-once").optional(),
+    }).refine((v) => v.graceMinutes === 0 || v.graceMode === "deduct-once", "Choose explicit grace behavior"),
+    z.strictObject({
+      type: z.literal("billable-item"), code: key,
+      name: z.string().trim().min(2).max(120),
+      category: z.enum(["consultation", "procedure", "medicine", "consumable", "lab", "radiology"]),
+      department: z.enum(["DOCTOR", "PHARMACY", "NURSE", "LAB"]),
+      unit: z.string().trim().regex(/^[a-z][a-z0-9-]{0,31}$/),
+      quantityScale: z.number().int().min(0).max(6),
+      amount: money, active: z.boolean(),
     }),
     z.strictObject({
       type: z.literal("deposit"),
@@ -117,12 +127,19 @@ export async function saveSetting(h: Headers, input: unknown) {
           identity: { address: value.value.address },
         })
         .where(eq(hospitalSettings.id, hospital.id));
-    const kind = value.value.type === "tariff" ? "tariff" : "rule";
+    const kind = ["tariff", "billable-item"].includes(value.value.type) ? "tariff" : "rule";
     const versions = await tx
       .select()
       .from(settingVersions)
       .where(eq(settingVersions.hospitalId, hospital.id))
       .orderBy(desc(settingVersions.version));
+    if (value.value.type === "billable-item") {
+      const item = value.value;
+      const departments = { consultation: "DOCTOR", procedure: "DOCTOR", medicine: "PHARMACY", consumable: "NURSE", lab: "LAB", radiology: "LAB" };
+      if (item.department !== departments[item.category]) throw new DomainError("VALIDATION", "Configure the item in its source department");
+      const prior = versions.find((v) => v.payload.type === "billable-item" && v.payload.code === item.code);
+      if (prior && (prior.payload.category !== item.category || prior.payload.department !== item.department || prior.payload.unit !== item.unit || prior.payload.quantityScale !== item.quantityScale)) throw new DomainError("CONFLICT", "Item identity, department and quantity unit/scale are stable; use a new code for a different item");
+    }
     if (value.value.type === "tariff" || value.value.type === "deposit") {
       const code = value.value.category;
       const category = versions.find(

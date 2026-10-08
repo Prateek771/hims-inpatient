@@ -3,6 +3,9 @@ import { requireStaff, staffContext } from "@/server/access";
 import { getAdmission } from "@/server/admissions/commands";
 import { DomainError } from "@/server/contracts";
 import { CancelAdmissionForm } from "@/components/admission-forms";
+import { getDepositSummary } from "@/server/billing/commands";
+import { formatINR } from "@/server/billing/money";
+import { ActivationForm, ReceiptForm } from "@/components/billing-forms";
 
 export default async function PatientAdmissionPage({
   params,
@@ -21,6 +24,7 @@ export default async function PatientAdmissionPage({
     if (error instanceof DomainError && error.code === "FORBIDDEN") notFound();
     throw error;
   }
+  const deposit = ["ADMISSION", "ADMIN"].includes(staff.role) ? await getDepositSummary(staffContext(staff, "deposit-summary"), admissionId) : null;
   return (
     <>
       <p className="eyebrow">Patient admission record</p>
@@ -118,6 +122,16 @@ export default async function PatientAdmissionPage({
           </p>
         </section>
       )}
+      {record.status === "PENDING" &&
+        ["ADMISSION", "ADMIN"].includes(staff.role) && (
+          <section className="card">
+            <h2>Deposit and activation</h2>
+            <p>Required patient deposit: {deposit?.requiredPaise === null || deposit?.requiredPaise === undefined ? "Policy unavailable" : formatINR(deposit.requiredPaise)} · received {formatINR(deposit?.paidPaise ?? 0n)}.</p>
+            {deposit?.policyIssue && <p className="notice">{deposit.policyIssue}</p>}
+            <ReceiptForm admissionId={admissionId} requestId={crypto.randomUUID()} depositOnly />
+            <ActivationForm admissionId={admissionId} version={record.version} requestId={crypto.randomUUID()} />
+          </section>
+        )}
       {record.status === "PENDING" &&
         ["ADMISSION", "ADMIN"].includes(staff.role) && (
           <section className="card">

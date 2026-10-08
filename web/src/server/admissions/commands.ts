@@ -17,6 +17,7 @@ import {
   bedHolds,
   beds,
   patients,
+  roomStays,
 } from "./schema";
 
 const categoryCode = z
@@ -425,6 +426,7 @@ export async function cancelAdmission(ctx: CommandContext, input: unknown) {
       .update(admissions)
       .set({
         status: "CANCELLED",
+        version: sql`${admissions.version}+1`,
         cancelledAt: new Date(),
         cancellationReason: value.reason,
       })
@@ -493,6 +495,7 @@ export async function getAdmission(ctx: CommandContext, admissionId: string) {
     bedLabel: record.bedLabel,
     registeredAt: record.admission.registeredAt,
     admittedAt: record.admission.admittedAt,
+    version: record.admission.version,
   };
   if (staff.role === "ADMIN") return common;
   if (staff.role === "DOCTOR")
@@ -507,6 +510,35 @@ export async function getAdmission(ctx: CommandContext, admissionId: string) {
     paymentRoute: record.admission.paymentRoute,
     expectedStayDays: record.admission.expectedStayDays,
   };
+}
+
+export async function activateAdmission(ctx: CommandContext, input: unknown) {
+  const value = z.strictObject({ admissionId: z.uuid(), arrivedAt: z.iso.datetime(), expectedVersion: z.number().int().min(1), exceptionId: z.uuid().optional(), requestId: z.uuid() }).parse(input);
+  if (ctx.requestId !== value.requestId) throw new DomainError("VALIDATION", "Request keys disagree");
+  const { billingRequest, resolveActivationPolicies, patientDepositCash } = await import("../billing/commands");
+  return withTransaction(async (tx) => {
+    await admissionOperator(ctx, ["ADMISSION", "ADMIN"], tx);
+    return billingRequest(tx, ctx, "activation", value, async () => {
+      const [episode] = await tx.select().from(admissions).where(eq(admissions.id, value.admissionId)).for("update");
+      if (!episode) throw new DomainError("FORBIDDEN", "Admission access denied");
+      if (episode.version !== value.expectedVersion) throw new DomainError("CONFLICT", "Admission changed. Refresh before activation");
+      if (episode.status !== "PENDING") throw new DomainError("PRECONDITION", "Only a pending admission can activate");
+      if (value.exceptionId) throw new DomainError("PRECONDITION", "Activation exceptions require the administrator exception workflow, which is not yet available");
+      const [bed] = await tx.select().from(beds).where(eq(beds.id, episode.bedId)).for("update");
+      const [hold] = await tx.select().from(bedHolds).where(eq(bedHolds.bedId, bed.id));
+      if (!bed.active || hold?.admissionId !== episode.id) throw new DomainError("CONFLICT", "The reserved bed is no longer available");
+      const policies = await resolveActivationPolicies(tx, episode);
+      if (await patientDepositCash(tx, episode.id) < policies.requiredPaise) throw new DomainError("PRECONDITION", "Record the configured patient deposit before activation");
+      const arrivedAt = new Date(value.arrivedAt);
+      // Staff records actual bed occupancy, not registration or waiting time. A retrospective
+      // entry must still fit the persisted reservation chronology; exceptions belong to Task 12.
+      if (arrivedAt < episode.registeredAt || arrivedAt < hold.heldAt || arrivedAt.getTime() > Date.now()) throw new DomainError("VALIDATION", "Actual bed occupancy must start after this reservation and no later than now");
+      await tx.insert(roomStays).values({ admissionId: episode.id, bedId: bed.id, tariffVersionId: policies.tariff.id, startedAt: arrivedAt, lastReconciledAt: arrivedAt });
+      await tx.update(admissions).set({ status: "ADMITTED", admittedAt: arrivedAt, depositVersionId: policies.deposit.id, version: episode.version + 1, billRevision: episode.billRevision + 1 }).where(eq(admissions.id, episode.id));
+      await appendAudit(tx, ctx, { event: "admission.activated", entityType: "admission", entityId: episode.id, reason: "Configured deposit checked; occupied stay started once", beforeVersion: episode.version, afterVersion: episode.version + 1 });
+      return { id: episode.id };
+    });
+  });
 }
 
 export async function admissionWorkspace(ctx: CommandContext) {

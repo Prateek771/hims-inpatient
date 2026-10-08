@@ -124,6 +124,9 @@ export const admissions = hims.table(
       .references(() => user.id),
     requestId: uuid("request_id").notNull(),
     requestPayload: text("request_payload").notNull(),
+    version: integer("version").notNull().default(1),
+    billRevision: integer("bill_revision").notNull().default(1),
+    depositVersionId: uuid("deposit_version_id").references(() => settingVersions.id),
   },
   (t) => [
     uniqueIndex("admission_retry_idx").on(t.createdBy, t.requestId),
@@ -178,6 +181,8 @@ export const roomStays = hims.table(
       .references(() => settingVersions.id),
     startedAt: time("started_at").notNull(),
     endedAt: time("ended_at"),
+    lastReconciledAt: time("last_reconciled_at"),
+    postedPaise: bigint("posted_paise", { mode: "bigint" }).notNull().default(sql`0`),
   },
   (t) => [
     index("room_stays_admission_idx").on(t.admissionId),
@@ -190,5 +195,7 @@ export const roomStays = hims.table(
       "room_stay_boundary",
       sql`${t.endedAt} is null or ${t.endedAt} > ${t.startedAt}`,
     ),
+    check("room_stay_posted_positive", sql`${t.postedPaise} >= 0`),
+    check("room_stay_cursor_boundary", sql`${t.lastReconciledAt} is null or (${t.lastReconciledAt} >= ${t.startedAt} and (${t.endedAt} is null or ${t.lastReconciledAt} <= ${t.endedAt}))`),
   ],
 );

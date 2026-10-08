@@ -32,11 +32,12 @@ export function AppShell({
       ? [{ label: "Admissions & beds", href: "/admissions" }]
       : role === "ADMIN"
         ? [
+            { label: "Charges & payments", href: "/billing" },
             { label: "Bed inventory", href: "/admin/beds" },
             { label: "Hospital settings", href: "/admin/settings" },
             { label: "Manage staff", href: "/admin/staff" },
           ]
-        : [];
+        : role === "BILLING" ? [{ label: "Charges & payments", href: "/billing" }] : [];
   return (
     <>
       <a className="skip-link" href="#main-content">
