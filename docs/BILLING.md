@@ -23,7 +23,7 @@ Only administrator/billing financial projections and a limited admission deposit
 
 ## Room charging
 
-Each stay pins its tariff version and uses a half-open time interval. Reconciliation calculates cumulative due and posts only its difference from the persisted amount. This prevents rounding each polling fragment separately. Database locks, unique source events and persisted cursors protect retries, concurrent workers and restart catch-up. A final cutoff earlier than already posted history requires an explicit correction workflow.
+Each stay pins its tariff version and uses a half-open time interval. Reconciliation calculates cumulative due and posts only its difference from the persisted amount. This prevents rounding each polling fragment separately. Database locks, unique source events and persisted cursors protect retries, concurrent workers and restart catch-up. A cutoff later than server now is rejected without posting or advancing its cursor. A final cutoff earlier than already posted history requires an explicit correction workflow.
 
 Reading or refreshing a bill estimates room charges without posting. Staff can explicitly reconcile. The worker is a separate process and is not installed as a Windows service:
 

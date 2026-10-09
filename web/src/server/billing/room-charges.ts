@@ -11,7 +11,7 @@ import { charges } from "./schema";
 import { actorColumns, bumpBillRevision, fingerprint, roomPolicyInput } from "./commands";
 import { paise, roomDue } from "./money";
 function validateCutoff(cutoff: Date) {
-  if (!(cutoff instanceof Date) || !Number.isFinite(cutoff.getTime()) || cutoff.getTime() > Date.now() + 60000)
+  if (!(cutoff instanceof Date) || !Number.isFinite(cutoff.getTime()) || cutoff.getTime() > Date.now())
     throw new DomainError("VALIDATION", "Use a valid cutoff no later than now");
 }
 async function roomDeltas(tx: Transaction, admissionId: string, cutoff: Date) {

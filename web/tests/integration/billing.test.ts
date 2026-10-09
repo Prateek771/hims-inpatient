@@ -232,6 +232,15 @@ describe("billing with actual PostgreSQL transactions", () => {
       await activateAdmission(c, {
         admissionId: a.admissionId, arrivedAt: start.toISOString(), expectedVersion: 1, requestId: c.requestId
       });
+      const financialState = async () => (await runtime.query("select a.bill_revision,s.last_reconciled_at,s.posted_paise,(select count(*)::int from hims.charges where admission_id=a.id) charge_count from hims.admissions a join hims.room_stays s on s.admission_id=a.id where a.id=$1", [a.admissionId])).rows;
+      const unchanged = await financialState();
+      const future = new Date(Date.now() + 30000);
+      await expect(reconcileBill(f.ctx(), { admissionId: a.admissionId, cutoff: future.toISOString() })).rejects.toMatchObject({ code: "VALIDATION" });
+      expect(await financialState()).toEqual(unchanged);
+      await expect(postDueRoomCharges(future)).rejects.toMatchObject({ code: "VALIDATION" });
+      expect(await financialState()).toEqual(unchanged);
+      await expect(getBill(f.ctx(), a.admissionId, future)).rejects.toMatchObject({ code: "VALIDATION" });
+      expect(await financialState()).toEqual(unchanged);
       const half = new Date(start.getTime() + 1800000), hour = new Date(start.getTime() + 3600000), twoHours = new Date(start.getTime() + 7200000);
       const estimate = await getBill(f.ctx(), a.admissionId, hour);
       expect(estimate.netPaise).toBe(0n);
@@ -261,6 +270,10 @@ describe("billing with actual PostgreSQL transactions", () => {
       const rows = (await runtime.query("select last_reconciled_at,posted_paise from hims.room_stays where admission_id=$1", [a.admissionId])).rows;
       expect(rows[0].last_reconciled_at.toISOString()).toBe(twoHours.toISOString());
       expect(rows[0].posted_paise).toBe("20002");
+      const current = new Date();
+      await reconcileBill(f.ctx(), { admissionId: a.admissionId, cutoff: current.toISOString() });
+      expect(await postDueRoomCharges(current)).toBe(0n);
+      expect((await getBill(f.ctx(), a.admissionId, current)).unpostedRoomPaise).toBe(0n);
     });
   }, 120000);
   it("blocks ambiguous/absent policy and insurer cash as patient deposit; uses exact transfer segments", async () => {
