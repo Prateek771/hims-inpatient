@@ -12,8 +12,8 @@ import * as discharge from "../../src/server/discharge/commands";
 import * as nursing from "../../src/server/nursing/commands";
 import * as billing from "../../src/server/billing/commands";
 import { Client } from "pg";
-import { appendFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import * as schema from "../../src/server/schema";
 import { sql } from "drizzle-orm";
@@ -43,7 +43,9 @@ async function observedReaderRace<T>(runtime: Client, writer: NodePgDatabase<typ
     expect(readerPid).toBeDefined();
     expect(readerPid).not.toBe(writerPid);
     console.info("Task12 admission contention", { writerPid, readerPid, blockingObserved: true });
-    appendFileSync(resolve(process.cwd(), "../tmp/review/task12-fix1-contention.jsonl"), JSON.stringify({ at: new Date().toISOString(), test: expect.getState().currentTestName, writerPid, readerPid, blockingObserved: true }) + "\n");
+    const contentionPath = resolve(process.cwd(), "../tmp/review/task12-fix1-contention.jsonl");
+    mkdirSync(dirname(contentionPath), { recursive: true });
+    appendFileSync(contentionPath, JSON.stringify({ at: new Date().toISOString(), test: expect.getState().currentTestName, writerPid, readerPid, blockingObserved: true }) + "\n");
     release();
     return { result: await second, written: await first };
   } finally { release(); await Promise.allSettled([first, second]); }
