@@ -267,7 +267,11 @@ export default async function ClinicalPage({
               </section>
               <TransferTimeline chart={chart} />
               <section className="card">
-                <h2>Clinical summary &amp; prescription</h2>
+                <h2>Diagnostic reports for doctor review</h2>
+                <p className="caption">Human lab/radiology results. The doctor decides the care plan; a stop does not erase completed evidence.</p>
+                {chart.diagnosticReports.map(r=><article className="care-entry" data-testid="doctor-diagnostic-report" key={r.id}><h3>{chart.orders.find(o=>o.id===r.orderId)?.requestedItem}</h3><p>{r.result}</p><p className="caption">Lab signer {chart.actors[r.signedBy]??r.signedBy} · {r.signedAt.toISOString()} UTC</p>{chart.diagnosticAddenda.filter(a=>a.reportId===r.id).map(a=><div key={a.id} className="care-entry"><strong>Addendum · {a.reason}</strong><p>{a.text}</p><p className="caption">{chart.actors[a.signedBy]??a.signedBy} · {a.signedAt.toISOString()} UTC</p></div>)}</article>)}
+                {!chart.diagnosticReports.length&&<p>No diagnostic reports have been signed for this admission.</p>}
+                <h2 className="billing-subheading">Clinical summary &amp; prescription</h2>
                 <p>
                   Sign a new document version. This clinical signature does not
                   issue discharge clearance.

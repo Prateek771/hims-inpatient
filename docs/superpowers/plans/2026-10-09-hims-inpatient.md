@@ -8,7 +8,7 @@
 
 **Tech Stack:** Owner-selected Next.js, PostgreSQL, LangGraph and Better Auth (staff login confirmed 9 October 2026). Foundation uses TypeScript, Tailwind from the official Next.js scaffold, Drizzle/node-postgres, Zod, Vitest and Playwright. Add barcode/QR libraries only when their tasks need them. AI/OCR providers remain unselected.
 
-**Spec:** [Confirmed scope](../../PROJECT_SCOPE.md), [approved design reference](../../DESIGN_REFERENCE.md) and [agent rules](../../../AGENTS.md). Recorded 9 October 2026 against setup baseline `8c674f7633883d690d717015ec58b64e03c5d701`. Tasks 1-5 are implemented, locally verified and independently reviewed; Tasks 6-16 remain to build. See [setup status](../../SETUP_STATUS.md) for actual evidence, installed packages and limitations.
+**Spec:** [Confirmed scope](../../PROJECT_SCOPE.md), [approved design reference](../../DESIGN_REFERENCE.md) and [agent rules](../../../AGENTS.md). Recorded 9 October 2026 against setup baseline `8c674f7633883d690d717015ec58b64e03c5d701`. Tasks1–9 are implemented, locally verified and independently reviewed; Tasks10–16 remain to build. See [setup status](../../SETUP_STATUS.md) for actual evidence, installed packages and limitations.
 
 ## Global constraints
 
@@ -185,9 +185,11 @@ Task8 acceptance: independent specification/quality review accepted after physic
 
 **Interfaces:** produces `collectSample(ctx, { orderId, requestId })`, `recordLabReport(ctx, { orderId, result, reportDocumentId?, requestId })` and authorized sample lookup. Sample IDs/barcodes uniquely bind to patient/admission/order.
 
-- [ ] Write tests that an unknown/wrong-patient barcode cannot complete an order, repeat scan/completion does not double-charge, and pending lab charges finalize once. Test keyboard-wedge scanner input and readable printed sample labels in the browser.
-- [ ] Use a maintained barcode renderer such as `bwip-js` after compatibility/license review rather than a custom encoder. Support order -> collection -> processing -> report and radiology's corresponding report workflow; no instrument integrations are assumed.
-- [ ] Run lab integration/E2E and affected charges tests, lint/typecheck; commit `feat: add lab worklist and sample barcodes`.
+- [x] Write tests that an unknown/wrong-patient barcode cannot complete an order, repeat scan/completion does not double-charge, and pending lab charges finalize once. Test keyboard-wedge scanner input and readable printed sample labels in the browser.
+- [x] Use a maintained barcode renderer such as `bwip-js` after compatibility/license review rather than a custom encoder. Support order -> collection -> processing -> report and radiology's corresponding report workflow; no instrument integrations are assumed.
+- [x] Run lab integration/E2E and affected charges tests, lint/typecheck; commit `feat: add lab worklist and sample barcodes`.
+
+Task9 acceptance: independent specification/quality and12-assertion rollback runtime probe accepted; full33 unit/33 actual PostgreSQL/lint/types/build/17 ChromiumHTTP checks passed, runtime audit0. Reviewed ordinary0019–0022 applied with baseline preservation and literal SQL bytes intact. [Lab](../../LAB.md) records actual barcode/report/source contracts, collected-stopped review limits and protected-file/post-closure-report boundaries. Owner-directed successor chat GPT6.1SolExtraHigh begins at Task10 after this active checkpoint is saved; one build chat edits INS at a time.
 
 ## Task 10: Staff-entered insurance decisions and protected documents
 

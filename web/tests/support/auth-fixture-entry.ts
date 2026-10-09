@@ -5,7 +5,7 @@ import { user } from "../../src/server/schema/auth";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 async function prepare() {
-  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY"] as const) {
+  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB"] as const) {
     const email = `${role.toLowerCase()}@e2e.fixture.invalid`;
     const [existing] = await db
       .select()
@@ -95,9 +95,10 @@ async function prepare() {
   await prepareCareFixtures(h);
   await prepareTransferFixtures(h);
   await preparePharmacyFixtures(h);
+  await prepareLabFixtures(h);
   // Workflow browser contexts reuse real synthetic sessions, avoiding unrelated login-limiter traffic.
   // These signed cookies are credentials and stay exclusively inside the ignored test output folder.
-  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY"] as const) {
+  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB"] as const) {
     const response = await getAuth().api.signInEmail({ asResponse: true, body: { email: `${role.toLowerCase()}@e2e.fixture.invalid`, password: "SyntheticE2EOnly123!" } });
     if (!response.ok) throw new Error("Synthetic storage-state sign-in failed");
     const cookies = response.headers.getSetCookie().map((header) => {
@@ -228,6 +229,24 @@ async function preparePharmacyFixtures(adminHeaders: Headers) {
   const stock=ctx("PHARMACY"),suffix=crypto.randomUUID();
   const batch=await recordStockReceipt(stock,{medicineId:"E2E_PHARM",batchNo:`E2E-${suffix}`,expiresOn:"2099-12-31",quantity:"20",unit:"tablet",barcode:`SYNTH-${suffix}`,reference:"Synthetic browser stock",reorderThreshold:"18",requestId:stock.requestId});
   writeFileSync(resolve("tmp/e2e-pharmacy.json"),JSON.stringify({admissionId:a.admissionId,orderId:order.id,batchId:batch.id,barcode:`SYNTH-${suffix}`,prescriptionVersionId:rx.id}));
+}
+
+async function prepareLabFixtures(adminHeaders:Headers){
+  const {listSettings,saveSetting}=await import("../../src/server/settings");
+  const {createBed,createAdmission,activateAdmission}=await import("../../src/server/admissions/commands");
+  const {recordRound,getCare}=await import("../../src/server/clinical/commands");
+  const {recordReceipt}=await import("../../src/server/billing/commands");
+  const staff=await db.select({id:user.id,email:user.email}).from(user),id=(role:string)=>staff.find(s=>s.email===`${role.toLowerCase()}@e2e.fixture.invalid`)!.id;
+  const ctx=(role:string)=>({actor:{type:"staff" as const,staffId:id(role)},source:"synthetic-browser-lab",requestId:crypto.randomUUID()});
+  for(const [code,category,name] of [["E2E_LAB","lab","Synthetic CBC"],["E2E_RADIO","radiology","Synthetic radiology"]]){
+    const settings=await listSettings(adminHeaders);await saveSetting(adminHeaders,{expectedVersion:Math.max(0,...settings.versions.filter(v=>v.kind==="tariff").map(v=>v.version)),reason:"Synthetic diagnostic price",value:{type:"billable-item",code,name,category,department:"LAB",unit:"test",quantityScale:0,amount:"100",active:true}});
+  }
+  const bed=await createBed(ctx("ADMIN"),{label:`Synthetic lab ${crypto.randomUUID()}`,category:"GENERAL",reason:"Independent synthetic lab inventory"}),aCtx=ctx("ADMISSION");
+  const a=await createAdmission(aCtx,{patientDetails:{name:"Synthetic E2E lab patient",ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Private lab patient clinical assessment",vitals:"Synthetic vitals",triage:"Synthetic routing",destinationCategory:"GENERAL"},bedId:bed.id,paymentRoute:"SELF_PAY",expectedStayDays:2,requestId:aCtx.requestId});
+  const receipt=ctx("BILLING");await recordReceipt(receipt,{admissionId:a.admissionId,party:"PATIENT",kind:"DEPOSIT",amountPaise:"50000",mode:"CASH",channel:"Synthetic lab book",sourceReference:crypto.randomUUID(),reference:"Synthetic lab deposit",requestId:receipt.requestId});
+  const ac=ctx("ADMISSION");await activateAdmission(ac,{admissionId:a.admissionId,expectedVersion:1,arrivedAt:new Date().toISOString(),requestId:ac.requestId});
+  const dc=ctx("DOCTOR");await recordRound(dc,{admissionId:a.admissionId,notes:"Private diagnostic clinician notes must stay out of Lab",orders:[{kind:"LAB",requestedItem:"Synthetic CBC",itemId:"E2E_LAB",quantity:"1",unit:"test"},{kind:"RADIOLOGY",requestedItem:"Synthetic radiology",itemId:"E2E_RADIO",quantity:"1",unit:"test"}],requestId:dc.requestId});
+  const chart=await getCare(ctx("DOCTOR"),a.admissionId);writeFileSync(resolve("tmp/e2e-lab.json"),JSON.stringify({admissionId:a.admissionId,orderId:chart.orders.find(o=>o.kind==="LAB")!.id,radiologyId:chart.orders.find(o=>o.kind==="RADIOLOGY")!.id}));
 }
 
 prepare()

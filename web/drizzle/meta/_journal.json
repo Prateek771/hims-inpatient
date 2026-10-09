@@ -134,6 +134,34 @@
       "when": 1791536579883,
       "tag": "0018_pharmacy_receipt_source",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1791540183319,
+      "tag": "0019_lab_work",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1791540183323,
+      "tag": "0020_lab_source_type",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1791540183326,
+      "tag": "0021_lab_stop_and_signing",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1791540183329,
+      "tag": "0022_lab_constraint_names",
+      "breakpoints": true
     }
   ]
 }

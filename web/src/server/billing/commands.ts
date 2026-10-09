@@ -320,6 +320,7 @@ async function billProjection(tx: Transaction, episode: typeof admissions.$infer
   const allocations = cashIds.length ? await tx.select().from(receiptAllocations).where(inArray(receiptAllocations.receiptId, cashIds)) : [];
   const finalized = new Set(finalizations.map((r) => r.chargeId));
   const isFinal = (r: typeof charges.$inferSelect) => r.initialStatus === "FINAL" || finalized.has(r.id);
+  const netPending = (r: typeof charges.$inferSelect) => r.amountPaise - reversals.filter(v=>v.chargeId===r.id).reduce((n,v)=>n+v.amountPaise,0n);
   const grossPaise = lines.filter(isFinal).reduce((n, r) => n + r.amountPaise, 0n);
   const reversedPaise = reversals.filter((r) => lines.some((c) => c.id === r.chargeId && isFinal(c))).reduce((n, r) => n + r.amountPaise, 0n);
   const netPaise = grossPaise - reversedPaise;
@@ -330,7 +331,7 @@ async function billProjection(tx: Transaction, episode: typeof admissions.$infer
   const billPaidPaise = cash.filter((r) => r.kind === "PAYMENT").reduce((n, r) => n + r.amountPaise, 0n) + depositAllocatedPaise;
   const unpostedRoomPaise = await estimateRoomChargesInTransaction(tx, episode.id, cutoff);
   return {
-    admissionId: episode.id, status: episode.status, ipCode: episode.ipCode, paymentRoute: episode.paymentRoute, revision: episode.billRevision, asOf: cutoff, grossPaise, reversedPaise, netPaise, pendingPaise: lines.filter((r) => !isFinal(r)).reduce((n, r) => n + r.amountPaise, 0n), patientCashPaise, insurerCashPaise, depositCashPaise, depositAllocatedPaise, unallocatedDepositPaise: depositCashPaise - depositAllocatedPaise, billPaidPaise, outstandingPaise: netPaise > billPaidPaise ? netPaise - billPaidPaise : 0n, overpaidPaise: billPaidPaise > netPaise ? billPaidPaise - netPaise : 0n, unpostedRoomPaise, payerResponsibility: episode.paymentRoute === "INSURED" ? "UNAVAILABLE" : "SELF_PAY", charges: lines.map((r) => ({ ...r, status: isFinal(r) ? "FINAL" : "PENDING" })), reversals, receipts: cash, allocations
+    admissionId: episode.id, status: episode.status, ipCode: episode.ipCode, paymentRoute: episode.paymentRoute, revision: episode.billRevision, asOf: cutoff, grossPaise, reversedPaise, netPaise, pendingPaise: lines.filter((r) => !isFinal(r)).reduce((n, r) => n + netPending(r), 0n), patientCashPaise, insurerCashPaise, depositCashPaise, depositAllocatedPaise, unallocatedDepositPaise: depositCashPaise - depositAllocatedPaise, billPaidPaise, outstandingPaise: netPaise > billPaidPaise ? netPaise - billPaidPaise : 0n, overpaidPaise: billPaidPaise > netPaise ? billPaidPaise - netPaise : 0n, unpostedRoomPaise, payerResponsibility: episode.paymentRoute === "INSURED" ? "UNAVAILABLE" : "SELF_PAY", charges: lines.map((r) => ({ ...r, status: isFinal(r) ? "FINAL" : "PENDING" })), reversals, receipts: cash, allocations
   };
 }
 export async function getBill(ctx: CommandContext, admissionId: string, cutoff?: Date) {

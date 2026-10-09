@@ -8,6 +8,7 @@ import { admissions, bedHolds, beds, patients, roomStays } from "../admissions/s
 import { admissionTransfers, transferInsuranceTasks, transferOrders } from "../admissions/transfer-schema";
 import { user } from "../schema/auth";
 import { settingVersions } from "../schema/core";
+import { labDispositions, labReports, labReportAddenda } from "../lab/schema";
 import { appendAudit } from "../audit";
 import {
   billingRequest,
@@ -537,6 +538,8 @@ export async function resolveCareBilling(ctx: CommandContext, input: unknown) {
           .where(eq(careBillingEvents.id, value.sourceEventId));
         if (!source)
           throw new DomainError("FORBIDDEN", "Care source access denied");
+        if(source.orderId && ["lab","radiology"].includes(source.category) && (await tx.select().from(labDispositions).where(eq(labDispositions.orderId,source.orderId))).length)
+          throw new DomainError("PRECONDITION","Unperformed diagnostic work has a retained disposition; do not create a new fee");
         if ((staff.role === "NURSE") !== (source.category === "consumable"))
           throw new DomainError(
             "FORBIDDEN",
@@ -895,6 +898,8 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
     }).map(v => ({ code: String(v.payload.code), name: String(v.payload.name) }));
     const transferBeds = await tx.select({ id: beds.id, label: beds.label, category: beds.category, active: beds.active, held: bedHolds.bedId }).from(beds).leftJoin(bedHolds, eq(bedHolds.bedId, beds.id)).orderBy(asc(beds.label));
     const insuranceTransferTasks = await tx.select().from(transferInsuranceTasks).where(eq(transferInsuranceTasks.admissionId, admissionId));
+    const diagnosticReports = staff.role === "DOCTOR" ? await tx.select().from(labReports).where(eq(labReports.admissionId,admissionId)).orderBy(asc(labReports.signedAt)) : [];
+    const diagnosticAddenda = diagnosticReports.length ? await tx.select().from(labReportAddenda).where(inArray(labReportAddenda.reportId,diagnosticReports.map(r=>r.id))).orderBy(asc(labReportAddenda.signedAt)) : [];
     const signerIds = [
       ...new Set(
         [
@@ -911,6 +916,8 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
           ...nursingCorrections,
           ...signedTransferOrders,
           ...transferHistory,
+          ...diagnosticReports,
+          ...diagnosticAddenda,
         ].map((r) => r.signedBy),
       ),
     ];
@@ -944,6 +951,8 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
           "PENDING",
       })),
       events,
+      diagnosticReports,
+      diagnosticAddenda,
       occurrences,
       observations,
       administrations,

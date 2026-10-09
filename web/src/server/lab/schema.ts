@@ -1,0 +1,14 @@
+import { sql } from "drizzle-orm";
+import { check, index, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { hims } from "../schema/core";
+import { user } from "../schema/auth";
+import { admissions, patients } from "../admissions/schema";
+import { clinicalOrders, clinicalTaskEvents } from "../clinical/schema";
+import { chargeReversals } from "../billing/schema";
+const signed=()=>({signedBy:text("signed_by").notNull().references(()=>user.id),signedAt:timestamp("signed_at",{withTimezone:true}).notNull().default(sql`clock_timestamp()`)});
+const source=(name:string)=>({id:uuid("id").primaryKey().defaultRandom(),orderId:uuid("order_id").notNull().unique(`${name}_order_id_key`).references(()=>clinicalOrders.id),admissionId:uuid("admission_id").notNull().references(()=>admissions.id)});
+export const labSamples=hims.table("lab_samples",{...source("lab_samples"),patientId:uuid("patient_id").notNull().references(()=>patients.id),barcode:text("barcode").notNull().unique("lab_samples_barcode_key"),...signed()},t=>[index("lab_samples_episode_idx").on(t.admissionId),check("lab_samples_barcode_check",sql`${t.barcode} ~ '^SMP-[A-F0-9]{32}$'`)]);
+export const labProcessing=hims.table("lab_processing",{...source("lab_processing"),sampleId:uuid("sample_id").references(()=>labSamples.id),...signed()},t=>[index("lab_processing_episode_idx").on(t.admissionId)]);
+export const labReports=hims.table("lab_reports",{...source("lab_reports"),sampleId:uuid("sample_id").references(()=>labSamples.id),result:text("result").notNull(),...signed()},t=>[index("lab_reports_episode_idx").on(t.admissionId),check("lab_reports_result_check",sql`length(btrim(${t.result})) between 1 and 5000`)]);
+export const labReportAddenda=hims.table("lab_report_addenda",{id:uuid("id").primaryKey().defaultRandom(),reportId:uuid("report_id").notNull().references(()=>labReports.id),text:text("text").notNull(),reason:text("reason").notNull(),...signed()},t=>[index("lab_addenda_report_idx").on(t.reportId),check("lab_report_addenda_text_check",sql`length(btrim(${t.text})) between 1 and 5000`),check("lab_report_addenda_reason_check",sql`length(btrim(${t.reason})) between 3 and 500`)]);
+export const labDispositions=hims.table("lab_dispositions",{...source("lab_dispositions"),stopEventId:uuid("stop_event_id").notNull().references(()=>clinicalTaskEvents.id),reversalId:uuid("reversal_id").references(()=>chargeReversals.id),reason:text("reason").notNull(),...signed()},t=>[index("lab_dispositions_episode_idx").on(t.admissionId),check("lab_dispositions_reason_check",sql`length(btrim(${t.reason})) between 3 and 500`)]);
