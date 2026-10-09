@@ -18,6 +18,7 @@ import {
 } from "@/server/nursing/commands";
 import { DomainError } from "@/server/contracts";
 import type { CareState } from "@/components/care-forms";
+import { transferAdmission } from "@/server/admissions/commands";
 const field = (form: FormData, name: string) => String(form.get(name) ?? "");
 const timestamp = (form: FormData, name: string) =>
   new Date(`${field(form, name)}Z`).toISOString();
@@ -34,7 +35,8 @@ export async function saveNursing(
     | "consumable"
     | "diet"
     | "billing"
-    | "addendum",
+    | "addendum"
+    | "transfer",
   targetId: string,
   shiftId: string,
   scheduledAt: string,
@@ -48,7 +50,10 @@ export async function saveNursing(
     };
     let message = "";
     const recordingShiftId = field(form, "recordingShiftId") || shiftId;
-    if (operation === "revoke") {
+    if (operation === "transfer") {
+      await transferAdmission(ctx, { admissionId, transferOrderId: targetId, targetBedId: field(form, "targetBedId"), transferredAt: timestamp(form, "transferredAt"), handover: { shiftId, notes: field(form, "handover") }, requestId });
+      message = "Transfer and actual handover signed. Exact room stays and charges retained; monitoring continues.";
+    } else if (operation === "revoke") {
       await revokeNurseAssignment(ctx, {
         assignmentId: targetId,
         reason: field(form, "reason"),
@@ -153,6 +158,9 @@ export async function saveNursing(
     revalidatePath("/nursing");
     revalidatePath("/clinical");
     revalidatePath("/admin/care");
+    revalidatePath("/admin/beds");
+    revalidatePath("/admissions");
+    revalidatePath("/billing");
     return { message };
   } catch (error) {
     return {

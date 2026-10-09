@@ -18,6 +18,8 @@ Observations retain scheduled time, actual time, readings and signing identity. 
 
 Consumables remain linked to the episode and the bed/stay/unit where used. Medication administration never creates a second medicine charge: pharmacy issue owns that financial event. Nursing financial clearance will not itself stop monitoring.
 
+[Transfers](TRANSFERS.md) require a current doctor's versioned decision and the assigned nurse's actual handover. Existing orders, occurrences, MAR and consumable locations survive the move. A shift cannot end before its signed transfer; both transfer and closure recheck attendance under the admission lock.
+
 ## Charges and configuration
 
 Clinical documentation is retained when fee configuration is absent or mismatched. An explicit unresolved billing task identifies the gap; missing configuration never becomes a zero-price default. Source IDs, configured rate versions and transactional posting prevent retries from duplicating a fee. Procedure task completion and billing status remain separate. Lab/radiology completion and pharmacy stock fulfillment are implemented in their subsequent modules. See [billing](BILLING.md).

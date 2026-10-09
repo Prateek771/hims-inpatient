@@ -1,0 +1,2 @@
+ALTER TABLE "hims"."transfer_orders" ADD COLUMN "version" integer NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "transfer_order_version_idx" ON "hims"."transfer_orders" USING btree ("admission_id","version");

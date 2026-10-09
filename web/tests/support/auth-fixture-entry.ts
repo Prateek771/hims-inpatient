@@ -93,6 +93,7 @@ async function prepare() {
     );
   await prepareBillingFixtures(h);
   await prepareCareFixtures(h);
+  await prepareTransferFixtures(h);
   // Workflow browser contexts reuse real synthetic sessions, avoiding unrelated login-limiter traffic.
   // These signed cookies are credentials and stay exclusively inside the ignored test output folder.
   for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE"] as const) {
@@ -158,7 +159,7 @@ async function prepareBillingFixtures(adminHeaders: Headers) {
     await reconcileBill(await context("billing"), { admissionId: a.admissionId, cutoff: new Date().toISOString() });
   }
 }
-async function prepareCareFixtures(adminHeaders: Headers) {
+async function prepareCareFixtures(adminHeaders: Headers, transferCase = false) {
   const { requireStaff } = await import("../../src/server/access");
   const { createAdmission, createBed, activateAdmission } = await import("../../src/server/admissions/commands");
   const { recordReceipt } = await import("../../src/server/billing/commands");
@@ -173,7 +174,7 @@ async function prepareCareFixtures(adminHeaders: Headers) {
   const [billing] = await db.select().from(user).where(eq(user.email, "billing@e2e.fixture.invalid"));
   const bed = await createBed(context(admin.id), { label: `Synthetic care ${crypto.randomUUID()}`, category: "GENERAL", reason: "Synthetic care inventory" });
   const deskCtx = context(desk.id);
-  const a = await createAdmission(deskCtx, { patientDetails: { name: "Synthetic E2E care patient", ageYearsAtRegistration: 54, sex: "FEMALE" }, admittingDoctorId: doctor.id, clinicianAssessment: { clinicianId: doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Synthetic complaint", vitals: "Synthetic assessment", triage: "Synthetic destination", destinationCategory: "GENERAL" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 2, requestId: deskCtx.requestId });
+  const a = await createAdmission(deskCtx, { patientDetails: { name: transferCase ? "Synthetic E2E transfer patient" : "Synthetic E2E care patient", ageYearsAtRegistration: 54, sex: "FEMALE" }, admittingDoctorId: doctor.id, clinicianAssessment: { clinicianId: doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Synthetic complaint", vitals: "Synthetic assessment", triage: "Synthetic destination", destinationCategory: "GENERAL" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 2, requestId: deskCtx.requestId });
   const receiptCtx = context(billing.id);
   await recordReceipt(receiptCtx, { admissionId: a.admissionId, party: "PATIENT", kind: "DEPOSIT", amountPaise: "50000", mode: "CASH", channel: "Synthetic care fixture book", sourceReference: crypto.randomUUID(), reference: "Synthetic care deposit", requestId: receiptCtx.requestId });
   const arrival = context(desk.id), startedAt = new Date().toISOString();
@@ -185,7 +186,23 @@ async function prepareCareFixtures(adminHeaders: Headers) {
     { kind: "VITALS", requestedItem: "Synthetic clinician monitoring", schedule: { startsAt: startedAt, intervalMinutes: 60, occurrences: 2 } },
     { kind: "VITALS", requestedItem: "Synthetic unresolved monitoring for handover", schedule: { startsAt: startedAt, intervalMinutes: 60, occurrences: 2 } }
   ] });
-  writeFileSync(resolve("tmp/e2e-care.json"), JSON.stringify({ admissionId: a.admissionId }));
+  if (!transferCase) writeFileSync(resolve("tmp/e2e-care.json"), JSON.stringify({ admissionId: a.admissionId }));
+  return { admissionId: a.admissionId, sourceBedId: bed.id, sourceBedLabel: bed.label };
+}
+
+async function prepareTransferFixtures(adminHeaders: Headers) {
+  const { requireStaff, staffContext } = await import("../../src/server/access");
+  const { listSettings, saveSetting } = await import("../../src/server/settings");
+  const { createBed } = await import("../../src/server/admissions/commands");
+  for (const value of [{ type: "bed-category", code: "ICU", name: "Synthetic ICU", active: true }, { type: "tariff", category: "ICU", amount: "1000", basis: "hour", rounding: "exact", graceMinutes: 0 }]) {
+    const kind = value.type === "tariff" ? "tariff" : "rule";
+    const settings = await listSettings(adminHeaders);
+    await saveSetting(adminHeaders, { value, reason: "Synthetic transfer browser policy", expectedVersion: Math.max(0, ...settings.versions.filter(v => v.kind === kind).map(v => v.version)) });
+  }
+  const admin = await requireStaff(adminHeaders);
+  const bed = await createBed(staffContext(admin, "synthetic-browser-transfer"), { label: `Synthetic transfer ICU ${crypto.randomUUID()}`, category: "ICU", reason: "Independent synthetic transfer target" });
+  const episode = await prepareCareFixtures(adminHeaders, true);
+  writeFileSync(resolve("tmp/e2e-transfer.json"), JSON.stringify({ ...episode, targetBedId: bed.id, targetBedLabel: bed.label }));
 }
 
 prepare()

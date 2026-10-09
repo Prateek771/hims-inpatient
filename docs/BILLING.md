@@ -36,4 +36,6 @@ The first command performs one pass; `--watch` polls every 60 seconds. Importing
 
 ## Remaining workflows
 
+[Transfers](TRANSFERS.md) reconcile the old pinned stay to the factual move boundary and start the new pinned tariff at the same instant. The original room cursor and consumable source remain protected. A normal move cannot backdate behind posted charges or overlap destination occupancy; corrections belong to the attributable exception workflow.
+
 Department sources, verified payer responsibility, discharge gates, refunds and administrator exceptions follow in their owning build tasks. Formula deposits, taxes, discounts, packages and doctor-specific fee schedules are not currently offered. The ordinary local database has no seeded hospital financial policy. Use guarded synthetic fixtures for testing; real hospital policy must be entered by authorized staff.

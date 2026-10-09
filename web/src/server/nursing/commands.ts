@@ -302,6 +302,9 @@ export async function recordShift(ctx: CommandContext, input: unknown) {
   });
 }
 export async function endShift(ctx: CommandContext, input: unknown) {
+  return withTransaction(tx => endShiftInTransaction(tx, ctx, input));
+}
+export async function endShiftInTransaction(tx: Transaction, ctx: CommandContext, input: unknown) {
   const value = z
     .strictObject({
       shiftId: z.uuid(),
@@ -309,7 +312,6 @@ export async function endShift(ctx: CommandContext, input: unknown) {
       handover: text,
     })
     .parse(input);
-  return withTransaction(async (tx) => {
     const staff = await admissionOperator(ctx, ["NURSE"], tx);
     return careRequest(
       tx,
@@ -359,10 +361,13 @@ export async function endShift(ctx: CommandContext, input: unknown) {
           .select()
           .from(nursingConsumables)
           .where(eq(nursingConsumables.shiftId, shift.id));
+        const { admissionTransfers } = await import("../admissions/transfer-schema");
+        const transfers = await tx.select({ transferredAt: admissionTransfers.transferredAt }).from(admissionTransfers).where(and(eq(admissionTransfers.admissionId, shift.admissionId), eq(admissionTransfers.shiftId, shift.id)));
         if (
           mar.some((v) => v.actualAt > endedAt) ||
           vitals.some((v) => v.observedAt > endedAt) ||
-          uses.some((v) => v.usedAt > endedAt)
+          uses.some((v) => v.usedAt > endedAt) ||
+          transfers.some((v) => v.transferredAt > endedAt)
         )
           throw new DomainError(
             "VALIDATION",
@@ -376,9 +381,8 @@ export async function endShift(ctx: CommandContext, input: unknown) {
         return { id: end.id };
       },
     );
-  });
 }
-async function shiftForCare(
+export async function shiftForCare(
   tx: Transaction,
   staff: { id: string; role: string },
   shiftId: string,

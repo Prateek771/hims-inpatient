@@ -1,10 +1,11 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, withTransaction, type Transaction } from "../db";
 import { DomainError, type CommandContext } from "../contracts";
 import { admissionOperator } from "../admissions/commands";
-import { admissions, beds, patients } from "../admissions/schema";
+import { admissions, bedHolds, beds, patients, roomStays } from "../admissions/schema";
+import { admissionTransfers, transferInsuranceTasks, transferOrders } from "../admissions/transfer-schema";
 import { user } from "../schema/auth";
 import { settingVersions } from "../schema/core";
 import { appendAudit } from "../audit";
@@ -362,6 +363,28 @@ export async function recordRoundInTransaction(
 }
 export async function recordRound(ctx: CommandContext, input: unknown) {
   return withTransaction((tx) => recordRoundInTransaction(tx, ctx, input));
+}
+export async function orderTransfer(ctx: CommandContext, input: unknown) {
+  return withTransaction(tx => orderTransferInTransaction(tx, ctx, input));
+}
+export async function orderTransferInTransaction(tx: Transaction, ctx: CommandContext, input: unknown) {
+  const value = z.strictObject({ admissionId: z.uuid(), destinationCategory: z.string().regex(/^[A-Z0-9_-]{2,32}$/), reason: text, requestId: z.uuid() }).parse(input);
+  requestKey(ctx, value.requestId);
+  // Composing callers take this settings/staff lock before staff or admission row locks.
+  await tx.execute(sql`select pg_advisory_xact_lock_shared(729104211)`);
+    const staff = await admissionOperator(ctx, ["DOCTOR"], tx);
+    return careRequest(tx, ctx, staff, "care.transfer-ordered", value, async () => {
+      const episode = await careEpisode(tx, staff, value.admissionId);
+      const [stay] = await tx.select().from(roomStays).where(and(eq(roomStays.admissionId, episode.id), isNull(roomStays.endedAt)));
+      if (!stay) throw new DomainError("PRECONDITION", "An occupied room stay is required");
+      const versions = await tx.select().from(settingVersions).where(eq(settingVersions.hospitalId, episode.hospitalId)).orderBy(desc(settingVersions.version));
+      const category = versions.find(v => v.payload.type === "bed-category" && v.payload.code === value.destinationCategory);
+      if (category?.payload.active !== true) throw new DomainError("PRECONDITION", "Select an active configured destination category");
+      const [previous] = await tx.select({ version: transferOrders.version }).from(transferOrders).where(eq(transferOrders.admissionId, episode.id)).orderBy(desc(transferOrders.version)).limit(1);
+      const [order] = await tx.insert(transferOrders).values({ admissionId: episode.id, sourceStayId: stay.id, version: (previous?.version ?? 0) + 1, destinationCategory: value.destinationCategory, reason: value.reason, signedBy: staff.id }).returning();
+      await clinicalAudit(tx, ctx, "transfer-ordered", order.id, value.reason);
+      return { id: order.id };
+    });
 }
 export async function addClinicalAddendum(ctx: CommandContext, input: unknown) {
   const value = z
@@ -860,6 +883,18 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
       .select()
       .from(nursingAddenda)
       .where(eq(nursingAddenda.admissionId, admissionId));
+    const stays = await tx.select({ stay: roomStays, bedLabel: beds.label, category: beds.category }).from(roomStays).innerJoin(beds, eq(beds.id, roomStays.bedId)).where(eq(roomStays.admissionId, admissionId)).orderBy(asc(roomStays.startedAt));
+    const transferHistory = await tx.select().from(admissionTransfers).where(eq(admissionTransfers.admissionId, admissionId)).orderBy(asc(admissionTransfers.transferredAt));
+    const signedTransferOrders = await tx.select().from(transferOrders).where(eq(transferOrders.admissionId, admissionId)).orderBy(desc(transferOrders.version));
+    const latestVersions = await tx.select().from(settingVersions).where(eq(settingVersions.hospitalId, episode.hospitalId)).orderBy(desc(settingVersions.version));
+    const seenCategories = new Set<string>();
+    const transferCategories = latestVersions.filter(v => {
+      if (v.payload.type !== "bed-category" || typeof v.payload.code !== "string" || seenCategories.has(v.payload.code)) return false;
+      seenCategories.add(v.payload.code);
+      return v.payload.active === true;
+    }).map(v => ({ code: String(v.payload.code), name: String(v.payload.name) }));
+    const transferBeds = await tx.select({ id: beds.id, label: beds.label, category: beds.category, active: beds.active, held: bedHolds.bedId }).from(beds).leftJoin(bedHolds, eq(bedHolds.bedId, beds.id)).orderBy(asc(beds.label));
+    const insuranceTransferTasks = await tx.select().from(transferInsuranceTasks).where(eq(transferInsuranceTasks.admissionId, admissionId));
     const signerIds = [
       ...new Set(
         [
@@ -874,6 +909,8 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
           ...summaries,
           ...consumables,
           ...nursingCorrections,
+          ...signedTransferOrders,
+          ...transferHistory,
         ].map((r) => r.signedBy),
       ),
     ];
@@ -928,6 +965,12 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
       billing,
       consumables,
       nursingAddenda: nursingCorrections,
+      stays: stays.map(s => ({ id: s.stay.id, bedId: s.stay.bedId, startedAt: s.stay.startedAt, endedAt: s.stay.endedAt, bedLabel: s.bedLabel, category: s.category })),
+      transferHistory,
+      transferOrders: signedTransferOrders.map((o, i) => ({ ...o, status: transferHistory.some(t => t.transferOrderId === o.id) ? "COMPLETED" : i !== 0 || !stays.some(s => s.stay.id === o.sourceStayId && !s.stay.endedAt) ? "SUPERSEDED" : "PENDING" })),
+      transferCategories,
+      transferBeds: transferBeds.map(b => ({ id: b.id, label: b.label, category: b.category, available: b.active && !b.held && transferCategories.some(c => c.code === b.category) })),
+      insuranceTransferTasks,
     };
   });
 }

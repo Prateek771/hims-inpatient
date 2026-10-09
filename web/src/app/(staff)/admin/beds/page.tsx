@@ -13,7 +13,7 @@ export default async function BedInventoryPage() {
       <h1>Bed inventory</h1>
       <p className="page-description">
         Create physical beds using configured room categories. Reserved and
-        occupied beds cannot be disabled.
+        occupied beds cannot be disabled. Transfers release the source bed and occupy the target together after doctor authority and a nurse’s actual handover.
       </p>
       <section className="card">
         <h2>Add physical bed</h2>

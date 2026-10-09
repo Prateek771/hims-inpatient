@@ -163,9 +163,9 @@ Task6 acceptance: independent specification/quality review and correction accept
 
 **Interfaces:** produces `transferAdmission(ctx, { admissionId, transferOrderId, targetBedId, handover, transferredAt, requestId }): Promise<{ oldStayId, newStayId }>`; consumes tariff snapshots, clinical order and `postDueRoomCharges`.
 
-- [ ] Write concurrent target-bed/retry tests and assert old end equals new start exactly at `T`, no overlap/gap, correct tariff totals and consumables remaining with their source unit. Verify failures before implementation.
-- [ ] Lock the admission and affected beds consistently; validate clinician order/nursing handover, close/open stays and audit in one transaction. Reconcile charges to `T`; insurance follow-up is a staff task, never an external eligibility call.
-- [ ] Run transfer and affected billing/admission tests, lint/typecheck; commit `feat: add traceable inpatient transfers`.
+- [x] Write concurrent target-bed/retry tests and assert old end equals new start exactly at `T`, no overlap/gap, correct tariff totals and consumables remaining with their source unit. Verify failures before implementation.
+- [x] Lock the admission and affected beds consistently; validate clinician order/nursing handover, close/open stays and audit in one transaction. Reconcile charges to `T`; insurance follow-up is a staff task, never an external eligibility call.
+- [x] Run transfer and affected billing/admission tests, lint/typecheck; commit `feat: add traceable inpatient transfers`.
 
 ## Task 8: Pharmacy stock, issue/return and take-home medicines
 

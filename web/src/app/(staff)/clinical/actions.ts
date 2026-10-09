@@ -9,6 +9,7 @@ import {
   resolveCareBilling,
   signClinicalSummary,
   stopClinicalOrder,
+  orderTransfer,
 } from "@/server/clinical/commands";
 import { DomainError } from "@/server/contracts";
 import type { CareState } from "@/components/care-forms";
@@ -18,7 +19,7 @@ const timestamp = (form: FormData, name: string) =>
 export async function saveClinical(
   admissionId: string,
   requestId: string,
-  operation: "round" | "addendum" | "complete" | "stop" | "billing" | "summary",
+  operation: "round" | "addendum" | "complete" | "stop" | "billing" | "summary" | "transfer",
   targetId: string,
   version: number,
   _previous: CareState,
@@ -71,6 +72,9 @@ export async function saveClinical(
       });
       message =
         "Round signed. Orders and any unresolved billing work are retained.";
+    } else if (operation === "transfer") {
+      await orderTransfer(ctx, { admissionId, destinationCategory: field(form, "destinationCategory"), reason: field(form, "reason"), requestId });
+      message = "Transfer order signed for the current stay. Nursing records the actual bed move and handover.";
     } else if (operation === "addendum") {
       await addClinicalAddendum(ctx, {
         noteId: targetId,

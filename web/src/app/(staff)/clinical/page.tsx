@@ -10,6 +10,7 @@ import { listBillableItems } from "@/server/billing/commands";
 import { DomainError } from "@/server/contracts";
 import { CareField, CareForm, RoundForm } from "@/components/care-forms";
 import { saveClinical } from "./actions";
+import { TransferTimeline } from "@/components/transfer-timeline";
 
 export default async function ClinicalPage({
   searchParams,
@@ -252,6 +253,19 @@ export default async function ClinicalPage({
               </section>
             </div>
             <aside>
+              <section className="card">
+                <h2>Clinician transfer order</h2>
+                {active && chart.transferCategories.length > 0 && <CareForm action={action("transfer")} button="Sign transfer order" testId="transfer-order-form">
+                  <label>Clinical destination<select name="destinationCategory" required>{chart.transferCategories.map(c => <option value={c.code} key={c.code}>{c.name}</option>)}</select></label>
+                  <CareField label="Transfer reason / clinical instructions" name="reason" />
+                  <p className="caption">Nursing selects an available bed in this category and signs the actual handover. A new order supersedes prior uncompleted transfer authority.</p>
+                </CareForm>}
+                {chart.transferOrders.map(o => <article className="care-entry" key={o.id}>
+                  <p>Decision {o.version} · {o.destinationCategory} · <span className="status">{o.status}</span></p><p>{o.reason}</p>
+                  <p className="caption">Doctor signature · {chart.actors[o.signedBy]} · {o.signedAt.toISOString()} UTC</p>
+                </article>)}
+              </section>
+              <TransferTimeline chart={chart} />
               <section className="card">
                 <h2>Clinical summary &amp; prescription</h2>
                 <p>

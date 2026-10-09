@@ -5,6 +5,7 @@ import { careWorkspace, getCare } from "@/server/clinical/commands";
 import { DomainError } from "@/server/contracts";
 import { CareField, CareForm } from "@/components/care-forms";
 import { saveNursing } from "./actions";
+import { TransferTimeline } from "@/components/transfer-timeline";
 
 export default async function NursingPage({
   searchParams,
@@ -358,6 +359,26 @@ export default async function NursingPage({
               </section>
             </div>
             <aside>
+              <section className="card">
+                <h2>Transfer &amp; actual handover</h2>
+                {!chart.transferOrders.some(o => o.status === "PENDING") && <p>No current doctor transfer order. Clinical authority is required before a bed move.</p>}
+                {chart.transferOrders.filter(o => o.status === "PENDING").map(o => {
+                  const targets = chart.transferBeds.filter(b => b.available && b.category === o.destinationCategory);
+                  return <article className="care-entry" key={o.id}>
+                    <p>Decision {o.version} · {o.destinationCategory} · {o.reason}</p>
+                    <p className="caption">Doctor signature · {chart.actors[o.signedBy]} · {o.signedAt.toISOString()} UTC</p>
+                    {!currentShift && <p>Start your assigned shift before signing an actual transfer handover.</p>}
+                    {!targets.length && <p>No available target bed in the clinician-selected category. Availability is checked again when saving.</p>}
+                    {writable && currentShift && targets.length > 0 && <CareForm action={action("transfer", o.id)} button="Sign handover and transfer" testId="transfer-form">
+                      <label>Available target bed<select name="targetBedId" required>{targets.map(b => <option value={b.id} key={b.id}>{b.label} · {b.category}</option>)}</select></label>
+                      <CareField label="Actual transfer time (UTC)" name="transferredAt" type="datetime-local" />
+                      <label>Actual transfer handover<textarea name="handover" required /></label>
+                      <p className="caption">Enter the actual move time after the doctor order, inside your shift and no later than now. Earlier committed room charges or recorded care require the correction workflow.</p>
+                    </CareForm>}
+                  </article>;
+                })}
+              </section>
+              <TransferTimeline chart={chart} />
               <section className="card">
                 <h2>Attendance &amp; handover</h2>
                 {writable && !currentShift && (
