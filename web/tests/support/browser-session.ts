@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-type WorkflowRole = "ADMIN" | "ADMISSION" | "DOCTOR" | "BILLING" | "NURSE" | "PHARMACY" | "LAB";
+type WorkflowRole = "ADMIN" | "ADMISSION" | "DOCTOR" | "BILLING" | "NURSE" | "PHARMACY" | "LAB" | "INSURANCE";
 /** A real synthetic Better Auth session created by the guarded fixture process.
  * Context cookies are isolated per test; switching roles never revokes another test's shared session. */
 export async function useStaffSession(page: Page, role: WorkflowRole) {

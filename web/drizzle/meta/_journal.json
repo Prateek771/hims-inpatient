@@ -162,6 +162,20 @@
       "when": 1791540183329,
       "tag": "0022_lab_constraint_names",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791543238611,
+      "tag": "0023_insurance_cases",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791543447869,
+      "tag": "0024_insurance_history_guards",
+      "breakpoints": true
     }
   ]
 }

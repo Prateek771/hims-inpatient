@@ -337,6 +337,13 @@ async function billProjection(tx: Transaction, episode: typeof admissions.$infer
 export async function getBill(ctx: CommandContext, admissionId: string, cutoff?: Date) {
   return withTransaction((tx) => getBillInTransaction(tx, ctx, admissionId, cutoff));
 }
+/** Internal composition only: caller must hold episode lock and enforce current case access.
+ * Insurance receives amounts, never unrestricted receipt/charge or clinical details. */
+export async function insuranceMoneyInTransaction(tx: Transaction, episode: typeof admissions.$inferSelect) {
+  const b=await billProjection(tx,episode,new Date());
+  const allocationBasis=fingerprint({charges:b.charges.map(c=>({id:c.id,source:c.sourceEventId,status:c.status,amount:c.amountPaise.toString(),tariff:c.tariffVersionId})),reversals:b.reversals.map(r=>({id:r.id,chargeId:r.chargeId,amount:r.amountPaise.toString()})).sort((a,b)=>a.id.localeCompare(b.id))});
+  return {revision:b.revision,allocationBasis,netPaise:b.netPaise,pendingPaise:b.pendingPaise,unpostedRoomPaise:b.unpostedRoomPaise,insurerCashPaise:b.insurerCashPaise,patientCashPaise:b.patientCashPaise,patientAppliedPaise:b.billPaidPaise-b.insurerCashPaise,depositCashPaise:b.depositCashPaise,unallocatedDepositPaise:b.unallocatedDepositPaise};
+}
 /** Role-safe read for final cutoff after room reconciliation within the owning transaction. */
 export async function getBillInTransaction(tx: Transaction, ctx: CommandContext, admissionId: string, cutoff?: Date) {
   await admissionOperator(ctx, ["ADMIN", "BILLING"], tx);

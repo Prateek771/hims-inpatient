@@ -50,6 +50,7 @@ export async function migrate(client: Client) {
     await client.query(`GRANT SELECT, INSERT ON hims.transfer_orders, hims.admission_transfers, hims.transfer_insurance_tasks TO ${runtime};`);
     await client.query(`GRANT SELECT, INSERT ON hims.pharmacy_batches, hims.pharmacy_movements, hims.pharmacy_preparations TO ${runtime}; GRANT UPDATE (available_quantity) ON hims.pharmacy_batches TO ${runtime};`);
     await client.query(`GRANT SELECT, INSERT ON hims.lab_samples, hims.lab_processing, hims.lab_reports, hims.lab_report_addenda, hims.lab_dispositions TO ${runtime};`);
+    await client.query(`GRANT SELECT, INSERT ON hims.insurance_cases, hims.insurance_events, hims.insurance_decisions, hims.insurance_documents, hims.insurance_conversions, hims.insurance_transfer_resolutions TO ${runtime}; GRANT UPDATE (assigned_staff_id, version, review_revision, document_set_revision) ON hims.insurance_cases TO ${runtime};`);
   } finally {
     await client.query("SELECT pg_advisory_unlock(729104209)");
   }

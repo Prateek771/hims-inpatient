@@ -4,8 +4,9 @@ import { createStaffAuth } from "../../src/server/auth";
 import { user } from "../../src/server/schema/auth";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import assert from "node:assert/strict";
 async function prepare() {
-  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB"] as const) {
+  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB", "INSURANCE"] as const) {
     const email = `${role.toLowerCase()}@e2e.fixture.invalid`;
     const [existing] = await db
       .select()
@@ -96,9 +97,10 @@ async function prepare() {
   await prepareTransferFixtures(h);
   await preparePharmacyFixtures(h);
   await prepareLabFixtures(h);
+  await prepareInsuranceFixtures(h);
   // Workflow browser contexts reuse real synthetic sessions, avoiding unrelated login-limiter traffic.
   // These signed cookies are credentials and stay exclusively inside the ignored test output folder.
-  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB"] as const) {
+  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB", "INSURANCE"] as const) {
     const response = await getAuth().api.signInEmail({ asResponse: true, body: { email: `${role.toLowerCase()}@e2e.fixture.invalid`, password: "SyntheticE2EOnly123!" } });
     if (!response.ok) throw new Error("Synthetic storage-state sign-in failed");
     const cookies = response.headers.getSetCookie().map((header) => {
@@ -247,6 +249,46 @@ async function prepareLabFixtures(adminHeaders:Headers){
   const ac=ctx("ADMISSION");await activateAdmission(ac,{admissionId:a.admissionId,expectedVersion:1,arrivedAt:new Date().toISOString(),requestId:ac.requestId});
   const dc=ctx("DOCTOR");await recordRound(dc,{admissionId:a.admissionId,notes:"Private diagnostic clinician notes must stay out of Lab",orders:[{kind:"LAB",requestedItem:"Synthetic CBC",itemId:"E2E_LAB",quantity:"1",unit:"test"},{kind:"RADIOLOGY",requestedItem:"Synthetic radiology",itemId:"E2E_RADIO",quantity:"1",unit:"test"}],requestId:dc.requestId});
   const chart=await getCare(ctx("DOCTOR"),a.admissionId);writeFileSync(resolve("tmp/e2e-lab.json"),JSON.stringify({admissionId:a.admissionId,orderId:chart.orders.find(o=>o.kind==="LAB")!.id,radiologyId:chart.orders.find(o=>o.kind==="RADIOLOGY")!.id}));
+}
+
+async function prepareInsuranceFixtures(adminHeaders:Headers){
+  const {createBed,createAdmission,activateAdmission}=await import("../../src/server/admissions/commands");
+  const {createInsuranceCase,recordPolicyVerification,recordPayerDecision,getInsuranceCase}=await import("../../src/server/insurance/commands");
+  const {listSettings,saveSetting}=await import("../../src/server/settings");
+  const {recordRound}=await import("../../src/server/clinical/commands");
+  const {recordReceipt}=await import("../../src/server/billing/commands");
+  const staff=await db.select({id:user.id,email:user.email}).from(user),id=(role:string)=>staff.find(s=>s.email===`${role.toLowerCase()}@e2e.fixture.invalid`)!.id;
+  const ctx=(role:string)=>({actor:{type:"staff" as const,staffId:id(role)},source:"synthetic-browser-insurance",requestId:crypto.randomUUID()});
+  async function episode(assigned:boolean,name=assigned?"Synthetic E2E insurance patient":"Synthetic unassigned private case"){const bed=await createBed(ctx("ADMIN"),{label:`Synthetic insurance ${crypto.randomUUID()}`,category:"GENERAL",reason:"Independent synthetic insurance case"});const a=ctx("ADMISSION"),admission=await createAdmission(a,{patientDetails:{name,ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Private clinical assessment excluded from Insurance",vitals:"Synthetic vitals",triage:"Synthetic routing",destinationCategory:"GENERAL"},bedId:bed.id,paymentRoute:"INSURED",expectedStayDays:2,requestId:a.requestId});const c=ctx("ADMIN"),record=await createInsuranceCase(c,{admissionId:admission.admissionId,assignedStaffId:assigned?id("INSURANCE"):null,reason:"Synthetic case assignment",requestId:c.requestId});return {...record,admissionId:admission.admissionId};}
+  const assigned=await episode(true),unassigned=await episode(false);
+  // A real signed consultation and Billing receipts reproduce the revised-allocation refund review.
+  for(const value of [
+    {type:"deposit",category:"GENERAL",route:"insured",requirement:"not-required",amount:"0"},
+    {type:"billable-item",code:"E2E_INS_CONSULT",name:"Synthetic insurance consultation",category:"consultation",department:"DOCTOR",unit:"session",quantityScale:0,amount:"1000",active:true}
+  ]){
+    const settings=await listSettings(adminHeaders),kind=value.type==="deposit"?"rule":"tariff";
+    await saveSetting(adminHeaders,{value,reason:"Synthetic insurance refund-review fixture",expectedVersion:Math.max(0,...settings.versions.filter(v=>v.kind===kind).map(v=>v.version))});
+  }
+  const revised=await episode(true,"Synthetic revised insurance allocation"),arrival=ctx("ADMISSION");
+  await activateAdmission(arrival,{admissionId:revised.admissionId,expectedVersion:1,arrivedAt:new Date().toISOString(),requestId:arrival.requestId});
+  const doctor=ctx("DOCTOR");
+  await recordRound(doctor,{admissionId:revised.admissionId,notes:"Synthetic signed consultation",feeScheduleId:"E2E_INS_CONSULT",feeUnit:"session",orders:[],requestId:doctor.requestId});
+  for(const [party,amountPaise] of [["PATIENT","70000"],["INSURER","30000"]]){
+    const cashier=ctx("BILLING");
+    await recordReceipt(cashier,{admissionId:revised.admissionId,party,kind:"PAYMENT",amountPaise,mode:"BANK",channel:"Synthetic insurance receipt book",sourceReference:crypto.randomUUID(),reference:`Synthetic ${party} applied payment`,requestId:cashier.requestId});
+  }
+  const verifier=ctx("INSURANCE");
+  await recordPolicyVerification(verifier,{caseId:revised.id,expectedCaseVersion:1,requestId:verifier.requestId,insurer:"Synthetic external insurer",tpa:"",policyNumber:"SYN-REVISED-POL",memberNumber:"SYN-REVISED-MEM",validFrom:"2026-01-01",validTo:"2099-12-31",verifiedBy:"External human verifier",verifiedAt:new Date().toISOString(),reference:"SYN-REVISED-VERIFY",documentIds:[]});
+  const bill=await getInsuranceCase(ctx("INSURANCE"),revised.id),decision=ctx("INSURANCE");
+  assert.equal(bill.money.netPaise,100000n);
+  assert.equal(bill.money.patientAppliedPaise,70000n);
+  assert.equal(bill.money.insurerCashPaise,30000n);
+  assert.equal(bill.money.unallocatedDepositPaise,0n);
+  await recordPayerDecision(decision,{caseId:revised.id,expectedCaseVersion:bill.case.version,requestId:decision.requestId,kind:"PREAUTH",status:"APPROVED",verifiedBy:"External payer human",verifiedAt:new Date().toISOString(),reference:"SYN-INITIAL-AUTH",reason:"Synthetic initial external approval",approvedPaise:"30000",coPayBps:0,documentIds:[],allocation:{billRevision:bill.money.revision,netBillPaise:"100000",eligibleBillPaise:"100000",nonPayablePaise:"0",verifiedPatientLiabilityPaise:"70000",sourceReference:"Synthetic initial bill allocation"}});
+  const initial=await getInsuranceCase(ctx("INSURANCE"),revised.id);
+  assert.equal(initial.responsibility?.patientExcessPaise,0n);
+  assert.equal(initial.responsibility?.insurerOutstandingPaise,0n);
+  writeFileSync(resolve("tmp/e2e-insurance.json"),JSON.stringify({caseId:assigned.id,wrongCaseId:unassigned.id,revisedCaseId:revised.id}));
 }
 
 prepare()

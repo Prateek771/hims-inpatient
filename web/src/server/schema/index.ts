@@ -7,3 +7,4 @@ export * from "../nursing/schema";
 export * from "../admissions/transfer-schema";
 export * from "../pharmacy/schema";
 export * from "../lab/schema";
+export * from "../insurance/schema";

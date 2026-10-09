@@ -29,7 +29,7 @@ export function AppShell({
   const path = usePathname();
   const available =
     role === "ADMISSION"
-      ? [{ label: "Admissions & beds", href: "/admissions" }]
+      ? [{ label: "Admissions & beds", href: "/admissions" }, { label: "Insurance paperwork", href: "/insurance" }]
       : role === "ADMIN"
         ? [
             { label: "Charges & payments", href: "/billing" },
@@ -38,8 +38,9 @@ export function AppShell({
             { label: "Manage staff", href: "/admin/staff" },
             { label: "Nursing assignments", href: "/admin/care" },
             { label: "Pharmacy", href: "/pharmacy" },
+            { label: "Insurance paperwork", href: "/insurance" },
           ]
-        : role === "BILLING" ? [{ label: "Charges & payments", href: "/billing" }] : role === "DOCTOR" ? [{ label: "Doctor workspace", href: "/clinical" }, { label: "Nursing records", href: "/nursing" }] : role === "NURSE" ? [{ label: "Nursing workspace", href: "/nursing" }] : role === "PHARMACY" ? [{label:"Pharmacy",href:"/pharmacy"}] : role === "LAB" ? [{label:"Lab worklist",href:"/lab"}] : [];
+        : role === "BILLING" ? [{ label: "Charges & payments", href: "/billing" }, { label: "Insurance paperwork", href: "/insurance" }] : role === "DOCTOR" ? [{ label: "Doctor workspace", href: "/clinical" }, { label: "Nursing records", href: "/nursing" }] : role === "NURSE" ? [{ label: "Nursing workspace", href: "/nursing" }] : role === "PHARMACY" ? [{label:"Pharmacy",href:"/pharmacy"}] : role === "LAB" ? [{label:"Lab worklist",href:"/lab"}] : role === "INSURANCE" ? [{label:"Insurance paperwork",href:"/insurance"}] : [];
   return (
     <>
       <a className="skip-link" href="#main-content">
@@ -78,9 +79,7 @@ export function AppShell({
               </Link>
             ))}
             {(role
-              ? role === "ADMISSION"
-                ? ["Insurance paperwork"]
-                : []
+              ? []
               : sections
             ).map((section) => (
               <span className="nav-item" aria-disabled="true" key={section}>

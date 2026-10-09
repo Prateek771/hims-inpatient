@@ -6,6 +6,7 @@ import { DomainError, type CommandContext } from "../contracts";
 import { admissionOperator } from "../admissions/commands";
 import { admissions, bedHolds, beds, patients, roomStays } from "../admissions/schema";
 import { admissionTransfers, transferInsuranceTasks, transferOrders } from "../admissions/transfer-schema";
+import { insuranceTransferResolutions } from "../insurance/schema";
 import { user } from "../schema/auth";
 import { settingVersions } from "../schema/core";
 import { labDispositions, labReports, labReportAddenda } from "../lab/schema";
@@ -897,7 +898,9 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
       return v.payload.active === true;
     }).map(v => ({ code: String(v.payload.code), name: String(v.payload.name) }));
     const transferBeds = await tx.select({ id: beds.id, label: beds.label, category: beds.category, active: beds.active, held: bedHolds.bedId }).from(beds).leftJoin(bedHolds, eq(bedHolds.bedId, beds.id)).orderBy(asc(beds.label));
-    const insuranceTransferTasks = await tx.select().from(transferInsuranceTasks).where(eq(transferInsuranceTasks.admissionId, admissionId));
+    const transferSources = await tx.select().from(transferInsuranceTasks).where(eq(transferInsuranceTasks.admissionId, admissionId));
+    const resolutions = transferSources.length ? await tx.select().from(insuranceTransferResolutions).where(inArray(insuranceTransferResolutions.taskId, transferSources.map(t=>t.id))) : [];
+    const insuranceTransferTasks = transferSources.filter(t=>!resolutions.some(r=>r.taskId===t.id));
     const diagnosticReports = staff.role === "DOCTOR" ? await tx.select().from(labReports).where(eq(labReports.admissionId,admissionId)).orderBy(asc(labReports.signedAt)) : [];
     const diagnosticAddenda = diagnosticReports.length ? await tx.select().from(labReportAddenda).where(inArray(labReportAddenda.reportId,diagnosticReports.map(r=>r.id))).orderBy(asc(labReportAddenda.signedAt)) : [];
     const signerIds = [
