@@ -9,9 +9,9 @@ import { billingRequest, billProjection, fingerprint, lockBillingAdmission } fro
 import { billingRequests } from "../billing/schema";
 import { user } from "../schema/auth";
 import { appendAudit } from "../audit";
-import { clearanceSeals, roomVacations, departures, bedTurnovers, bedTurnoverCompletions, gates, type Gate } from "./schema";
+import { clearanceSeals, effectiveRoomVacations as roomVacations, roomVacations as originalRoomVacations, departures, effectiveBedTurnovers as bedTurnovers, bedTurnovers as originalBedTurnovers, bedTurnoverCompletions, gates, type Gate } from "./schema";
 import { clinicalClearanceInputs, pharmacyClearanceInputs, nursingClearanceInputs, billingClearanceInputs, latestSeals, reviewHash, jsonSnapshot, invalidateAffectedClearances } from "./dependencies";
-import { admissions, beds, bedHolds, roomStays, patients } from "../admissions/schema";
+import { admissions, beds, bedHolds, effectiveRoomStays as roomStays, roomStays as originalRoomStays, effectivePatients as patients } from "../admissions/schema";
 import { shiftForCare } from "../nursing/commands";
 import { reconcileRoomChargesInTransaction } from "../billing/room-charges";
 export { invalidateAffectedClearances } from "./dependencies";
@@ -86,8 +86,8 @@ export async function recordRoomVacatedInTransaction(tx:Transaction,ctx:CommandC
     const laterUse=await tx.execute(sql`select 1 from hims.nursing_consumables where stay_id=${stay.id} and used_at>=${T} limit 1`);
     if(laterUse.rows.length)throw new DomainError("CONFLICT","Room vacancy precedes already recorded bed use; retain the factual time for correction");
     await reconcileRoomChargesInTransaction(tx,{admissionId:e.id,cutoff:T,actorContext:ctx});
-    await tx.update(roomStays).set({endedAt:T}).where(eq(roomStays.id,stay.id));
-    const [vacation]=await tx.insert(roomVacations).values({admissionId:e.id,stayId:stay.id,nursingSealId:nursing.id,shiftId:v.shiftId,vacatedAt:T,waitingLocation:v.waitingLocation,handover:v.handover,signedBy:staff.id,signedAt:new Date()}).returning();
+    await tx.update(originalRoomStays).set({endedAt:T}).where(eq(originalRoomStays.id,stay.id));
+    const [vacation]=await tx.insert(originalRoomVacations).values({admissionId:e.id,stayId:stay.id,nursingSealId:nursing.id,shiftId:v.shiftId,vacatedAt:T,waitingLocation:v.waitingLocation,handover:v.handover,signedBy:staff.id,signedAt:new Date()}).returning();
     await appendAudit(tx,ctx,{event:"discharge.room-vacated",entityType:"room-vacation",entityId:vacation.id,reason:v.handover});
     return {id:vacation.id};
   });
@@ -118,7 +118,15 @@ export async function recordDepartureInTransaction(tx:Transaction,ctx:CommandCon
   const [departure]=await tx.insert(departures).values({admissionId:e.id,stayId:vacation.stayId,billSealId:seal.id,billVersion:updated.billRevision,departedAt:T,signedBy:staff.id,signedAt:new Date()}).returning();
   await tx.update(admissions).set({status:"DISCHARGED",version:sql`${admissions.version}+1`}).where(eq(admissions.id,e.id));
   await tx.delete(bedHolds).where(eq(bedHolds.admissionId,e.id));
-  await tx.insert(bedTurnovers).values({bedId:e.bedId,stayId:vacation.stayId,admissionId:e.id,vacatedAt:vacation.vacatedAt,reason:"Ordinary hospital departure; housekeeping completion required before reuse",signedBy:staff.id,signedAt:new Date()});
+  // A proposed return may already have created this vacancy's cleaning task.
+  const [turnover] = await tx.select().from(bedTurnovers).where(eq(bedTurnovers.stayId, vacation.stayId));
+  if (!turnover) {
+    await tx.insert(originalBedTurnovers).values({
+      bedId: e.bedId, stayId: vacation.stayId, admissionId: e.id, vacatedAt: vacation.vacatedAt,
+      reason: "Ordinary hospital departure; housekeeping completion required before reuse",
+      signedBy: staff.id, signedAt: new Date(),
+    });
+  }
   await appendAudit(tx,ctx,{event:"discharge.departure-recorded",entityType:"departure",entityId:departure.id,reason:"Four current human gates and actual party settlement; physical bed use and hospital departure retained separately"});
   await billingRequest(tx,ctx,"discharge.departure",v,async()=>({id:departure.id}));
   return {id:departure.id,status:"DISCHARGED" as const};

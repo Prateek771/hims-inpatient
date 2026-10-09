@@ -1,10 +1,11 @@
 import "server-only";
+import { getViewSelectedFields } from "drizzle-orm";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, withTransaction, type Transaction } from "../db";
 import { DomainError, type CommandContext } from "../contracts";
 import { admissionOperator } from "../admissions/commands";
-import { admissions, bedHolds, beds, patients, roomStays } from "../admissions/schema";
+import { admissions, bedHolds, beds, effectivePatients as patients, effectiveRoomStays as roomStays } from "../admissions/schema";
 import { admissionTransfers, transferInsuranceTasks, transferOrders } from "../admissions/transfer-schema";
 import { insuranceTransferResolutions } from "../insurance/schema";
 import { user } from "../schema/auth";
@@ -35,7 +36,7 @@ import {
   nursingAddenda,
   nursingConsumables,
   nursingObservations,
-  nursingShiftEnds,
+  effectiveShiftEnds as nursingShiftEnds,
   nursingShifts,
 } from "../nursing/schema";
 import {
@@ -887,7 +888,7 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
       .select()
       .from(nursingAddenda)
       .where(eq(nursingAddenda.admissionId, admissionId));
-    const stays = await tx.select({ stay: roomStays, bedLabel: beds.label, category: beds.category }).from(roomStays).innerJoin(beds, eq(beds.id, roomStays.bedId)).where(eq(roomStays.admissionId, admissionId)).orderBy(asc(roomStays.startedAt));
+    const stays = await tx.select({ stay: getViewSelectedFields(roomStays), bedLabel: beds.label, category: beds.category }).from(roomStays).innerJoin(beds, eq(beds.id, roomStays.bedId)).where(eq(roomStays.admissionId, admissionId)).orderBy(asc(roomStays.startedAt));
     const transferHistory = await tx.select().from(admissionTransfers).where(eq(admissionTransfers.admissionId, admissionId)).orderBy(asc(admissionTransfers.transferredAt));
     const signedTransferOrders = await tx.select().from(transferOrders).where(eq(transferOrders.admissionId, admissionId)).orderBy(desc(transferOrders.version));
     const latestVersions = await tx.select().from(settingVersions).where(eq(settingVersions.hospitalId, episode.hospitalId)).orderBy(desc(settingVersions.version));
@@ -965,6 +966,7 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
           ...s,
           endedAt: end?.endedAt,
           outgoingHandover: end?.handover,
+          attendanceEndKind:end?.endKind,operationalEndEvidence:end?.operationalEvidence,
           hours: end
             ? (end.endedAt.getTime() - s.startedAt.getTime()) / 3600000
             : undefined,

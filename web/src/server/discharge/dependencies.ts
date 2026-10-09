@@ -6,7 +6,7 @@ import { admissions } from "../admissions/schema";
 import { clinicalSummaries } from "../clinical/schema";
 import { pharmacyClearanceSourceInTransaction } from "../pharmacy/commands";
 import { clearanceInvalidations, clearanceSeals, gates, type Gate } from "./schema";
-import { roomVacations } from "./schema";
+import { effectiveRoomVacations as roomVacations } from "./schema";
 import { billProjection, financialResponsibilityInTransaction } from "../billing/commands";
 import { formatINR } from "../billing/money";
 
@@ -34,8 +34,11 @@ export async function clinicalClearanceInputs(tx: Transaction, id: string) {
   const dispositions = await rows(tx, sql`select * from hims.lab_dispositions where admission_id=${id} order by id`);
   const transfers = await rows(tx, sql`select * from hims.admission_transfers where admission_id=${id} order by id`);
   const transferOrders = await rows(tx, sql`select * from hims.transfer_orders where admission_id=${id} order by version desc`);
+  const exceptionInstructions = await rows(tx, sql`select * from hims.exception_evidence where admission_id=${id} and role='DOCTOR' order by id`);
+  const returns = await rows(tx, sql`select * from hims.room_returns where admission_id=${id} order by id`);
   const blockers: string[] = [];
   if (!summary) blockers.push("Doctor must sign the clinical summary and explicit take-home prescription.");
+  if (exceptionInstructions.some(p => p.kind === "RETURN_TO_BED" && !returns.some(r => r.doctor_evidence_id === p.id) && !exceptionInstructions.some(r => r.kind === "RETURN_CANCELLED" && r.source_id === p.id))) blockers.push("Current Doctor return instruction requires actual return or an explicit source-bound Doctor reconsideration before ordinary discharge.");
   for (const o of orders) {
     const completed = events.some(e => e.order_id === o.id && e.status === "COMPLETED");
     const stopped = events.some(e => e.order_id === o.id && e.status === "STOPPED");
@@ -45,7 +48,7 @@ export async function clinicalClearanceInputs(tx: Transaction, id: string) {
     if (o.kind === "MEDICINE" && !stopped && ["TAKE_HOME", "BOTH"].includes(details.medicationPurpose ?? "") && !summary?.prescription.some(p => p.orderId === o.id)) blockers.push(`${o.requested_item}: current take-home order is absent from the signed prescription.`);
   }
   if (transferOrders[0] && !transfers.some(t => t.transfer_order_id === transferOrders[0].id)) blockers.push("Current Doctor transfer order has not been carried out; Doctor review is required.");
-  return { inputs: jsonSnapshot({ summary: summary ?? null, rounds, addenda, orders, events, reports, reportAddenda, dispositions, transfers, transferOrders }), blockers };
+  return { inputs: jsonSnapshot({ summary: summary ?? null, rounds, addenda, orders, events, reports, reportAddenda, dispositions, transfers, transferOrders, exceptionInstructions, returns }), blockers };
 }
 export async function pharmacyClearanceInputs(tx: Transaction, episode: typeof admissions.$inferSelect) {
   const source = await pharmacyClearanceSourceInTransaction(tx, episode);
@@ -58,12 +61,15 @@ export async function nursingClearanceInputs(tx: Transaction, id: string) {
   const observations = await rows(tx, sql`select * from hims.nursing_observations where admission_id=${id} order by id`);
   const mar = await rows(tx, sql`select * from hims.medication_administrations where admission_id=${id} order by id`);
   const addenda = await rows(tx, sql`select * from hims.nursing_addenda where admission_id=${id} order by id`);
-  const shifts = await rows(tx, sql`select s.*,e.id as end_id,e.ended_at,e.handover as end_handover,e.signed_by as end_signed_by,e.signed_at as end_signed_at from hims.nursing_shifts s left join hims.nursing_shift_ends e on e.shift_id=s.id where s.admission_id=${id} order by s.id`);
+  const shifts = await rows(tx, sql`select s.*,e.id as end_id,e.ended_at,e.handover as end_handover,e.signed_by as end_signed_by,e.signed_at as end_signed_at,e.end_kind,e.operational_evidence from hims.nursing_shifts s left join hims.effective_shift_ends e on e.shift_id=s.id where s.admission_id=${id} order by s.id`);
   const consumables = await rows(tx, sql`select * from hims.nursing_consumables where admission_id=${id} order by id`);
   const consumableMoney = await rows(tx, sql`select c.id,c.source_event_id,c.amount_paise,r.id as reversal_id,r.amount_paise as reversed_paise from hims.charges c left join hims.charge_reversals r on r.charge_id=c.id where c.admission_id=${id} and c.category='consumable' order by c.id,r.id`);
   const transfers = await rows(tx, sql`select * from hims.admission_transfers where admission_id=${id} order by id`);
   const unresolved = await rows(tx, sql`select id from hims.care_billing_events where admission_id=${id} and category='consumable' and state<>'POSTED' order by id`);
-  return { inputs: jsonSnapshot({ observations, mar, addenda, shifts, consumables, consumableMoney, transfers }), blockers: unresolved.map(() => "Nursing consumable charge requires source/price reconciliation.") };
+  const exceptionFacts = await rows(tx, sql`select * from hims.exception_evidence where admission_id=${id} and role='NURSE' order by id`);
+  // Ordinary first vacancy follows this seal. Only later amended witnesses reopen its review.
+  const amendedVacancies = await rows(tx, sql`select * from hims.effective_vacation_facts where admission_id=${id} and amendment_id is not null order by id`);
+  return { inputs: jsonSnapshot({ observations, mar, addenda, shifts, consumables, consumableMoney, transfers, exceptionFacts, amendedVacancies }), blockers: unresolved.map(() => "Nursing consumable charge requires source/price reconciliation.") };
 }
 export async function latestSeals(tx: Transaction, admissionId: string) {
   const all = await tx.select({ seal: clearanceSeals, invalidation: clearanceInvalidations }).from(clearanceSeals).leftJoin(clearanceInvalidations, eq(clearanceInvalidations.sealId, clearanceSeals.id)).where(eq(clearanceSeals.admissionId, admissionId)).orderBy(desc(clearanceSeals.signedAt), desc(clearanceSeals.id));
@@ -95,6 +101,6 @@ export async function billingClearanceInputs(tx: Transaction, episode: typeof ad
   if(r?.insurerExcessPaise||r?.patientExcessPaise||bill.unallocatedDepositPaise>0n||bill.overpaidPaise>0n)blockers.push("Excess money or unallocated deposit requires a recorded refund/allocation review.");
   if(financial.pendingTransfers.length)blockers.push("Insurance transfer follow-up still requires its recorded staff resolution.");
   const {asOf: _asOf, unpostedRoomPaise: _estimate,status:_status,...stableBill}=bill;void _asOf;void _estimate;void _status;
-  const physicalUse=vacation?{id:vacation.id,stayId:vacation.stayId,nursingSealId:vacation.nursingSealId,vacatedAt:vacation.vacatedAt,waitingLocation:vacation.waitingLocation,signedBy:vacation.signedBy,signedAt:vacation.signedAt}:null;
+  const physicalUse=vacation?{id:vacation.id,stayId:vacation.stayId,nursingSealId:vacation.nursingSealId,shiftId:vacation.shiftId,vacatedAt:vacation.vacatedAt,waitingLocation:vacation.waitingLocation,signedBy:vacation.signedBy,signedAt:vacation.signedAt,amendmentId:vacation.amendmentId,evidenceId:vacation.evidenceId,originalVacatedAt:vacation.originalVacatedAt,originalShiftId:vacation.originalShiftId,originalSignedBy:vacation.originalSignedBy,originalSignedAt:vacation.originalSignedAt}:null;
   return {inputs:jsonSnapshot({bill:stableBill,financial,vacation:physicalUse,unresolved,pending}),blockers,bill,financial,vacation};
 }

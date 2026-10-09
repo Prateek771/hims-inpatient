@@ -4,7 +4,7 @@ import { z } from "zod";
 import { withTransaction, type Transaction } from "../db";
 import { DomainError, type CommandContext, type StaffRole } from "../contracts";
 import { admissionOperator } from "../admissions/commands";
-import { admissions, beds, patients } from "../admissions/schema";
+import { admissions, beds, effectivePatients as patients } from "../admissions/schema";
 import { transferInsuranceTasks } from "../admissions/transfer-schema";
 import { user } from "../schema/auth";
 import { settingVersions } from "../schema/core";
@@ -37,11 +37,15 @@ export async function insuranceCaseSource(tx:Transaction,ctx:CommandContext,case
   if(!record||(staff.role==="INSURANCE"&&record.assignedStaffId!==staff.id))throw new DomainError("FORBIDDEN","Current insurance case assignment required");
   return {record,episode,staff};
 }
-export async function insuranceCommand(tx:Transaction,ctx:CommandContext,action:string,v:{caseId:string;requestId:string;expectedCaseVersion:number},apply:(s:Awaited<ReturnType<typeof insuranceCaseSource>>)=>Promise<{id:string}>,roles:readonly StaffRole[]=["ADMIN","BILLING","INSURANCE"]){
+export async function insuranceCommand(tx:Transaction,ctx:CommandContext,action:string,v:{caseId:string;requestId:string;expectedCaseVersion:number},apply:(s:Awaited<ReturnType<typeof insuranceCaseSource>>)=>Promise<{id:string}>,roles:readonly StaffRole[]=["ADMIN","BILLING","INSURANCE"],exceptionId?:string){
   await insuranceOperator(tx,ctx,roles);await requestLock(tx,ctx,v.requestId);const s=await insuranceCaseSource(tx,ctx,v.caseId);
   return billingRequest(tx,ctx,`insurance.${action}`,v,async()=>{
     if(s.record.version!==v.expectedCaseVersion)throw new DomainError("CONFLICT","Insurance case changed; reload the current version");
-    if(!["PENDING","ADMITTED"].includes(s.episode.status))throw new DomainError("PRECONDITION","Closed episode requires attributable exception review");
+    if(!["PENDING","ADMITTED"].includes(s.episode.status)){
+      if(!exceptionId||action!=="decision")throw new DomainError("PRECONDITION","Closed episode requires attributable exception review");
+      const {requireCorrectionAuthority}=await import("../discharge/exceptions");
+      await requireCorrectionAuthority(tx,s.episode,exceptionId,"INSURANCE_DECISION",s.record.id);
+    }
     return apply(s);
   });
 }
@@ -76,7 +80,7 @@ export async function recordPolicyVerification(ctx:CommandContext,input:unknown)
   return withTransaction(tx=>insuranceCommand(tx,ctx,"policy",v,async s=>{if(s.episode.paymentRoute!=="INSURED")throw new DomainError("PRECONDITION","Case was converted to self-pay");await validateCaseDocuments(tx,v.caseId,v.documentIds);const c=await bumpInsuranceCase(tx,v.caseId,true);const [event]=await tx.insert(insuranceEvents).values({caseId:c.id,caseVersion:c.version,kind:"POLICY",reason:`External policy verification: ${v.reference}`,payload:{insurer:v.insurer,tpa:v.tpa,policyNumber:v.policyNumber,memberNumber:v.memberNumber,validFrom:v.validFrom,validTo:v.validTo,verifiedBy:v.verifiedBy,verifiedAt:at.toISOString(),reference:v.reference,documentIds:v.documentIds},recordedBy:s.staff.id,recordedAt:new Date()}).returning();await insuranceAudit(tx,ctx,"policy-recorded",c.id,event.reason,c.version);return {id:event.id};}));
 }
 export async function recordPayerDecision(ctx:CommandContext,input:unknown){return withTransaction(tx=>recordPayerDecisionInTransaction(tx,ctx,input));}
-export async function recordPayerDecisionInTransaction(tx:Transaction,ctx:CommandContext,input:unknown){
+export async function recordPayerDecisionInTransaction(tx:Transaction,ctx:CommandContext,input:unknown,exceptionId?:string){
   const v=z.strictObject({...caseInput,...provenance,status:z.enum(["PENDING","APPROVED","PARTIAL","REJECTED"]),kind:z.enum(["PREAUTH","ENHANCEMENT","APPEAL"]),reason,approvedPaise:money,coPayBps:z.number().int().min(0).max(10000),allocation:allocationInput,documentIds:documents}).parse(input);const at=verifiedAt(v.verifiedAt);
   return insuranceCommand(tx,ctx,"decision",v,async s=>{
     if(s.episode.paymentRoute!=="INSURED")throw new DomainError("PRECONDITION","Converted self-pay case cannot accept a new payer decision");
@@ -86,7 +90,7 @@ export async function recordPayerDecisionInTransaction(tx:Transaction,ctx:Comman
     const r=computeResponsibilities({netBillPaise:bill.netPaise,eligibleBillPaise:paise(v.allocation.eligibleBillPaise),coPayBps:v.coPayBps,insurerAuthorizedPaise:paise(v.approvedPaise),...(v.allocation.verifiedPatientLiabilityPaise===undefined?{}:{verifiedPatientLiabilityPaise:paise(v.allocation.verifiedPatientLiabilityPaise)})});if(r.nonPayablePaise!==paise(v.allocation.nonPayablePaise))throw new DomainError("VALIDATION","Eligible plus non-payable amounts must match the bill");
     await validateCaseDocuments(tx,v.caseId,v.documentIds);const c=await bumpInsuranceCase(tx,v.caseId,true);
     const [d]=await tx.insert(insuranceDecisions).values({caseId:c.id,caseVersion:c.version,policyEventId:policy.id,status:v.status,kind:v.kind,verifiedBy:v.verifiedBy,verifiedAt:at,reference:v.reference,reason:v.reason,approvedPaise:paise(v.approvedPaise),coPayBps:v.coPayBps,allocation:{...v.allocation,billBasis:bill.allocationBasis},documentIds:v.documentIds,recordedBy:s.staff.id,recordedAt:new Date()}).returning();await insuranceAudit(tx,ctx,"decision-recorded",c.id,v.reason,c.version);return {id:d.id};
-  });
+  },["ADMIN","BILLING","INSURANCE"],exceptionId);
 }
 export async function recordInsuranceFollowup(ctx:CommandContext,input:unknown){
   const v=z.strictObject({...caseInput,workId:z.uuid(),kind:z.enum(["PREAUTH","ENHANCEMENT","APPEAL"]),status:z.enum(["OPEN","COMPLETED"]),reference:text,reason}).parse(input);

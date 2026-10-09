@@ -28,7 +28,11 @@ export const roomVacations = hims.table("room_vacations", {
   stayId: uuid("stay_id").notNull().references(() => roomStays.id), nursingSealId: uuid("nursing_seal_id").notNull().references(() => clearanceSeals.id),
   shiftId: uuid("shift_id").notNull().references(()=>nursingShifts.id), vacatedAt: timestamp("vacated_at", { withTimezone: true }).notNull(),
   waitingLocation: text("waiting_location").notNull(), handover: text("handover").notNull(), ...signed(),
-}, t => [uniqueIndex("room_vacation_stay_once").on(t.stayId), uniqueIndex("room_vacation_episode_once").on(t.admissionId), index("room_vacation_nursing_seal").on(t.nursingSealId), index("room_vacation_shift").on(t.shiftId), index("room_vacation_signer").on(t.signedBy)]);
+}, t => [uniqueIndex("room_vacation_stay_once").on(t.stayId), index("room_vacation_nursing_seal").on(t.nursingSealId), index("room_vacation_shift").on(t.shiftId), index("room_vacation_signer").on(t.signedBy)]);
+export const effectiveRoomVacations = hims.view("effective_room_vacations", {
+  id:uuid("id").notNull(),admissionId:uuid("admission_id").notNull(),stayId:uuid("stay_id").notNull(),nursingSealId:uuid("nursing_seal_id").notNull(),shiftId:uuid("shift_id").notNull(),vacatedAt:timestamp("vacated_at",{withTimezone:true}).notNull(),waitingLocation:text("waiting_location").notNull(),handover:text("handover").notNull(),signedBy:text("signed_by").notNull(),signedAt:timestamp("signed_at",{withTimezone:true}).notNull(),
+  amendmentId:uuid("amendment_id"),evidenceId:uuid("evidence_id"),originalVacatedAt:timestamp("original_vacated_at",{withTimezone:true}).notNull(),originalShiftId:uuid("original_shift_id").notNull(),originalHandover:text("original_handover").notNull(),originalSignedBy:text("original_signed_by").notNull(),originalSignedAt:timestamp("original_signed_at",{withTimezone:true}).notNull(),originalWaitingLocation:text("original_waiting_location").notNull(),
+}).existing();
 export const bedTurnovers = hims.table("bed_turnovers", {
   id: uuid("id").primaryKey().defaultRandom(), bedId: uuid("bed_id").notNull().references(() => beds.id),
   stayId: uuid("stay_id").notNull().references(() => roomStays.id), admissionId: uuid("admission_id").notNull().references(() => admissions.id),
@@ -38,3 +42,8 @@ export const bedTurnoverCompletions = hims.table("bed_turnover_completions", {
   id: uuid("id").primaryKey().defaultRandom(), turnoverId: uuid("turnover_id").notNull().references(() => bedTurnovers.id),
   completedAt: timestamp("completed_at", { withTimezone: true }).notNull(), evidence: text("evidence").notNull(), ...signed(),
 }, t => [uniqueIndex("turnover_completed_once").on(t.turnoverId), index("turnover_completion_signer").on(t.signedBy)]);
+
+export const effectiveBedTurnovers = hims.view("effective_bed_turnovers",{
+ id:uuid("id").notNull(),bedId:uuid("bed_id").notNull(),stayId:uuid("stay_id").notNull(),admissionId:uuid("admission_id").notNull(),vacatedAt:timestamp("vacated_at",{withTimezone:true}).notNull(),reason:text("reason").notNull(),signedBy:text("signed_by").notNull(),signedAt:timestamp("signed_at",{withTimezone:true}).notNull(),
+ amendmentId:uuid("amendment_id"),evidenceId:uuid("evidence_id"),originalVacatedAt:timestamp("original_vacated_at",{withTimezone:true}).notNull(),cutoffShiftId:uuid("cutoff_shift_id"),cutoffSignedBy:text("cutoff_signed_by"),cutoffSignedAt:timestamp("cutoff_signed_at",{withTimezone:true}),cutoffFindings:text("cutoff_findings"),
+}).existing();

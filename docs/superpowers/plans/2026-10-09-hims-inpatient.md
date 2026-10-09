@@ -226,9 +226,11 @@ Task11 acceptance: independent specification/quality and the same reviewer’s s
 
 **Interfaces:** produces `authorizeException(ctx, { admissionId?, type, authority, reason, evidenceIds, disposition, obligations, followUpOwnerId })` and `applyPostDischargeCorrection(ctx, input)`. Types cover every exception named in the scope; obligations retain payer, amount, status and follow-up owner.
 
-- [ ] Write tests for admin-only authority, urgent no-deposit admission, insurer delay/denial, unpaid credit, absent approver, leaving early/against advice, external transfer, death and post-discharge correction. Assert no exception creates another professional's seal or silently sets owed money to zero.
-- [ ] Implement explicit records/routing, required professional evidence, actual disposition/departure and follow-up tasks. Record bed turnover after actual exceptional exit; preserve outstanding collections and incomplete seals. Post-discharge changes append linked amendments/reversals and supersede affected versions, never reopen an occupied bed automatically.
-- [ ] Run exception tests and ordinary discharge regression, lint/typecheck; commit `feat: add accountable admin exception handling`.
+- [x] Write tests for admin-only authority, urgent no-deposit admission, insurer delay/denial, unpaid credit, absent approver, leaving early/against advice, external transfer, death and post-discharge correction. Assert no exception creates another professional's seal or silently sets owed money to zero.
+- [x] Implement explicit records/routing, required professional evidence, actual disposition/departure and follow-up tasks. Record bed turnover after actual exceptional exit; preserve outstanding collections and incomplete seals. Post-discharge changes append linked amendments/reversals and supersede affected versions, never reopen an occupied bed automatically.
+- [x] Run exception tests and ordinary discharge regression, lint/typecheck; commit `feat: add accountable admin exception handling`.
+
+Task12 acceptance: independent specification/quality and fresh GPT-6.1 scoped correction review accepted; fresh full36unit/92actualPG/lint/types/standardbuild/26ChromiumHTTP passed, runtimeaudit0. Reviewed ordinary0032–0048 applied with all original61table/column hashes preserved and49SQLliteralbytes intact. [Exceptions](../../EXCEPTIONS.md) records truthful urgent identity, actual exceptional exit, obligations, professional reconsideration, effective witnesses and narrow amendments. One-sided completed intermediate transfer/return corrections remain explicitly unsupported. Owner gate: PAUSE for approval beforeTask13; GPT-6.1 only.
 
 ## Task 13: Versioned discharge copy, print/export and verification
 

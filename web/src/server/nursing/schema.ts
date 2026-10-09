@@ -185,3 +185,7 @@ export const nursingAddenda = hims.table(
     ),
   ],
 );
+
+export const effectiveShiftEnds = hims.view("effective_shift_ends", {
+ id:uuid("id").notNull(),shiftId:uuid("shift_id").notNull(),endedAt:time("ended_at").notNull(),handover:text("handover"),signedBy:text("signed_by").notNull(),signedAt:time("signed_at").notNull(),endKind:text("end_kind").notNull(),operationalEvidence:text("operational_evidence"),
+}).existing();

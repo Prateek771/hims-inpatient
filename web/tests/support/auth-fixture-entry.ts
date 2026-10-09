@@ -99,6 +99,7 @@ async function prepare() {
   await prepareLabFixtures(h);
   await prepareInsuranceFixtures(h);
   await prepareDischargeFixture(h);
+  await prepareExceptionFixture(h);
   // Workflow browser contexts reuse real synthetic sessions, avoiding unrelated login-limiter traffic.
   // These signed cookies are credentials and stay exclusively inside the ignored test output folder.
   for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB", "INSURANCE"] as const) {
@@ -316,6 +317,50 @@ async function prepareDischargeFixture(adminHeaders:Headers){
   await new Promise(resolve=>setTimeout(resolve,80));
   const {reconcileBill,getBill}=await import("../../src/server/billing/commands");await reconcileBill(ctx("BILLING"),{admissionId:unallocated.admissionId,cutoff:new Date().toISOString()});assert((await getBill(ctx("BILLING"),unallocated.admissionId)).netPaise>0n);
   writeFileSync(resolve("tmp/e2e-discharge.json"),JSON.stringify({admissionId:admission.admissionId,bedLabel:bed.label,arrivedAt,unallocatedAdmissionId:unallocated.admissionId}));
+}
+
+async function prepareExceptionFixture(adminHeaders: Headers) {
+  const { listSettings, saveSetting } = await import("../../src/server/settings");
+  const { createBed, createAdmission, activateAdmission } = await import("../../src/server/admissions/commands");
+  const { assignNurse, recordShift } = await import("../../src/server/nursing/commands");
+  const staff = await db.select({ id: user.id, email: user.email }).from(user);
+  const id = (role: string) => staff.find(s => s.email === `${role.toLowerCase()}@e2e.fixture.invalid`)!.id;
+  const ctx = (role: string) => ({ actor: { type: "staff" as const, staffId: id(role) }, source: "synthetic-browser-exceptions", requestId: crypto.randomUUID() });
+  for (const value of [
+    { type: "bed-category", code: "EXCEPTIONS", name: "Synthetic exceptions", active: true },
+    { type: "deposit", category: "EXCEPTIONS", route: "self-pay", requirement: "not-required", amount: "0" },
+    { type: "tariff", category: "EXCEPTIONS", amount: "3600", basis: "hour", rounding: "exact", graceMinutes: 0 },
+  ]) {
+    const state = await listSettings(adminHeaders), kind = value.type === "tariff" ? "tariff" : "rule";
+    await saveSetting(adminHeaders, { value, expectedVersion: Math.max(0, ...state.versions.filter(v => v.kind === kind).map(v => v.version)), reason: "Isolated synthetic exception browser policy" });
+  }
+  const bed = await createBed(ctx("ADMIN"), { label: `Synthetic exception ${crypto.randomUUID()}`, category: "EXCEPTIONS", reason: "Isolated exception browser bed" });
+  const a = ctx("ADMISSION");
+  const admission = await createAdmission(a, { patientDetails: { name: "Synthetic E2E early-exit patient", ageYearsAtRegistration: 44, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: new Date().toISOString(), chiefComplaint: "Private clinical assessment excluded from Billing", vitals: "Synthetic vitals", triage: "Synthetic route", destinationCategory: "EXCEPTIONS" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: a.requestId });
+  const ac = ctx("ADMISSION");
+  await activateAdmission(ac, { admissionId: admission.admissionId, expectedVersion: 1, arrivedAt: new Date().toISOString(), requestId: ac.requestId });
+  await assignNurse(ctx("ADMIN"), { admissionId: admission.admissionId, nurseId: id("NURSE"), reason: "Actual browser nursing assignment", authority: "Synthetic roster" });
+  const n = ctx("NURSE");
+  await recordShift(n, { admissionId: admission.admissionId, startedAt: new Date().toISOString(), handover: "Actual ward attendance until exit", requestId: n.requestId });
+  writeFileSync(resolve("tmp/e2e-exceptions.json"), JSON.stringify({ admissionId: admission.admissionId, doctorId: id("DOCTOR"), cashierId: id("BILLING") }));
+  const { signClinicalSummary } = await import("../../src/server/clinical/commands");
+  const { getClearanceReview, issueClearance, recordRoomVacated } = await import("../../src/server/discharge/commands");
+  const { recordExceptionEvidence, authorizeException } = await import("../../src/server/discharge/exceptions");
+  const returnBed = await createBed(ctx("ADMIN"), { label: `Synthetic return review ${crypto.randomUUID()}`, category: "EXCEPTIONS", reason: "Isolated Doctor reconsideration browser bed" });
+  const desk = ctx("ADMISSION"), returning = await createAdmission(desk, { patientDetails: { name: "Synthetic Doctor return reconsideration", ageYearsAtRegistration: 44, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: new Date().toISOString(), chiefComplaint: "Actual synthetic complaint", vitals: "Synthetic vitals", triage: "Synthetic route", destinationCategory: "EXCEPTIONS" }, bedId: returnBed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: desk.requestId });
+  const arrival = ctx("ADMISSION");
+  await activateAdmission(arrival, { admissionId: returning.admissionId, expectedVersion: 1, arrivedAt: new Date().toISOString(), requestId: arrival.requestId });
+  await assignNurse(ctx("ADMIN"), { admissionId: returning.admissionId, nurseId: id("NURSE"), reason: "Actual browser assignment", authority: "Synthetic roster" });
+  const nurse = ctx("NURSE"), shift = await recordShift(nurse, { admissionId: returning.admissionId, startedAt: new Date().toISOString(), handover: "Actual continuing attendance", requestId: nurse.requestId });
+  await signClinicalSummary(ctx("DOCTOR"), { admissionId: returning.admissionId, expectedVersion: 0, diagnosis: "Synthetic reviewed diagnosis", course: "Completed review", condition: "Stable waiting", followUp: "Human follow-up", advice: "Human advice", prescriptionOrderIds: [] });
+  for (const [role, gate] of [["DOCTOR", "DOCTOR"], ["PHARMACY", "PHARMACY"], ["NURSE", "NURSING"]] as const) {
+    const review = await getClearanceReview(ctx(role), returning.admissionId, gate);
+    await issueClearance(ctx(role), { admissionId: returning.admissionId, gate, expectedReviewHash: review.reviewHash });
+  }
+  const vacancyCtx = ctx("NURSE"), vacancy = await recordRoomVacated(vacancyCtx, { admissionId: returning.admissionId, shiftId: shift.id, vacatedAt: new Date().toISOString(), waitingLocation: "Actual supervised waiting chairs", handover: "Actual first bed vacancy", requestId: vacancyCtx.requestId });
+  const instruction = await recordExceptionEvidence(ctx("DOCTOR"), { admissionId: returning.admissionId, kind: "RETURN_TO_BED", sourceId: vacancy.id, actualAt: new Date().toISOString(), notes: "Doctor initially instructs continued bed care pending reconsideration" });
+  await authorizeException(ctx("ADMIN"), { admissionId: returning.admissionId, type: "RETURN_TO_BED", disposition: "RETURN_TO_BED", authority: "Administrator actual routing", reason: "Route current Doctor return instruction", evidenceIds: [instruction.id], evidence: "Actual signed Doctor instruction", followUpOwnerId: id("DOCTOR") });
+  writeFileSync(resolve("tmp/e2e-return-review.json"), JSON.stringify({ admissionId: returning.admissionId }));
 }
 
 prepare()

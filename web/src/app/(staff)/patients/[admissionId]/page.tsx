@@ -59,7 +59,7 @@ export default async function PatientAdmissionPage({
             <dt>Identity age / sex</dt>
             <dd>
               {record.dateOfBirth ??
-                `${record.ageYearsAtRegistration} years recorded at identity registration (${record.identityRegisteredAt.toLocaleDateString("en-IN")})`}{" "}
+                (record.ageYearsAtRegistration===null?"Age unknown":`${record.ageYearsAtRegistration} years recorded at identity registration (${record.identityRegisteredAt.toLocaleDateString("en-IN")})`)}{" "}
               · {record.sex}
             </dd>
           </div>

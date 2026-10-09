@@ -4,7 +4,7 @@ import { z } from "zod";
 import { withTransaction, type Transaction } from "../db";
 import { DomainError, type CommandContext } from "../contracts";
 import { admissionOperator } from "../admissions/commands";
-import { admissions, beds, patients } from "../admissions/schema";
+import { admissions, beds, effectivePatients as patients } from "../admissions/schema";
 import { user } from "../schema/auth";
 import { careBillingEvents, careTasks, clinicalOrders, clinicalTaskEvents } from "../clinical/schema";
 import { requestKey } from "../clinical/commands";
@@ -72,7 +72,7 @@ export async function startLabProcessingInTransaction(tx:Transaction,ctx:Command
     const [p]=await tx.insert(labProcessing).values({orderId:s.o.id,admissionId:s.e.id,sampleId:s.sample?.id,signedBy:id,signedAt:new Date()}).returning();await audit(tx,ctx,"processing-started",p.id,"Human confirmed diagnostic processing");return {id:p.id};
   });
 }
-async function finalizeSource(tx:Transaction,ctx:CommandContext,s:Source,resolve=false,why?:string) {
+async function finalizeSource(tx:Transaction,ctx:CommandContext,s:Source,resolve=false,why?:string,exceptionId?:string) {
   const [source]=await tx.select().from(careBillingEvents).where(eq(careBillingEvents.orderId,s.o.id)).for("update");
   if(!source||source.admissionId!==s.e.id||source.category!==s.o.kind.toLowerCase())throw new DomainError("CONFLICT","Diagnostic economic source linkage is inconsistent");
   if(s.disposition)throw new DomainError("PRECONDITION","Unperformed work has an attributable disposition");
@@ -81,38 +81,53 @@ async function finalizeSource(tx:Transaction,ctx:CommandContext,s:Source,resolve
   try{rate=await resolveBillableRate(tx,{itemId:source.itemId,eventKind:source.category,unit:source.unit,quantity:source.quantity,...(source.tariffVersionId?{pinnedVersionId:source.tariffVersionId}:{})});}
   catch(error){if(!(error instanceof DomainError))throw error;await tx.update(careBillingEvents).set({resolutionReason:error.message}).where(eq(careBillingEvents.id,source.id));if(resolve)throw error;return;}
   const chargeInput={admissionId:s.e.id,sourceEventId:source.id,category:source.category,itemId:source.itemId,quantity:source.quantity,unit:source.unit,tariffVersionId:rate.version.id};
-  await postChargeInTransaction(tx,ctx,{...chargeInput,status:"PENDING"},rate);
-  await postChargeInTransaction(tx,ctx,{...chargeInput,status:"FINAL"},rate);
+  await postChargeInTransaction(tx,ctx,{...chargeInput,status:"PENDING"},rate,exceptionId);
+  await postChargeInTransaction(tx,ctx,{...chargeInput,status:"FINAL"},rate,exceptionId);
   await tx.update(careBillingEvents).set({state:"POSTED",tariffVersionId:rate.version.id,...(why?{resolutionReason:why}:{})}).where(eq(careBillingEvents.id,source.id));
 }
 export async function recordLabReport(ctx:CommandContext,input:unknown){return withTransaction(tx=>recordLabReportInTransaction(tx,ctx,input));}
-export async function recordLabReportInTransaction(tx:Transaction,ctx:CommandContext,input:unknown){
+export async function recordLabReportInTransaction(tx:Transaction,ctx:CommandContext,input:unknown,exceptionId?:string){
   const v=reportInput.parse(input);
   return command(tx,ctx,"lab.report",v,async(s,id)=>{
     if(v.reportDocumentId)throw new DomainError("PRECONDITION","Protected report-file storage is not available; record the human text report. An arbitrary document UUID cannot be verified.");
     bindScan(s,v.barcode);
     if(s.report){if(s.report.result!==v.result)throw new DomainError("CONFLICT","Original report is immutable; append a reasoned addendum");return {id:s.report.id};}
     if(!s.processing||s.disposition)throw new DomainError("PRECONDITION","Confirm actual diagnostic processing before recording its human report");
-    if(s.e.status!=="ADMITTED")throw new DomainError("PRECONDITION","Historical report after episode closure requires the later attributable exception workflow");
+    if(s.e.status!=="ADMITTED") {
+      if(!exceptionId)throw new DomainError("PRECONDITION","Historical report requires attributable source-bound authority");
+      const {requireCorrectionAuthority,actualEpisodeDeparture}=await import("../discharge/exceptions");
+      await requireCorrectionAuthority(tx,s.e,exceptionId,"LAB_REPORT",s.o.id);
+      const departure=await actualEpisodeDeparture(tx,s.e.id);
+      if(!departure||s.processing.signedAt>departure)throw new DomainError("PRECONDITION","Only diagnostic work actually processed before departure may be reported later");
+    }
     const signedAt=new Date();
     const [r]=await tx.insert(labReports).values({orderId:s.o.id,admissionId:s.e.id,sampleId:s.sample?.id,result:v.result,signedBy:id,signedAt}).returning();
     await tx.insert(clinicalTaskEvents).values({orderId:s.o.id,status:"COMPLETED",reason:"Human diagnostic report recorded; billing state is separate",signedBy:id,signedAt}).onConflictDoNothing();
-    await finalizeSource(tx,ctx,s);await audit(tx,ctx,"report-signed",r.id,"Human immutable result; no clinical interpretation by software");return {id:r.id};
+    await finalizeSource(tx,ctx,s,false,undefined,exceptionId);await audit(tx,ctx,"report-signed",r.id,"Human immutable result; no clinical interpretation by software");return {id:r.id};
   });
 }
 export async function addLabReportAddendum(ctx:CommandContext,input:unknown){
   const v=z.strictObject({...base,reportId:z.uuid(),text:z.string().trim().min(1).max(5000),reason}).parse(input);
   return withTransaction(tx=>command(tx,ctx,"lab.addendum",v,async(s,id)=>{
+    if(s.e.status!=="ADMITTED")throw new DomainError("PRECONDITION","A new closed report addendum requires specific administrator routing");
     if(!s.report||s.report.id!==v.reportId)throw new DomainError("FORBIDDEN","Addendum requires this order's actual report");
     const [a]=await tx.insert(labReportAddenda).values({reportId:s.report.id,text:v.text,reason:v.reason,signedBy:id,signedAt:new Date()}).returning();await audit(tx,ctx,"report-addendum",a.id,v.reason);return {id:a.id};
   }));
 }
-export async function resolveLabBilling(ctx:CommandContext,input:unknown){
+export async function resolveLabBilling(ctx:CommandContext,input:unknown){return withTransaction(tx=>resolveLabBillingInTransaction(tx,ctx,input));}
+export async function resolveLabBillingInTransaction(tx:Transaction,ctx:CommandContext,input:unknown,exceptionId?:string){
   const v=z.strictObject({...base,reason}).parse(input);
-  return withTransaction(tx=>command(tx,ctx,"lab.billing-resolved",v,async(s)=>{
+  return command(tx,ctx,"lab.billing-resolved",v,async(s)=>{
     if(!s.report)throw new DomainError("PRECONDITION","Diagnostic fee reconciliation requires the actual human report");
-    await finalizeSource(tx,ctx,s,true,v.reason);return {id:s.report.id};
-  }));
+    if(s.e.status!=="ADMITTED") {
+      if(!exceptionId)throw new DomainError("PRECONDITION","Closed diagnostic price reconciliation requires specific source authority");
+      const {requireCorrectionAuthority,actualEpisodeDeparture}=await import("../discharge/exceptions");
+      await requireCorrectionAuthority(tx,s.e,exceptionId,"LAB_BILLING",s.o.id);
+      const departure=await actualEpisodeDeparture(tx,s.e.id);
+      if(!departure||!s.processing||s.processing.signedAt>departure)throw new DomainError("PRECONDITION","Only diagnostic work performed before departure can be reconciled later");
+    }
+    await finalizeSource(tx,ctx,s,true,v.reason,exceptionId);return {id:s.report.id};
+  });
 }
 export async function disposeUnperformedLabOrder(ctx:CommandContext,input:unknown){return withTransaction(tx=>disposeUnperformedLabOrderInTransaction(tx,ctx,input));}
 export async function disposeUnperformedLabOrderInTransaction(tx:Transaction,ctx:CommandContext,input:unknown){

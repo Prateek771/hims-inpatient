@@ -52,6 +52,11 @@ export async function migrate(client: Client) {
     await client.query(`GRANT SELECT, INSERT ON hims.lab_samples, hims.lab_processing, hims.lab_reports, hims.lab_report_addenda, hims.lab_dispositions TO ${runtime};`);
     await client.query(`GRANT SELECT, INSERT ON hims.insurance_cases, hims.insurance_events, hims.insurance_decisions, hims.insurance_documents, hims.insurance_conversions, hims.insurance_transfer_resolutions TO ${runtime}; GRANT UPDATE (assigned_staff_id, version, review_revision, document_set_revision) ON hims.insurance_cases TO ${runtime};`);
     await client.query(`GRANT SELECT, INSERT ON hims.clearance_seals, hims.clearance_invalidations, hims.room_vacations, hims.departures, hims.bed_turnovers, hims.bed_turnover_completions, hims.receipt_refunds, hims.allocation_cancellations, hims.self_pay_reviews TO ${runtime};`);
+    await client.query(`GRANT SELECT, INSERT ON hims.admin_exceptions, hims.exception_followups, hims.exception_evidence, hims.exceptional_departures, hims.post_discharge_amendments TO ${runtime};`);
+    await client.query(`GRANT SELECT, INSERT ON hims.stay_boundary_amendments TO ${runtime}; GRANT SELECT ON hims.effective_room_stays TO ${runtime};`);
+    await client.query(`GRANT SELECT, INSERT ON hims.patient_identifications TO ${runtime}; GRANT SELECT ON hims.effective_patients TO ${runtime};`);
+    await client.query(`GRANT SELECT, INSERT ON hims.administrative_shift_ends TO ${runtime}; GRANT SELECT ON hims.effective_shift_ends TO ${runtime};`);
+    await client.query(`GRANT SELECT, INSERT ON hims.room_returns TO ${runtime}; GRANT SELECT ON hims.effective_room_vacations, hims.effective_vacation_facts, hims.effective_bed_turnovers TO ${runtime};`);
   } finally {
     await client.query("SELECT pg_advisory_unlock(729104209)");
   }

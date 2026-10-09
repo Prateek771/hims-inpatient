@@ -426,6 +426,7 @@ export default async function NursingPage({
                       {s.endedAt?.toISOString() ?? "In progress"} UTC
                     </p>
                     <p>{s.handover}</p>
+                    {s.attendanceEndKind==="ADMIN"&&<p className="notice">Administrator recorded actual attendance end: {s.operationalEndEvidence}. No Nurse handover signature was supplied.</p>}
                     <p>{s.outgoingHandover}</p>
                     <p className="caption">
                       Nurse signature · {chart.actors[s.signedBy] ?? s.signedBy}{" "}

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { withTransaction, type Transaction } from "../db";
 import { DomainError, type CommandContext } from "../contracts";
 import { admissionOperator } from "../admissions/commands";
-import { admissions, beds, patients } from "../admissions/schema";
+import { admissions, beds, effectivePatients as patients } from "../admissions/schema";
 import { hospitalSettings, settingVersions } from "../schema/core";
 import { user } from "../schema/auth";
 import { clinicalOrders, clinicalSummaries, clinicalTaskEvents } from "../clinical/schema";

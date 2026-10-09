@@ -6,7 +6,7 @@ import { appendAudit } from "../audit";
 import { DomainError, type CommandContext } from "../contracts";
 import { db, withTransaction, type Transaction } from "../db";
 import { admissionOperator } from "../admissions/commands";
-import { admissions, beds, patients } from "../admissions/schema";
+import { admissions, beds, effectivePatients as patients } from "../admissions/schema";
 import { settingVersions } from "../schema/core";
 import { billingRequests, charges, chargeFinalizations, chargeReversals, receipts, receiptAllocations, receiptRefunds, allocationCancellations, selfPayReviews } from "./schema";
 import { insuranceCases, insuranceDecisions, insuranceEvents, insuranceConversions, insuranceTransferResolutions } from "../insurance/schema";
@@ -88,15 +88,23 @@ export const receiptInput = z.strictObject({
   admissionId: z.uuid(), party: z.enum(["PATIENT", "INSURER"]), kind: z.enum(["DEPOSIT", "TOP_UP", "PAYMENT"]), amountPaise: amountInput, mode: z.enum(["CASH", "CARD", "UPI", "BANK"]), channel: z.string().trim().min(2).max(100), sourceReference: z.string().trim().min(1).max(100), reference: z.string().trim().min(2).max(200), evidenceId: z.string().trim().min(2).max(200).optional(), requestId: z.uuid()
 });
 export async function recordReceipt(ctx: CommandContext, input: unknown) {
+  return withTransaction(tx => recordReceiptInTransaction(tx,ctx,input));
+}
+export async function recordReceiptInTransaction(tx: Transaction, ctx: CommandContext, input: unknown, exceptionId?: string) {
   const value = receiptInput.parse(input);
   requestKey(ctx, value.requestId);
-  return withTransaction(async (tx) => {
+  {
     const staff = await admissionOperator(ctx, ["ADMIN", "BILLING", "ADMISSION"], tx);
     if ((staff.role === "ADMISSION" && (value.party !== "PATIENT" || value.kind === "PAYMENT")) || (value.party === "INSURER" && value.kind !== "PAYMENT"))
       throw new DomainError("FORBIDDEN", "Admission staff may record patient deposits/top-ups only; insurer funds are payments");
     const result = await billingRequest(tx, ctx, "receipt", value, async () => {
       const episode = await lockBillingAdmission(tx, value.admissionId);
-      openEpisode(episode);
+      if (exceptionId) {
+        const { requireCorrectionAuthority } = await import("../discharge/exceptions");
+        await requireCorrectionAuthority(tx, episode, exceptionId, "RECEIPT");
+      }
+      else
+        openEpisode(episode);
       const { requestId: retryKey, ...cashDetails } = value;
       void retryKey;
       const identityPayload = fingerprint(cashDetails);
@@ -119,7 +127,7 @@ export async function recordReceipt(ctx: CommandContext, input: unknown) {
     });
     const [receipt] = await tx.select().from(receipts).where(eq(receipts.id, result.id));
     return receipt;
-  });
+  }
 }
 const category = z.enum(["consultation", "procedure", "medicine", "consumable", "lab", "radiology"]);
 export const itemPolicyInput = z.object({
@@ -178,7 +186,7 @@ export async function postCharge(ctx: CommandContext, input: unknown) {
 /** Internal-only: owning department validates persisted source and holds the admission lock.
 * existing pinned charge retries are accepted; new events must use current configured version.
 * Future orders can supply a trusted source-pinned rate after validating their persisted record. */
-export async function postChargeInTransaction(tx: Transaction, ctx: CommandContext, input: unknown, sourcePinnedRate?: Awaited<ReturnType<typeof resolveBillableRate>>) {
+export async function postChargeInTransaction(tx: Transaction, ctx: CommandContext, input: unknown, sourcePinnedRate?: Awaited<ReturnType<typeof resolveBillableRate>>, exceptionId?: string) {
   const value = chargeInput.parse(input);
   const operator = await admissionOperator(ctx, ["ADMIN", "BILLING", "DOCTOR", "PHARMACY", "NURSE", "LAB"], tx);
   const departments = {
@@ -188,7 +196,15 @@ export async function postChargeInTransaction(tx: Transaction, ctx: CommandConte
   if (!["ADMIN", "BILLING"].includes(operator.role) && operator.role !== departments[value.category] && !doctorPendingOrder)
     throw new DomainError("FORBIDDEN", "Source actor belongs to another department");
   const episode = await lockBillingAdmission(tx, value.admissionId);
-  openEpisode(episode, true);
+  if (exceptionId) {
+    const { requireCorrectionAuthority } = await import("../discharge/exceptions");
+    const {adminExceptions}=await import("../discharge/exception-schema");
+    const [a]=await tx.select().from(adminExceptions).where(eq(adminExceptions.id,exceptionId));
+    if(!a||!["LAB_REPORT","LAB_BILLING"].includes(a.correctionKind??""))throw new DomainError("PRECONDITION","Specific diagnostic correction authority required");
+    const authority = await requireCorrectionAuthority(tx, episode, exceptionId, a.correctionKind!);
+    const source = await tx.execute(sql`select b.id from hims.care_billing_events b join hims.lab_processing p on p.order_id=b.order_id where b.id=${value.sourceEventId} and b.order_id=${authority.sourceId} and b.admission_id=${episode.id} and b.category in ('lab','radiology')`);
+    if(operator.role!=="LAB"||!source.rows.length)throw new DomainError("FORBIDDEN","Late diagnostic charge must use the original performed source and proper Lab signer");
+  } else openEpisode(episode, true);
   if (doctorPendingOrder && episode.admittingDoctorId !== operator.id) throw new DomainError("FORBIDDEN", "Doctor order admission access denied");
   const sourcePayload = fingerprint({ ...value, status: undefined });
   const [old] = await tx.select().from(charges).where(and(eq(charges.admissionId, value.admissionId), eq(charges.sourceEventId, value.sourceEventId)));
@@ -281,13 +297,16 @@ export async function allocateDeposit(ctx: CommandContext, input: unknown) {
   });
 }
 /** Compose final billing allocation with its existing admission transaction. No second cash movement. */
-export async function allocateDepositInTransaction(tx: Transaction, ctx: CommandContext, input: { receiptId: string; amountPaise: string; reason: string }) {
+export async function allocateDepositInTransaction(tx: Transaction, ctx: CommandContext, input: { receiptId: string; amountPaise: string; reason: string }, exceptionId?: string) {
   const value = z.strictObject({ receiptId: z.uuid(), amountPaise: amountInput, reason }).parse(input);
   await admissionOperator(ctx, ["ADMIN", "BILLING"], tx);
   const [receipt] = await tx.select().from(receipts).where(eq(receipts.id, value.receiptId));
   if (!receipt) throw new DomainError("FORBIDDEN", "Receipt access denied");
   const episode = await lockBillingAdmission(tx, receipt.admissionId);
-  openEpisode(episode, true);
+  if(exceptionId) {
+    const {requireCorrectionAuthority}=await import("../discharge/exceptions");
+    await requireCorrectionAuthority(tx,episode,exceptionId,"ALLOCATE",receipt.id);
+  } else openEpisode(episode, true);
   if (receipt.party !== "PATIENT" || receipt.kind === "PAYMENT") throw new DomainError("PRECONDITION", "Allocate a patient deposit or top-up");
   const prior = await tx.select().from(receiptAllocations).where(eq(receiptAllocations.receiptId, receipt.id));
   const amountPaise = paise(value.amountPaise);
@@ -302,62 +321,127 @@ export async function allocateDepositInTransaction(tx: Transaction, ctx: Command
   return { id: line.id };
 }
 export async function refundReceipt(ctx: CommandContext, input: unknown) {
+  return withTransaction(tx => refundReceiptInTransaction(tx, ctx, input));
+}
+export async function refundReceiptInTransaction(tx: Transaction, ctx: CommandContext, input: unknown, exceptionId?: string) {
   const value = z.strictObject({
     receiptId: z.uuid(), amountPaise: amountInput, reason, requestId: z.uuid(),
     expectedReviewHash: z.string().length(64).optional(), expectedBillVersion: z.number().int().positive().optional(),
     mode: z.enum(["CASH", "CARD", "UPI", "BANK"]).optional(), channel: z.string().trim().min(2).max(100).optional(), sourceReference: z.string().trim().min(1).max(100).optional(), evidence: reason.optional(), refundedAt: z.iso.datetime().optional()
   }).parse(input);
   requestKey(ctx, value.requestId);
-  return withTransaction(async tx => {
-    const staff = await admissionOperator(ctx, ["ADMIN", "BILLING"], tx);
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
-    const [receipt] = await tx.select().from(receipts).where(eq(receipts.id, value.receiptId));
-    if (!receipt) throw new DomainError("FORBIDDEN", "Receipt access denied");
-    const e = await lockBillingAdmission(tx, receipt.admissionId);
-    return billingRequest(tx, ctx, "refund", value, async () => {
-      const identityPayload = fingerprint({ ...value, requestId: undefined, expectedReviewHash: undefined, expectedBillVersion: undefined });
-      if(value.mode&&value.channel&&value.sourceReference)await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`refund:${e.hospitalId}:${value.mode}:${value.channel}:${value.sourceReference}`},0))`);
-      const old = value.mode && value.channel && value.sourceReference ? await tx.select().from(receiptRefunds).where(and(eq(receiptRefunds.hospitalId, e.hospitalId), eq(receiptRefunds.mode, value.mode), eq(receiptRefunds.channel, value.channel), eq(receiptRefunds.sourceReference, value.sourceReference))) : [];
-      if (old[0]) { if (old[0].identityPayload !== identityPayload) throw new DomainError("CONFLICT", "Refund reference already has different details"); return { id: old[0].id }; }
+  const staff = await admissionOperator(ctx, ["ADMIN", "BILLING"], tx);
+  await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+  const [receipt] = await tx.select().from(receipts).where(eq(receipts.id, value.receiptId));
+  if (!receipt)
+    throw new DomainError("FORBIDDEN", "Receipt access denied");
+  const e = await lockBillingAdmission(tx, receipt.admissionId);
+  return billingRequest(tx, ctx, "refund", value, async () => {
+    const identityPayload = fingerprint({
+      ...value, requestId: undefined, expectedReviewHash: undefined, expectedBillVersion: undefined
+    });
+    if (value.mode && value.channel && value.sourceReference)
+      await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`refund:${e.hospitalId}:${value.mode}:${value.channel}:${value.sourceReference}`},0))`);
+    const old = value.mode && value.channel && value.sourceReference ? await tx.select().from(receiptRefunds).where(and(eq(receiptRefunds.hospitalId, e.hospitalId), eq(receiptRefunds.mode, value.mode), eq(receiptRefunds.channel, value.channel), eq(receiptRefunds.sourceReference, value.sourceReference))) : [];
+    if (old[0]) {
+      if (old[0].identityPayload !== identityPayload)
+        throw new DomainError("CONFLICT", "Refund reference already has different details");
+      return { id: old[0].id };
+    }
+    let reviewedHash = value.expectedReviewHash;
+    const cancelled = e.status === "CANCELLED" && exceptionId;
+    if (cancelled) {
+      const { requireException } = await import("../discharge/exceptions");
+      const authority = await requireException(tx, e.id, exceptionId, "CANCELLED_DEPOSIT", "RETURN_DEPOSIT");
+      if (authority.sourceId !== receipt.id || e.admittedAt || value.expectedBillVersion !== e.billRevision)
+        throw new DomainError("CONFLICT", "Review the current cancelled original receipt balance");
+      const occupied = await tx.execute(sql `select 1 from hims.room_stays where admission_id=${e.id} union all select 1 from hims.charges where admission_id=${e.id} limit 1`);
+      if (occupied.rows.length || receipt.party !== "PATIENT" || receipt.kind === "PAYMENT")
+        throw new DomainError("PRECONDITION", "Cancelled return requires never-occupied deposit cash without charges");
+      reviewedHash = fingerprint({
+        authorityId: authority.id, receiptId: receipt.id, billVersion: e.billRevision
+      });
+    }
+    else if (e.status === "DISCHARGED" && exceptionId) {
+      const { requireCorrectionAuthority } = await import("../discharge/exceptions");
+      const authority = await requireCorrectionAuthority(tx, e, exceptionId, "REFUND", receipt.id);
+      if (value.expectedBillVersion !== e.billRevision)
+        throw new DomainError("CONFLICT", "Review the current actual excess before return");
+      reviewedHash = fingerprint({
+        authorityId: authority.id, receiptId: receipt.id, billVersion: e.billRevision
+      });
+    }
+    else {
       openEpisode(e, true);
       const { requireGate4Review } = await import("../discharge/commands");
       await requireGate4Review(tx, e, value.expectedReviewHash, value.expectedBillVersion);
-      if (!value.mode || !value.channel || !value.sourceReference || !value.evidence || !value.refundedAt) throw new DomainError("VALIDATION", "Record actual refund channel, source reference, evidence and time");
-      const refundedAt = new Date(value.refundedAt);
-      if (refundedAt < receipt.createdAt || refundedAt > new Date()) throw new DomainError("VALIDATION", "Actual refund must follow its receipt and be no later than now");
-      const bill = await billProjection(tx, e, new Date()), financial = await financialResponsibilityInTransaction(tx, e, bill);
-      const applied = bill.activeAllocations.filter(a => a.receiptId === receipt.id).reduce((n,a)=>n+a.amountPaise,0n);
-      const returned = bill.refunds.filter(r => r.receiptId === receipt.id).reduce((n,r)=>n+r.amountPaise,0n);
-      const amount = paise(value.amountPaise), available = receipt.amountPaise - returned - (receipt.kind === "PAYMENT" ? 0n : applied);
-      const excess = receipt.party === "PATIENT" ? financial.responsibility?.patientExcessPaise : financial.responsibility?.insurerExcessPaise;
-      if (!financial.responsibility?.allocationComplete || excess === undefined || amount > available || amount > excess) throw new DomainError("PRECONDITION", "Refund exceeds reviewed party excess or unallocated original receipt cash; cancel its allocation first if necessary");
-      const [refund] = await tx.insert(receiptRefunds).values({ admissionId: e.id, hospitalId: e.hospitalId, receiptId: receipt.id, amountPaise: amount, reason: value.reason, mode: value.mode, channel: value.channel, sourceReference: value.sourceReference, evidence: value.evidence, refundedAt, reviewedHash: value.expectedReviewHash!, reviewedBillVersion: value.expectedBillVersion!, identityPayload, ...actorColumns(ctx) }).returning();
-      const revision = await bumpBillRevision(tx, e.id);
-      await appendAudit(tx, ctx, { event: "billing.refund-recorded", entityType: "receipt-refund", entityId: refund.id, reason: value.reason, afterVersion: revision });
-      return { id: refund.id };
+    }
+    if (!value.mode || !value.channel || !value.sourceReference || !value.evidence || !value.refundedAt)
+      throw new DomainError("VALIDATION", "Record actual refund channel, source reference, evidence and time");
+    const refundedAt = new Date(value.refundedAt);
+    if (refundedAt < receipt.createdAt || refundedAt > new Date())
+      throw new DomainError("VALIDATION", "Actual refund must follow its receipt and be no later than now");
+    const bill = await billProjection(tx, e, new Date()), financial = await financialResponsibilityInTransaction(tx, e, bill);
+    const applied = bill.activeAllocations.filter(a => a.receiptId === receipt.id).reduce((n, a) => n + a.amountPaise, 0n);
+    const returned = bill.refunds.filter(r => r.receiptId === receipt.id).reduce((n, r) => n + r.amountPaise, 0n);
+    const amount = paise(value.amountPaise), available = receipt.amountPaise - returned - (receipt.kind === "PAYMENT" ? 0n : applied);
+    const excess = receipt.party === "PATIENT" ? financial.responsibility?.patientExcessPaise : financial.responsibility?.insurerExcessPaise;
+    if (amount > available || (!cancelled && (!financial.responsibility?.allocationComplete || excess === undefined || amount > excess)))
+      throw new DomainError("PRECONDITION", "Refund exceeds reviewed party excess or unallocated original receipt cash; cancel its allocation first if necessary");
+    const [refund] = await tx.insert(receiptRefunds).values({
+      admissionId: e.id, hospitalId: e.hospitalId, receiptId: receipt.id, amountPaise: amount, reason: value.reason, mode: value.mode, channel: value.channel, sourceReference: value.sourceReference, evidence: value.evidence, refundedAt, reviewedHash: reviewedHash!, reviewedBillVersion: value.expectedBillVersion!, identityPayload, ...actorColumns(ctx)
+    }).returning();
+    const revision = await bumpBillRevision(tx, e.id);
+    await appendAudit(tx, ctx, {
+      event: "billing.refund-recorded", entityType: "receipt-refund", entityId: refund.id, reason: value.reason, afterVersion: revision
     });
+    return { id: refund.id };
   });
 }
 export async function cancelAllocation(ctx: CommandContext, input: unknown) {
-  const value = z.strictObject({ allocationId: z.uuid(), reason, requestId: z.uuid(), expectedReviewHash: z.string().length(64).optional(), expectedBillVersion: z.number().int().positive().optional() }).parse(input);
+  return withTransaction(tx=>cancelAllocationInTransaction(tx,ctx,input));
+}
+export async function cancelAllocationInTransaction(tx: Transaction, ctx: CommandContext, input: unknown, exceptionId?: string) {
+  const value = z.strictObject({
+    allocationId: z.uuid(), reason, requestId: z.uuid(), expectedReviewHash: z.string().length(64).optional(), expectedBillVersion: z.number().int().positive().optional()
+  }).parse(input);
   requestKey(ctx, value.requestId);
-  return withTransaction(async tx => {
-    const staff = await admissionOperator(ctx, ["ADMIN", "BILLING"], tx);
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
-    const [source] = await tx.select({ allocation: receiptAllocations, receipt: receipts }).from(receiptAllocations).innerJoin(receipts, eq(receipts.id, receiptAllocations.receiptId)).where(eq(receiptAllocations.id, value.allocationId));
-    if (!source) throw new DomainError("FORBIDDEN", "Allocation access denied");
-    const e = await lockBillingAdmission(tx, source.receipt.admissionId);
-    return billingRequest(tx, ctx, "cancel-allocation", value, async () => {
-      const [old] = await tx.select().from(allocationCancellations).where(eq(allocationCancellations.allocationId, value.allocationId));
-      if (old) {if(old.reason!==value.reason)throw new DomainError("CONFLICT","Allocation cancellation already has different facts");return { id: old.id };}
+  const staff = await admissionOperator(ctx, ["ADMIN", "BILLING"], tx);
+  await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+  const [source] = await tx.select({ allocation: receiptAllocations, receipt: receipts }).from(receiptAllocations).innerJoin(receipts, eq(receipts.id, receiptAllocations.receiptId)).where(eq(receiptAllocations.id, value.allocationId));
+  if (!source)
+    throw new DomainError("FORBIDDEN", "Allocation access denied");
+  const e = await lockBillingAdmission(tx, source.receipt.admissionId);
+  return billingRequest(tx, ctx, "cancel-allocation", value, async () => {
+    const [old] = await tx.select().from(allocationCancellations).where(eq(allocationCancellations.allocationId, value.allocationId));
+    if (old) {
+      if (old.reason !== value.reason)
+        throw new DomainError("CONFLICT", "Allocation cancellation already has different facts");
+      return { id: old.id };
+    }
+    let reviewedHash = value.expectedReviewHash;
+    if (exceptionId) {
+      const { requireCorrectionAuthority } = await import("../discharge/exceptions");
+      const authority = await requireCorrectionAuthority(tx, e, exceptionId, "CANCEL_ALLOCATION", source.allocation.id);
+      if (value.expectedBillVersion !== e.billRevision)
+        throw new DomainError("CONFLICT", "Review the current allocation before linked cancellation");
+      reviewedHash = fingerprint({
+        authorityId: authority.id, allocationId: source.allocation.id, billVersion: e.billRevision
+      });
+    }
+    else {
       openEpisode(e, true);
       const { requireGate4Review } = await import("../discharge/commands");
       await requireGate4Review(tx, e, value.expectedReviewHash, value.expectedBillVersion);
-      const [cancel] = await tx.insert(allocationCancellations).values({ allocationId: value.allocationId, reason: value.reason, reviewedHash: value.expectedReviewHash!, reviewedBillVersion: value.expectedBillVersion!, ...actorColumns(ctx) }).returning();
-      await bumpBillRevision(tx, e.id);
-      await appendAudit(tx, ctx, { event: "billing.allocation-cancelled", entityType: "allocation-cancellation", entityId: cancel.id, reason: value.reason });
-      return { id: cancel.id };
+    }
+    const [cancel] = await tx.insert(allocationCancellations).values({
+      allocationId: value.allocationId, reason: value.reason, reviewedHash: reviewedHash!, reviewedBillVersion: value.expectedBillVersion!, ...actorColumns(ctx)
+    }).returning();
+    await bumpBillRevision(tx, e.id);
+    await appendAudit(tx, ctx, {
+      event: "billing.allocation-cancelled", entityType: "allocation-cancellation", entityId: cancel.id, reason: value.reason
     });
+    return { id: cancel.id };
   });
 }
 export async function billProjection(tx: Transaction, episode: typeof admissions.$inferSelect, cutoff: Date) {
@@ -418,24 +502,38 @@ export async function financialResponsibilityInTransaction(tx: Transaction, e: t
   const pendingTransfers=await tx.select({id:transferInsuranceTasks.id}).from(transferInsuranceTasks).leftJoin(insuranceTransferResolutions,eq(insuranceTransferResolutions.taskId,transferInsuranceTasks.id)).where(and(eq(transferInsuranceTasks.admissionId,e.id),sql`${insuranceTransferResolutions.id} is null`)).orderBy(asc(transferInsuranceTasks.id));
   return { responsibility, caseId:c?.id, reviewRevision:c?.reviewRevision, policyId:policy?.id, decisionId:decision?.id, conversionId:conversion?.id, selfPayReviewId:review?.id, pendingTransfers, insurerAuthorizedPaise:decision?.approvedPaise??0n };
 }
-export async function reviewSelfPayResponsibility(ctx: CommandContext, input: unknown) {
-  const v=z.strictObject({admissionId:z.uuid(),expectedBillVersion:z.number().int().positive(),reason,requestId:z.uuid()}).parse(input);requestKey(ctx,v.requestId);
-  return withTransaction(async tx=>{
-    const staff=await admissionOperator(ctx,["ADMIN","BILLING"],tx);
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
-    const e=await lockBillingAdmission(tx,v.admissionId);
-    return billingRequest(tx,ctx,"self-pay-review",v,async()=>{
-      openEpisode(e,true);
-      if(e.paymentRoute!=="SELF_PAY"||e.billRevision!==v.expectedBillVersion)throw new DomainError("CONFLICT","Review the current self-pay bill");
-      const b=await billProjection(tx,e,new Date());
-      const [c]=await tx.select({conversion:insuranceConversions}).from(insuranceConversions).innerJoin(insuranceCases,eq(insuranceCases.id,insuranceConversions.caseId)).where(eq(insuranceCases.admissionId,e.id));
-      if(!c)throw new DomainError("PRECONDITION","Native self-pay already assigns the current bill to the patient");
-      const original=paise(c.conversion.allocation.retainedInsurerLiabilityPaise);
-      const retained=original>b.insurerCashPaise?b.insurerCashPaise:original;
-      const insurerPaise=retained>b.netPaise?b.netPaise:retained;
-      const [review]=await tx.insert(selfPayReviews).values({admissionId:e.id,billBasis:economicBasis(b),netPaise:b.netPaise,insurerPaise,patientPaise:b.netPaise-insurerPaise,reason:v.reason,...actorColumns(ctx)}).returning();
-      await bumpBillRevision(tx,e.id);await appendAudit(tx,ctx,{event:"billing.self-pay-reviewed",entityType:"self-pay-review",entityId:review.id,reason:v.reason});return {id:review.id};
+export async function reviewSelfPayResponsibility(ctx: CommandContext, input: unknown) {return withTransaction(tx=>reviewSelfPayResponsibilityInTransaction(tx,ctx,input));}
+export async function reviewSelfPayResponsibilityInTransaction(tx: Transaction, ctx: CommandContext, input: unknown, exceptionId?: string) {
+  const v = z.strictObject({
+    admissionId: z.uuid(), expectedBillVersion: z.number().int().positive(), reason, requestId: z.uuid()
+  }).parse(input);
+  requestKey(ctx, v.requestId);
+  const staff = await admissionOperator(ctx, ["ADMIN", "BILLING"], tx);
+  await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+  const e = await lockBillingAdmission(tx, v.admissionId);
+  return billingRequest(tx, ctx, "self-pay-review", v, async () => {
+    const authority = exceptionId ? await (await import("../discharge/exceptions")).requireCorrectionAuthority(tx, e, exceptionId, "SELF_PAY_REVIEW") : null;
+    if (!authority)
+      openEpisode(e, true);
+    if (e.paymentRoute !== "SELF_PAY" || e.billRevision !== v.expectedBillVersion)
+      throw new DomainError("CONFLICT", "Review the current self-pay bill");
+    const b = await billProjection(tx, e, new Date());
+    const [c] = await tx.select({ conversion: insuranceConversions }).from(insuranceConversions).innerJoin(insuranceCases, eq(insuranceCases.id, insuranceConversions.caseId)).where(eq(insuranceCases.admissionId, e.id));
+    if (!c)
+      throw new DomainError("PRECONDITION", "Native self-pay already assigns the current bill to the patient");
+    if (authority && authority.sourceId !== c.conversion.id)
+      throw new DomainError("VALIDATION", "Review must retain the original self-pay conversion");
+    const original = paise(c.conversion.allocation.retainedInsurerLiabilityPaise);
+    const retained = original > b.insurerCashPaise ? b.insurerCashPaise : original;
+    const insurerPaise = retained > b.netPaise ? b.netPaise : retained;
+    const [review] = await tx.insert(selfPayReviews).values({
+      admissionId: e.id, billBasis: economicBasis(b), netPaise: b.netPaise, insurerPaise, patientPaise: b.netPaise - insurerPaise, reason: v.reason, ...actorColumns(ctx)
+    }).returning();
+    await bumpBillRevision(tx, e.id);
+    await appendAudit(tx, ctx, {
+      event: "billing.self-pay-reviewed", entityType: "self-pay-review", entityId: review.id, reason: v.reason
     });
+    return { id: review.id };
   });
 }
 /** Role-safe read for final cutoff after room reconciliation within the owning transaction. */
@@ -473,9 +571,7 @@ export async function getDepositSummary(ctx: CommandContext, admissionId: string
 }
 export async function billingWorkspace(ctx: CommandContext) {
   await admissionOperator(ctx, ["ADMIN", "BILLING"]);
-  // Refunds are blocked in this phase, so every recorded receipt is still held cash.
-  // Task 12 must net actual authorized returns here when it adds cancelled-deposit disposition.
-  const heldCash = sql`coalesce((select sum(r.amount_paise) from hims.receipts r where r.admission_id=${admissions.id}),0)`;
+  const heldCash = sql`coalesce((select sum(r.amount_paise) from hims.receipts r where r.admission_id=${admissions.id}),0)-coalesce((select sum(f.amount_paise) from hims.receipt_refunds f where f.admission_id=${admissions.id}),0)`;
   const rows = await db.select({ id: admissions.id, ipCode: admissions.ipCode, status: admissions.status, name: patients.name, bedLabel: beds.label, heldCashPaise: heldCash.mapWith(BigInt) }).from(admissions).innerJoin(patients, eq(patients.id, admissions.patientId)).innerJoin(beds, eq(beds.id, admissions.bedId)).where(or(inArray(admissions.status, ["PENDING", "ADMITTED"]), and(eq(admissions.status, "CANCELLED"), sql`${heldCash}>0`))).orderBy(desc(admissions.registeredAt));
   return rows.map((row) => ({ ...row, requiresCashReview: row.status === "CANCELLED" && row.heldCashPaise > 0n }));
 }

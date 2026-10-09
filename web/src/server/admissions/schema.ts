@@ -33,6 +33,8 @@ export const patients = hims.table(
     id: uuid("id").primaryKey().defaultRandom(),
     uhid: text("uhid").notNull().unique(),
     name: text("name").notNull(),
+    identityStatus: text("identity_status").notNull().default("KNOWN"),
+    identityProvenance: text("identity_provenance"),
     dateOfBirth: date("date_of_birth"),
     ageYearsAtRegistration: integer("age_years_at_registration"),
     sex: text("sex").notNull(),
@@ -44,10 +46,11 @@ export const patients = hims.table(
   },
   (t) => [
     index("patients_name_idx").on(t.name),
+    check("patient_identity_provenance", sql`${t.identityStatus} in ('KNOWN','TEMPORARY') and (${t.identityStatus}='KNOWN' or length(btrim(${t.identityProvenance}))>=3)`),
     check("patients_sex", sql`${t.sex} in ('FEMALE','MALE','OTHER','UNKNOWN')`),
     check(
       "patient_age_identity",
-      sql`(${t.dateOfBirth} is not null) <> (${t.ageYearsAtRegistration} is not null)`,
+      sql`((${t.dateOfBirth} is not null) <> (${t.ageYearsAtRegistration} is not null)) or (${t.identityStatus}='TEMPORARY' and ${t.dateOfBirth} is null and ${t.ageYearsAtRegistration} is null)`,
     ),
     check(
       "patient_age_range",
@@ -188,9 +191,6 @@ export const roomStays = hims.table(
     index("room_stays_admission_idx").on(t.admissionId),
     index("room_stays_bed_idx").on(t.bedId),
     index("room_stays_tariff_idx").on(t.tariffVersionId),
-    uniqueIndex("room_stay_active_admission_idx")
-      .on(t.admissionId)
-      .where(sql`${t.endedAt} is null`),
     check(
       "room_stay_boundary",
       sql`${t.endedAt} is null or ${t.endedAt} > ${t.startedAt}`,
@@ -199,3 +199,13 @@ export const roomStays = hims.table(
     check("room_stay_cursor_boundary", sql`${t.lastReconciledAt} is null or (${t.lastReconciledAt} >= ${t.startedAt} and (${t.endedAt} is null or ${t.lastReconciledAt} <= ${t.endedAt}))`),
   ],
 );
+
+/** Authoritative physical bounds; raw room_stays remain original evidence. */
+export const effectiveRoomStays = hims.view("effective_room_stays", {
+  id: uuid("id").notNull(), admissionId: uuid("admission_id").notNull(), bedId: uuid("bed_id").notNull(), tariffVersionId: uuid("tariff_version_id").notNull(),
+  startedAt: time("started_at").notNull(), endedAt: time("ended_at"), lastReconciledAt: time("last_reconciled_at"), postedPaise: bigint("posted_paise",{mode:"bigint"}).notNull(), amendmentId: uuid("amendment_id"),
+}).existing();
+
+export const effectivePatients = hims.view("effective_patients",{
+ id:uuid("id").notNull(),uhid:text("uhid").notNull(),name:text("name").notNull(),identityStatus:text("identity_status").notNull(),identityProvenance:text("identity_provenance"),dateOfBirth:date("date_of_birth"),ageYearsAtRegistration:integer("age_years_at_registration"),sex:text("sex").notNull(),phone:text("phone"),registeredAt:time("registered_at").notNull(),registeredBy:text("registered_by").notNull(),identityAmendmentId:uuid("identity_amendment_id"),
+}).existing();

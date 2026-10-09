@@ -61,6 +61,7 @@ export function AdmissionForm({
     savePendingAdmission.bind(null, requestId),
     initial,
   );
+  const [temporaryIdentity, setTemporaryIdentity] = useState(false);
   const [assessmentTime, setAssessmentTime] = useState("");
   const [selectedBed, setSelectedBed] = useState("");
   const [paymentRoute, setPaymentRoute] = useState("SELF_PAY");
@@ -98,7 +99,7 @@ export function AdmissionForm({
               <p>
                 {patient.name} · {patient.uhid} ·{" "}
                 {patient.dateOfBirth ??
-                  `${patient.ageYearsAtRegistration} years at registration`}{" "}
+                  (patient.ageYearsAtRegistration===null?"Age unknown":`${patient.ageYearsAtRegistration} years at registration`)}{" "}
                 · {patient.sex}
               </p>
               <input type="hidden" name="patientId" value={patient.id} />
@@ -106,11 +107,13 @@ export function AdmissionForm({
             </div>
           ) : (
             <div className="fields admission-fields">
+              <label className="span-two">Identity status<select name="identityStatus" value={temporaryIdentity?"TEMPORARY":"KNOWN"} onChange={e=>setTemporaryIdentity(e.target.value==="TEMPORARY")}><option value="KNOWN">Known patient identity</option><option value="TEMPORARY">Urgent temporary identity / facts unknown</option></select></label>
+              {temporaryIdentity&&<label className="span-two">Actual intake identity provenance<textarea name="identityProvenance" required minLength={3} maxLength={500}/><span className="caption">Leave unknown name, date of birth and age blank. A unique temporary label is generated. Administrator urgent authority is required before activation.</span></label>}
               <label>
                 Patient name
                 <input
                   name="name"
-                  required
+                  required={!temporaryIdentity}
                   minLength={2}
                   maxLength={150}
                   autoComplete="off"

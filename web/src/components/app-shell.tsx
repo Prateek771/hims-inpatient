@@ -42,6 +42,7 @@ export function AppShell({
           ]
         : role === "BILLING" ? [{ label: "Charges & payments", href: "/billing" }, { label: "Insurance paperwork", href: "/insurance" }] : role === "DOCTOR" ? [{ label: "Doctor workspace", href: "/clinical" }, { label: "Nursing records", href: "/nursing" }] : role === "NURSE" ? [{ label: "Nursing workspace", href: "/nursing" }] : role === "PHARMACY" ? [{label:"Pharmacy",href:"/pharmacy"}] : role === "LAB" ? [{label:"Lab worklist",href:"/lab"}] : role === "INSURANCE" ? [{label:"Insurance paperwork",href:"/insurance"}] : [];
   if(role && ["ADMIN","BILLING","DOCTOR","NURSE","PHARMACY"].includes(role)) available.push({label:"Discharge clearance",href:"/discharge"});
+  if(role) available.push({label:role==="ADMIN"?"Admin exceptions":"Exception follow-up",href:"/exceptions"});
   return (
     <>
       <a className="skip-link" href="#main-content">

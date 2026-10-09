@@ -52,7 +52,7 @@ export default async function AdmissionsPage({
                 >
                   {p.name} · {p.uhid} ·{" "}
                   {p.dateOfBirth ??
-                    `${p.ageYearsAtRegistration} years at registration`}{" "}
+                    (p.ageYearsAtRegistration===null?"Age unknown":`${p.ageYearsAtRegistration} years at registration`)}{" "}
                   · {p.sex}
                 </Link>
               </li>

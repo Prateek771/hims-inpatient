@@ -9,3 +9,4 @@ export * from "../pharmacy/schema";
 export * from "../lab/schema";
 export * from "../insurance/schema";
 export * from "../discharge/schema";
+export * from "../discharge/exception-schema";

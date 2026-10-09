@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { and, asc, desc, eq, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getViewSelectedFields, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { appendAudit } from "../audit";
 import {
@@ -16,8 +16,8 @@ import {
   admissionCounters,
   bedHolds,
   beds,
-  patients,
-  roomStays,
+  effectivePatients as patients, patients as originalPatients,
+  effectiveRoomStays as roomStays, roomStays as originalRoomStays,
 } from "./schema";
 import { admissionTransfers, transferInsuranceTasks, transferOrders } from "./transfer-schema";
 
@@ -34,7 +34,7 @@ export function admissionYear(now: Date, timezone: string) {
     }).format(now),
   );
 }
-const dateOfBirth = z
+export const dateOfBirth = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/)
   .refine((value) => {
@@ -50,7 +50,9 @@ export const admissionInput = z
     patientId: z.uuid().optional(),
     patientDetails: z
       .strictObject({
-        name: z.string().trim().min(2).max(150),
+        name: z.string().trim().min(2).max(150).optional(),
+        identityStatus:z.enum(["KNOWN","TEMPORARY"]).default("KNOWN"),
+        identityProvenance:reason.optional(),
         dateOfBirth: dateOfBirth.optional(),
         ageYearsAtRegistration: z.number().int().min(0).max(130).optional(),
         sex: z.enum(["FEMALE", "MALE", "OTHER", "UNKNOWN"]),
@@ -65,9 +67,8 @@ export const admissionInput = z
           .optional(),
       })
       .refine(
-        (v) =>
-          (v.dateOfBirth !== undefined) !==
-          (v.ageYearsAtRegistration !== undefined),
+        (v) => (v.identityStatus==="TEMPORARY" ? !!v.identityProvenance : !!v.name) &&
+          ((v.dateOfBirth !== undefined) !== (v.ageYearsAtRegistration !== undefined) || (v.identityStatus==="TEMPORARY" && v.dateOfBirth===undefined && v.ageYearsAtRegistration===undefined)),
         "Record either a known birth date or age in years, not both",
       )
       .optional(),
@@ -324,9 +325,10 @@ export async function createAdmission(
         );
     } else {
       [patient] = await tx
-        .insert(patients)
+        .insert(originalPatients)
         .values({
           ...value.patientDetails!,
+          name:value.patientDetails!.name??`Unidentified ${crypto.randomUUID().slice(0,8).toUpperCase()}`,
           uhid: `UHID-${crypto.randomUUID()}`,
           registeredBy: operator.id,
         })
@@ -337,7 +339,7 @@ export async function createAdmission(
       .from(beds)
       .where(eq(beds.id, value.bedId))
       .for("update");
-    const cleaning = await tx.execute(sql`select 1 from hims.bed_turnovers t where t.bed_id=${value.bedId} and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id) limit 1`);
+    const cleaning = await tx.execute(sql`select 1 from hims.effective_bed_turnovers t where t.bed_id=${value.bedId} and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id) limit 1`);
     if (
       !bed ||
       !bed.active ||
@@ -477,7 +479,7 @@ export async function getAdmission(ctx: CommandContext, admissionId: string) {
     throw new DomainError("FORBIDDEN", "Admission access denied");
   const staff = await admissionOperator(ctx, ["ADMIN", "ADMISSION", "DOCTOR"]);
   const [record] = await db
-    .select({ admission: admissions, patient: patients, bedLabel: beds.label })
+    .select({ admission: admissions, patient: getViewSelectedFields(patients), bedLabel: beds.label })
     .from(admissions)
     .innerJoin(patients, eq(patients.id, admissions.patientId))
     .innerJoin(beds, eq(beds.id, admissions.bedId))
@@ -492,6 +494,7 @@ export async function getAdmission(ctx: CommandContext, admissionId: string) {
     patientId: record.patient.id,
     uhid: record.patient.uhid,
     name: record.patient.name,
+    identityStatus:record.patient.identityStatus,identityProvenance:record.patient.identityProvenance,identityAmendmentId:record.patient.identityAmendmentId,
     dateOfBirth: record.patient.dateOfBirth,
     ageYearsAtRegistration: record.patient.ageYearsAtRegistration,
     identityRegisteredAt: record.patient.registeredAt,
@@ -529,19 +532,27 @@ export async function activateAdmission(ctx: CommandContext, input: unknown) {
       if (!episode) throw new DomainError("FORBIDDEN", "Admission access denied");
       if (episode.version !== value.expectedVersion) throw new DomainError("CONFLICT", "Admission changed. Refresh before activation");
       if (episode.status !== "PENDING") throw new DomainError("PRECONDITION", "Only a pending admission can activate");
-      if (value.exceptionId) throw new DomainError("PRECONDITION", "Activation exceptions require the administrator exception workflow, which is not yet available");
+      if (value.exceptionId) {
+        const { requireException } = await import("../discharge/exceptions");
+        const authority = await requireException(tx, episode.id, value.exceptionId, "URGENT_ADMISSION", "ACTIVATE");
+        const captured = authority.snapshot.deposit as { sourceId?: string } | undefined;
+        const current = await resolveActivationPolicies(tx, episode);
+        if (captured?.sourceId !== current.deposit.id) throw new DomainError("CONFLICT", "Deposit policy changed after exception review; obtain current authority");
+      }
       const [bed] = await tx.select().from(beds).where(eq(beds.id, episode.bedId)).for("update");
       const [hold] = await tx.select().from(bedHolds).where(eq(bedHolds.bedId, bed.id));
       if (!bed.active || hold?.admissionId !== episode.id) throw new DomainError("CONFLICT", "The reserved bed is no longer available");
       const policies = await resolveActivationPolicies(tx, episode);
-      if (await patientDepositCash(tx, episode.id) < policies.requiredPaise) throw new DomainError("PRECONDITION", "Record the configured patient deposit before activation");
+      const [identity] = await tx.select().from(patients).where(eq(patients.id,episode.patientId));
+      if(identity.identityStatus==="TEMPORARY"&&!value.exceptionId)throw new DomainError("PRECONDITION","Unknown identity activation requires attributable urgent authority");
+      if (!value.exceptionId && await patientDepositCash(tx, episode.id) < policies.requiredPaise) throw new DomainError("PRECONDITION", "Record the configured patient deposit before activation");
       const arrivedAt = new Date(value.arrivedAt);
       // Staff records actual bed occupancy, not registration or waiting time. A retrospective
       // entry must still fit the persisted reservation chronology; exceptions belong to Task 12.
       if (arrivedAt < episode.registeredAt || arrivedAt < hold.heldAt || arrivedAt.getTime() > Date.now()) throw new DomainError("VALIDATION", "Actual bed occupancy must start after this reservation and no later than now");
-      await tx.insert(roomStays).values({ admissionId: episode.id, bedId: bed.id, tariffVersionId: policies.tariff.id, startedAt: arrivedAt, lastReconciledAt: arrivedAt });
+      await tx.insert(originalRoomStays).values({ admissionId: episode.id, bedId: bed.id, tariffVersionId: policies.tariff.id, startedAt: arrivedAt, lastReconciledAt: arrivedAt });
       await tx.update(admissions).set({ status: "ADMITTED", admittedAt: arrivedAt, depositVersionId: policies.deposit.id, version: episode.version + 1, billRevision: episode.billRevision + 1 }).where(eq(admissions.id, episode.id));
-      await appendAudit(tx, ctx, { event: "admission.activated", entityType: "admission", entityId: episode.id, reason: "Configured deposit checked; occupied stay started once", beforeVersion: episode.version, afterVersion: episode.version + 1 });
+      await appendAudit(tx, ctx, { event: "admission.activated", entityType: "admission", entityId: episode.id, reason: value.exceptionId ? `Urgent exception ${value.exceptionId}; configured deposit obligation remains` : "Configured deposit checked; occupied stay started once", beforeVersion: episode.version, afterVersion: episode.version + 1 });
       return { id: episode.id };
     });
   });
@@ -587,7 +598,7 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
       UNION ALL SELECT actual_at FROM hims.medication_administrations WHERE admission_id=${episode.id}
       UNION ALL SELECT observed_at FROM hims.nursing_observations WHERE admission_id=${episode.id}
       UNION ALL SELECT started_at FROM hims.nursing_shifts WHERE admission_id=${episode.id}
-      UNION ALL SELECT e.ended_at FROM hims.nursing_shift_ends e JOIN hims.nursing_shifts s ON s.id=e.shift_id WHERE s.admission_id=${episode.id}
+      UNION ALL SELECT e.ended_at FROM hims.effective_shift_ends e JOIN hims.nursing_shifts s ON s.id=e.shift_id WHERE s.admission_id=${episode.id}
     ) history WHERE at > ${T} LIMIT 1`);
     const uses = await tx.execute(sql`SELECT 1 FROM hims.nursing_consumables WHERE stay_id=${stay.id} AND used_at >= ${T} LIMIT 1`);
     if (history.rows.length || uses.rows.length) throw new DomainError("CONFLICT", "Transfer cannot precede recorded clinical or source-unit care; use the attributable correction workflow");
@@ -599,9 +610,9 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
       throw new DomainError("CONFLICT", "Source occupancy or target availability changed. Choose an available bed");
     // A free bed now may still have been occupied at the supplied factual boundary.
     // The new stay is open-ended; any persisted target interval ending after T overlaps it.
-    const targetHistory = await tx.execute(sql`SELECT 1 FROM hims.room_stays WHERE bed_id=${target.id} AND (ended_at IS NULL OR ended_at > ${T}) LIMIT 1`);
+    const targetHistory = await tx.execute(sql`SELECT 1 FROM hims.effective_room_stays WHERE bed_id=${target.id} AND (ended_at IS NULL OR ended_at > ${T}) LIMIT 1`);
     if (targetHistory.rows.length) throw new DomainError("CONFLICT", "Target bed was occupied at this actual transfer time. Preserve the factual time and use the correction workflow");
-    const cleaning=await tx.execute(sql`select 1 from hims.bed_turnovers t left join hims.bed_turnover_completions c on c.turnover_id=t.id where t.bed_id=${target.id} and (c.id is null or c.completed_at>${T}) limit 1`);
+    const cleaning=await tx.execute(sql`select 1 from hims.effective_bed_turnovers t left join hims.bed_turnover_completions c on c.turnover_id=t.id where t.bed_id=${target.id} and (c.id is null or c.completed_at>${T}) limit 1`);
     if(cleaning.rows.length)throw new DomainError("CONFLICT","Target bed housekeeping was not complete at the actual transfer time");
     if (target.category !== order.destinationCategory) throw new DomainError("VALIDATION", "Target bed must match the clinician-selected destination category");
     const versions = await tx.select().from(settingVersions).where(eq(settingVersions.hospitalId, episode.hospitalId)).orderBy(desc(settingVersions.version));
@@ -612,8 +623,8 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
     paise(policy.amount);
     if (policy.graceMinutes > 0 && !policy.graceMode) throw new DomainError("PRECONDITION", "Configure explicit target room grace behavior");
     await reconcileRoomChargesInTransaction(tx, { admissionId: episode.id, cutoff: T, actorContext: ctx });
-    await tx.update(roomStays).set({ endedAt: T }).where(eq(roomStays.id, stay.id));
-    const [next] = await tx.insert(roomStays).values({ admissionId: episode.id, bedId: target.id, tariffVersionId: tariff.id, startedAt: T, lastReconciledAt: T }).returning();
+    await tx.update(originalRoomStays).set({ endedAt: T }).where(eq(originalRoomStays.id, stay.id));
+    const [next] = await tx.insert(originalRoomStays).values({ admissionId: episode.id, bedId: target.id, tariffVersionId: tariff.id, startedAt: T, lastReconciledAt: T }).returning();
     await tx.delete(bedHolds).where(eq(bedHolds.admissionId, episode.id));
     await tx.insert(bedHolds).values({ admissionId: episode.id, bedId: target.id, heldAt: T });
     await tx.update(admissions).set({ bedId: target.id, version: sql`${admissions.version}+1`, billRevision: sql`${admissions.billRevision}+1` }).where(eq(admissions.id, episode.id));
@@ -641,7 +652,7 @@ export async function admissionWorkspace(ctx: CommandContext) {
       category: beds.category,
       active: beds.active,
       admissionId: bedHolds.admissionId,
-      cleaning: sql<boolean>`exists(select 1 from hims.bed_turnovers t where t.bed_id=${beds.id} and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id))`,
+      cleaning: sql<boolean>`exists(select 1 from hims.effective_bed_turnovers t where t.bed_id=${beds.id} and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id))`,
     })
     .from(beds)
     .leftJoin(bedHolds, eq(bedHolds.bedId, beds.id))

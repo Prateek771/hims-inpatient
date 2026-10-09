@@ -160,3 +160,22 @@ dl { margin-top: 16px; display: grid; gap: 12px; }
   body:has(.sample-label) .no-print { display: none; }
 }
 .insurance-money { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 16px; margin-block: 24px; } .insurance-money dt { color: var(--muted); } .insurance-money dd { margin: 0; font-weight: 500; text-align: right; }
+
+.exception-columns { display:grid;grid-template-columns:minmax(0,1.9fr) minmax(300px,1fr);gap:24px;align-items:start; }
+.exception-columns > *, .exception-columns td { min-width:0;overflow-wrap:anywhere; }
+.exception-register .section-header { display:flex;align-items:center;justify-content:space-between;gap:16px; }
+.exception-register table { min-width:500px; }
+.exception-register tbody tr:nth-child(even) { background:var(--canvas); }
+.exception-register .exception-selected { background:var(--blue-soft,#eef5ff); }
+.exception-register td:last-child { font-size:12px; }
+.exception-principle { margin:20px 0; }
+.exception-facts { display:grid;grid-template-columns:110px minmax(0,1fr);gap:14px;margin:24px 0; }
+.exception-facts dt { color:var(--muted);font-size:13px; }
+.exception-facts dd { margin:0;overflow-wrap:anywhere; }
+.exception-detail .notice { margin:20px 0; }
+.exception-detail details { margin:24px 0; }
+.exception-evidence { padding:12px;border:1px solid var(--line);border-radius:8px;display:grid;gap:8px; }
+.exception-evidence label { display:flex;align-items:start;gap:8px;font-weight:400; }
+.exception-evidence input { width:auto;min-height:18px;margin-top:2px; }
+@media(max-width:1050px){.exception-columns{grid-template-columns:minmax(0,1fr);}}
+@media(max-width:600px){.exception-facts{grid-template-columns:95px minmax(0,1fr);gap:12px;}}

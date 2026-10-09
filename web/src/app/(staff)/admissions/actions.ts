@@ -46,7 +46,9 @@ export async function savePendingAdmission(
           ? { patientId }
           : {
               patientDetails: {
-                name: field(form, "name"),
+                ...(field(form,"name")?{name:field(form,"name")}:{}),
+                identityStatus:field(form,"identityStatus")||"KNOWN",
+                ...(field(form,"identityProvenance")?{identityProvenance:field(form,"identityProvenance")}:{}),
                 ...(field(form, "dateOfBirth")
                   ? { dateOfBirth: field(form, "dateOfBirth") }
                   : {}),

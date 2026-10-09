@@ -4,7 +4,7 @@ import { z } from "zod";
 import { db, withTransaction, type Transaction } from "../db";
 import { DomainError, type CommandContext } from "../contracts";
 import { admissionOperator } from "../admissions/commands";
-import { admissions, beds, patients, roomStays } from "../admissions/schema";
+import { admissions, beds, effectivePatients as patients, effectiveRoomStays as roomStays } from "../admissions/schema";
 import { user } from "../schema/auth";
 import { appendAudit } from "../audit";
 import { billingRequest, lockBillingAdmission } from "../billing/commands";
@@ -28,7 +28,8 @@ import {
   nursingAddenda,
   nursingConsumables,
   nursingObservations,
-  nursingShiftEnds,
+  effectiveShiftEnds as nursingShiftEnds,
+  nursingShiftEnds as originalShiftEnds,
   nursingShifts,
 } from "./schema";
 
@@ -289,7 +290,7 @@ export async function recordShift(ctx: CommandContext, input: unknown) {
           })
           .returning();
         if (end)
-          await tx.insert(nursingShiftEnds).values({
+          await tx.insert(originalShiftEnds).values({
             shiftId: shift.id,
             endedAt: end,
             handover: value.handover,
@@ -329,7 +330,12 @@ export async function endShiftInTransaction(tx: Transaction, ctx: CommandContext
             "FORBIDDEN",
             "Only this shift's nurse can sign its handover",
           );
-        await careEpisode(tx, staff, shift.admissionId);
+        const episode = await careEpisode(tx, staff, shift.admissionId, false);
+        if (episode.status !== "ADMITTED") {
+          const { actualEpisodeDeparture } = await import("../discharge/exceptions");
+          const departure = await actualEpisodeDeparture(tx, episode.id);
+          if (episode.status !== "DISCHARGED" || !departure || new Date(value.endedAt) > departure) throw new DomainError("PRECONDITION", "After departure the original Nurse may only close factual attendance through the actual exit");
+        }
         const endedAt = actualTime(value.endedAt, shift.startedAt);
         if (endedAt <= shift.startedAt)
           throw new DomainError(
@@ -348,36 +354,10 @@ export async function endShiftInTransaction(tx: Transaction, ctx: CommandContext
             "CONFLICT",
             "This shift already has a signed handover",
           );
-        // A handover cannot claim attendance ended before signed actual care during the shift.
-        const mar = await tx
-          .select()
-          .from(medicationAdministrations)
-          .where(eq(medicationAdministrations.shiftId, shift.id));
-        const vitals = await tx
-          .select()
-          .from(nursingObservations)
-          .where(eq(nursingObservations.shiftId, shift.id));
-        const uses = await tx
-          .select()
-          .from(nursingConsumables)
-          .where(eq(nursingConsumables.shiftId, shift.id));
-        const { admissionTransfers } = await import("../admissions/transfer-schema");
-        const transfers = await tx.select({ transferredAt: admissionTransfers.transferredAt }).from(admissionTransfers).where(and(eq(admissionTransfers.admissionId, shift.admissionId), eq(admissionTransfers.shiftId, shift.id)));
-        const { roomVacations } = await import("../discharge/schema");
-        const vacancies = await tx.select({ vacatedAt: roomVacations.vacatedAt }).from(roomVacations).where(eq(roomVacations.shiftId, shift.id));
-        if (
-          mar.some((v) => v.actualAt > endedAt) ||
-          vitals.some((v) => v.observedAt > endedAt) ||
-          uses.some((v) => v.usedAt > endedAt) ||
-          transfers.some((v) => v.transferredAt > endedAt) ||
-          vacancies.some((v) => v.vacatedAt > endedAt)
-        )
-          throw new DomainError(
-            "VALIDATION",
-            "Handover cannot precede recorded care in this shift",
-          );
+        const { validateAttendanceEnd } = await import("../discharge/exceptions");
+        await validateAttendanceEnd(tx, shift.id, endedAt);
         const [end] = await tx
-          .insert(nursingShiftEnds)
+          .insert(originalShiftEnds)
           .values({ ...value, endedAt, signedBy: staff.id })
           .returning();
         await audit(tx, ctx, "shift-ended", end.id, value.handover);
@@ -391,8 +371,10 @@ export async function shiftForCare(
   shiftId: string,
   admissionId: string,
   time: string,
+  cutoffExceptionId?: string,
 ) {
-  const episode = await careEpisode(tx, staff, admissionId);
+  const episode = await careEpisode(tx, staff, admissionId, !cutoffExceptionId);
+  if(cutoffExceptionId){const {requireException}=await import("../discharge/exceptions");await requireException(tx,admissionId,cutoffExceptionId,"ROOM_CUTOFF_CORRECTION","AMEND");}
   const [shift] = await tx
     .select()
     .from(nursingShifts)
