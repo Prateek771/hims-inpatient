@@ -109,3 +109,13 @@ dl { margin-top: 16px; display: grid; gap: 12px; }
 .billing-subheading { margin-top: 24px; }
 @media (max-width: 1050px) { .billing-columns { grid-template-columns: minmax(0,1fr); } .billing-metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 600px) { .billing-metrics { grid-template-columns: minmax(0,1fr); gap: 0; } .billing-columns table { min-width: 560px; } }
+.care-columns { display: grid; grid-template-columns: minmax(0,1.9fr) minmax(280px,1fr); gap: 24px; align-items: start; }
+.care-columns > *, .care-columns td, .care-entry { min-width: 0; overflow-wrap: anywhere; }
+.care-entry { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
+.care-entry p { white-space: pre-wrap; margin-top: 6px; }
+.care-entry .notice { margin: 12px 0 0; }
+.care-fields { max-width: none; }
+.care-fields p { overflow-wrap: anywhere; }
+.care-metric { font-size: 16px !important; }
+@media (max-width: 1050px) { .care-columns { grid-template-columns: minmax(0,1fr); } }
+@media (max-width: 600px) { .care-columns table { min-width: 500px; } }

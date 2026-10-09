@@ -6,7 +6,7 @@ An administrator configures room categories in hospital settings, then creates p
 
 Admission staff record the named clinician's assessment, admitting doctor, destination, override reason where needed, bed and payment route. Intake provenance identifies both the clinician whose assessment was recorded and the staff member recording it; this is not a clinician's electronic clearance seal. Insurance verification remains external and later insurance records are staff-entered.
 
-Saving an episode creates a **PENDING** reservation. It does not start a room stay, room charging or satisfy a required deposit. Billing's activation command is the next build phase; urgent exceptions belong to the later administrator exception workflow. Cancelling a pending episode releases its reservation while preserving the UHID, IP code, actor, time and reason. Active admissions cannot be cancelled through this command.
+Saving an episode creates a **PENDING** reservation. It does not start a room stay, room charging or satisfy a required deposit. Billing activation checks the actual occupancy time, current reservation and configured deposit before starting an **ADMITTED** tariff-pinned stay. Urgent exceptions belong to the later administrator exception workflow. Cancelling a pending episode releases its reservation while preserving the UHID, IP code, actor, time and reason. Active admissions cannot be cancelled through this command.
 
 ## Access and history
 
@@ -18,4 +18,4 @@ Worklists retain every ongoing pending/active episode, followed by the latest 50
 
 ## Current limits
 
-Activation, receipts, charges, transfers, clinical corrections, unknown-identity urgent intake and discharge are later tasks in the [build plan](superpowers/plans/2026-10-09-hims-inpatient.md). No external insurer or payment integration is included. Configure real hospital policy explicitly before real use; missing policy never means a free stay or waived deposit. See [staff access](STAFF_ACCESS.md), [database setup](DATABASE_SETUP.md) and the [approved design](DESIGN_REFERENCE.md).
+Activation, receipts and charges are described in [billing](BILLING.md); signed clinical/nursing corrections are described in [care](CARE.md), with acceptance recorded in the current build status. Transfers, unknown-identity urgent intake and discharge are subsequent tasks in the [build plan](superpowers/plans/2026-10-09-hims-inpatient.md). No external insurer or payment integration is included. Configure real hospital policy explicitly before real use; missing policy never means a free stay or waived deposit. See [staff access](STAFF_ACCESS.md), [database setup](DATABASE_SETUP.md) and the [approved design](DESIGN_REFERENCE.md).

@@ -50,8 +50,7 @@ export default async function Workspace() {
       <section className="notice">
         <h2>{title}</h2>
         <p>
-          {work}. This department’s inpatient records and actions will be
-          available when its workflow is implemented.
+          {work}.{!["DOCTOR", "NURSE"].includes(staff.role) && " Later department capabilities become available as the build progresses."}
         </p>
       </section>
       {staff.role === "ADMIN" && (
@@ -106,6 +105,7 @@ export default async function Workspace() {
       )}
       {["ADMIN", "BILLING"].includes(staff.role) && <section className="card"><h2>Charges and manual receipts</h2><p>Review real ledger entries, held deposits, allocations and patient/insurer cash recorded by staff.</p><Link className="button" href="/billing">Open charges and receipts</Link></section>}
       <AccountControls />
+      {["DOCTOR", "NURSE"].includes(staff.role) && <section className="card"><h2>Assigned inpatient care</h2><Link className="button" href={staff.role === "DOCTOR" ? "/clinical" : "/nursing"}>Open {staff.role === "DOCTOR" ? "doctor" : "nursing"} workspace</Link></section>}
     </>
   );
 }

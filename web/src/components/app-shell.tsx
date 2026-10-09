@@ -36,8 +36,9 @@ export function AppShell({
             { label: "Bed inventory", href: "/admin/beds" },
             { label: "Hospital settings", href: "/admin/settings" },
             { label: "Manage staff", href: "/admin/staff" },
+            { label: "Nursing assignments", href: "/admin/care" },
           ]
-        : role === "BILLING" ? [{ label: "Charges & payments", href: "/billing" }] : [];
+        : role === "BILLING" ? [{ label: "Charges & payments", href: "/billing" }] : role === "DOCTOR" ? [{ label: "Doctor workspace", href: "/clinical" }, { label: "Nursing records", href: "/nursing" }] : role === "NURSE" ? [{ label: "Nursing workspace", href: "/nursing" }] : [];
   return (
     <>
       <a className="skip-link" href="#main-content">

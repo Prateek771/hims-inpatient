@@ -64,6 +64,34 @@
       "when": 1791501522896,
       "tag": "0008_public_micromax",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791504710954,
+      "tag": "0009_lush_arclight",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791505172110,
+      "tag": "0010_warm_layla_miller",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791505327594,
+      "tag": "0011_complete_mikhail_rasputin",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791506017204,
+      "tag": "0012_groovy_northstar",
+      "breakpoints": true
     }
   ]
 }

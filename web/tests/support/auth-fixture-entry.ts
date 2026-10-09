@@ -5,7 +5,7 @@ import { user } from "../../src/server/schema/auth";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 async function prepare() {
-  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING"] as const) {
+  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE"] as const) {
     const email = `${role.toLowerCase()}@e2e.fixture.invalid`;
     const [existing] = await db
       .select()
@@ -92,9 +92,10 @@ async function prepare() {
       },
     );
   await prepareBillingFixtures(h);
+  await prepareCareFixtures(h);
   // Workflow browser contexts reuse real synthetic sessions, avoiding unrelated login-limiter traffic.
   // These signed cookies are credentials and stay exclusively inside the ignored test output folder.
-  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING"] as const) {
+  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE"] as const) {
     const response = await getAuth().api.signInEmail({ asResponse: true, body: { email: `${role.toLowerCase()}@e2e.fixture.invalid`, password: "SyntheticE2EOnly123!" } });
     if (!response.ok) throw new Error("Synthetic storage-state sign-in failed");
     const cookies = response.headers.getSetCookie().map((header) => {
@@ -157,6 +158,36 @@ async function prepareBillingFixtures(adminHeaders: Headers) {
     await reconcileBill(await context("billing"), { admissionId: a.admissionId, cutoff: new Date().toISOString() });
   }
 }
+async function prepareCareFixtures(adminHeaders: Headers) {
+  const { requireStaff } = await import("../../src/server/access");
+  const { createAdmission, createBed, activateAdmission } = await import("../../src/server/admissions/commands");
+  const { recordReceipt } = await import("../../src/server/billing/commands");
+  const { recordRound } = await import("../../src/server/clinical/commands");
+  const { assignNurse } = await import("../../src/server/nursing/commands");
+  const admin = await requireStaff(adminHeaders);
+  const [doctor] = await db.select().from(user).where(eq(user.email, "doctor@e2e.fixture.invalid"));
+  const [nurse] = await db.select().from(user).where(eq(user.email, "nurse@e2e.fixture.invalid"));
+  // This entrypoint is launched only by the guarded synthetic auth fixture process.
+  const context = (id: string) => ({ actor: { type: "staff" as const, staffId: id }, source: "synthetic-browser-care", requestId: crypto.randomUUID() });
+  const [desk] = await db.select().from(user).where(eq(user.email, "admission@e2e.fixture.invalid"));
+  const [billing] = await db.select().from(user).where(eq(user.email, "billing@e2e.fixture.invalid"));
+  const bed = await createBed(context(admin.id), { label: `Synthetic care ${crypto.randomUUID()}`, category: "GENERAL", reason: "Synthetic care inventory" });
+  const deskCtx = context(desk.id);
+  const a = await createAdmission(deskCtx, { patientDetails: { name: "Synthetic E2E care patient", ageYearsAtRegistration: 54, sex: "FEMALE" }, admittingDoctorId: doctor.id, clinicianAssessment: { clinicianId: doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Synthetic complaint", vitals: "Synthetic assessment", triage: "Synthetic destination", destinationCategory: "GENERAL" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 2, requestId: deskCtx.requestId });
+  const receiptCtx = context(billing.id);
+  await recordReceipt(receiptCtx, { admissionId: a.admissionId, party: "PATIENT", kind: "DEPOSIT", amountPaise: "50000", mode: "CASH", channel: "Synthetic care fixture book", sourceReference: crypto.randomUUID(), reference: "Synthetic care deposit", requestId: receiptCtx.requestId });
+  const arrival = context(desk.id), startedAt = new Date().toISOString();
+  await activateAdmission(arrival, { admissionId: a.admissionId, expectedVersion: 1, arrivedAt: startedAt, requestId: arrival.requestId });
+  await assignNurse(context(admin.id), { admissionId: a.admissionId, nurseId: nurse.id, authority: "Synthetic hospital administrator schedule", reason: "Synthetic ward responsibility" });
+  const round = context(doctor.id);
+  await recordRound(round, { admissionId: a.admissionId, notes: "Synthetic care fixture round", requestId: round.requestId, orders: [
+    { kind: "MEDICINE", requestedItem: "Synthetic prescribed medicine", dose: "5", doseUnit: "mg", route: "oral", frequency: "Clinician explicit schedule", durationDays: 1, medicationPurpose: "BOTH", dispensingQuantity: "4", dispensingUnit: "tablet", schedule: { startsAt: startedAt, intervalMinutes: 60, occurrences: 2 } },
+    { kind: "VITALS", requestedItem: "Synthetic clinician monitoring", schedule: { startsAt: startedAt, intervalMinutes: 60, occurrences: 2 } },
+    { kind: "VITALS", requestedItem: "Synthetic unresolved monitoring for handover", schedule: { startsAt: startedAt, intervalMinutes: 60, occurrences: 2 } }
+  ] });
+  writeFileSync(resolve("tmp/e2e-care.json"), JSON.stringify({ admissionId: a.admissionId }));
+}
+
 prepare()
   .then(() => process.exit(0))
   .catch((error) => {

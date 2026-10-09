@@ -1,0 +1,5 @@
+ALTER TABLE "hims"."clinical_orders" ADD COLUMN "medicine_item_id" text;--> statement-breakpoint
+ALTER TABLE "hims"."clinical_orders" ADD COLUMN "medicine_catalog_version_id" uuid;--> statement-breakpoint
+ALTER TABLE "hims"."clinical_orders" ADD CONSTRAINT "clinical_orders_medicine_catalog_version_id_setting_versions_id_fk" FOREIGN KEY ("medicine_catalog_version_id") REFERENCES "hims"."setting_versions"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "clinical_order_medicine_version_idx" ON "hims"."clinical_orders" USING btree ("medicine_catalog_version_id");--> statement-breakpoint
+ALTER TABLE "hims"."clinical_orders" ADD CONSTRAINT "clinical_medicine_identity" CHECK (("hims"."clinical_orders"."medicine_item_id" is null) = ("hims"."clinical_orders"."medicine_catalog_version_id" is null));
