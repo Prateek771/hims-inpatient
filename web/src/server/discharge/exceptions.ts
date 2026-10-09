@@ -403,6 +403,9 @@ export async function identifyTemporaryPatient(ctx: CommandContext, input: unkno
     const staff = await admissionOperator(ctx, ["ADMISSION"], tx);
     await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
     const e = await lockBillingAdmission(tx, v.admissionId);
+    // Final copies and later episodes share this patient's effective identity. Acquire its
+    // exclusive source lock before rereading the latest version, not only during INSERT.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`document-identity:${e.patientId}`},0))`);
     await requireException(tx, e.id, v.exceptionId, "URGENT_ADMISSION", "ACTIVATE");
     return billingRequest(tx, ctx, "exception.patient-identified", v, async () => {
       const { patients } = await import("../admissions/schema");

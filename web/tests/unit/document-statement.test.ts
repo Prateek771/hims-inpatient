@@ -1,0 +1,20 @@
+import { it, expect } from "vitest";
+import * as statement from "../../src/server/billing/statement";
+const stayId = "00000000-0000-4000-8000-000000000001", bedId = "00000000-0000-4000-8000-000000000002", tariffVersionId = "00000000-0000-4000-8000-000000000003", amendmentId = "00000000-0000-4000-8000-000000000004";
+it("groups only matching room provenance and sums exact posted paise without cumulative quantity arithmetic", () => {
+  expect(statement).toHaveProperty("dischargeStatement");
+  const stays = [{ id: stayId, bedId, bedLabel: "Actual room", tariffVersionId, originalStartedAt: "2026-10-01T00:00:00.000Z" }];
+  const charge = (id: string, elapsed: string, amountPaise: bigint, amendment: string | null = null, status = "FINAL") => ({ id, sourceEventId: `room:${stayId}:${amountPaise}${amendment ? `:${amendment}` : ""}`, category: "room", itemId: bedId, description: "Original room delta", quantity: elapsed, unit: "elapsed-ms-cumulative", tariffVersionId, ratePaise: 6000n, amountPaise, status });
+  const charges = [charge("a", "60000", 101n), charge("b", "120000", 102n), charge("amended", "60000", 50n, amendmentId), charge("pending", "180000", 60n, null, "PENDING"), { ...charge("department", "2", 25n), category: "consultation", unit: "session", sourceEventId: "actual-doctor-order" }];
+  const raw = charges.map(c => ({ ...c }));
+  const bill = { charges, grossPaise: 278n, reversedPaise: 11n, netPaise: 267n };
+  const projected = statement.dischargeStatement(bill, stays, [{ id: amendmentId, stay_id: stayId, started_at: "2026-10-01T00:00:30.000Z" }]);
+  expect(projected.lines).toHaveLength(4);
+  expect(projected.lines[0]).toMatchObject({ kind: "ROOM", amountPaise: "203", postingCount: 2, chargeIds: ["a", "b"], intervalStart: "2026-10-01T00:00:00.000Z", intervalEnd: "2026-10-01T00:02:00.000Z", amendmentId: null, status: "FINAL" });
+  expect(projected.lines[0]).not.toHaveProperty("quantity");
+  expect(projected.lines[1]).toMatchObject({ amountPaise: "50", amendmentId, intervalStart: "2026-10-01T00:00:30.000Z", intervalEnd: "2026-10-01T00:01:30.000Z" });
+  expect(projected.lines[2]).toMatchObject({ amountPaise: "60", status: "PENDING" });
+  expect(projected.lines[3]).toMatchObject({ kind: "CHARGE", quantity: "2", amountPaise: "25", chargeIds: ["department"] });
+  expect(projected).toMatchObject({ grossPaise: "278", reversedPaise: "11", netPaise: "267", rawChargeCount: 5 });
+  expect(charges).toEqual(raw);
+});

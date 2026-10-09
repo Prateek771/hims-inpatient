@@ -10,3 +10,4 @@ export * from "../lab/schema";
 export * from "../insurance/schema";
 export * from "../discharge/schema";
 export * from "../discharge/exception-schema";
+export * from "../documents/schema";

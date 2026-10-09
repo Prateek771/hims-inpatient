@@ -100,6 +100,8 @@ async function prepare() {
   await prepareInsuranceFixtures(h);
   await prepareDischargeFixture(h);
   await prepareExceptionFixture(h);
+  const { prepareDocumentsBrowserFixture } = await import("./documents-browser-fixture");
+  await prepareDocumentsBrowserFixture(h);
   // Workflow browser contexts reuse real synthetic sessions, avoiding unrelated login-limiter traffic.
   // These signed cookies are credentials and stay exclusively inside the ignored test output folder.
   for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB", "INSURANCE"] as const) {
