@@ -3,6 +3,8 @@
 *.jpeg binary
 *.jpg binary
 *.png binary
+# Migrations are checksummed as applied bytes, including their original line endings.
+web/drizzle/*.sql -text whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
 # Preserve the original supplied requirements source byte-for-byte.
 docs/reference/SKILL.md -text
 # Preserve historical Figma generation file line endings.

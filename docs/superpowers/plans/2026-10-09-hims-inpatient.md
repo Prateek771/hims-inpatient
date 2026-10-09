@@ -173,9 +173,11 @@ Task6 acceptance: independent specification/quality review and correction accept
 
 **Interfaces:** produces `recordStockReceipt(ctx, { medicineId, batchNo, expiresOn, quantity, unit, barcode, reference, requestId })`, `issueMedicine(ctx, { admissionId, orderId, batchId, quantity, unit, requestId })`, `returnMedicine(ctx, { issueId, quantity, reason, requestId })`, `prepareTakeHomeMedicines(ctx, { admissionId, prescriptionVersionId, items, requestId })` and `getPharmacyReview(admissionId)`. Each take-home item binds order/batch/quantity/unit; each issue creates one ledger event; accepted returns create linked stock movement/billing reversal.
 
-- [ ] Write tests for concurrent stock issues, expired/insufficient batch rejection, issue retry, return exceeding issued quantity, issue+MAR billing once, and take-home quantities matching the signed prescription.
-- [ ] Implement receipt/batch/expiry/barcode identity, issue/return/authorized adjustment audit and low-stock visibility; no procurement/vendor accounting or dispenser integration. Preserve original movement and charge history.
-- [ ] Build the worklist/reconciliation view and return unresolved issues to Task 11's pharmacy gate. Run pharmacy plus medicine-billing tests, lint/typecheck; commit `feat: add pharmacy stock and reconciliation`.
+- [x] Write tests for concurrent stock issues, expired/insufficient batch rejection, issue retry, return exceeding issued quantity, issue+MAR billing once, and take-home quantities matching the signed prescription.
+- [x] Implement receipt/batch/expiry/barcode identity, issue/return/authorized adjustment audit and low-stock visibility; no procurement/vendor accounting or dispenser integration. Preserve original movement and charge history.
+- [x] Build the worklist/reconciliation view and return unresolved issues to Task 11's pharmacy gate. Run pharmacy plus medicine-billing tests, lint/typecheck; commit `feat: add pharmacy stock and reconciliation`.
+
+Task8 acceptance: independent specification/quality review accepted after physical-receipt source deduplication correction. Full33 unit/28 actual PostgreSQL/lint/types/build/16 browser checks passed; runtime audit0. Reviewed ordinary0016–0018 applied with baseline preservation. [Pharmacy](../../PHARMACY.md) records identity, original-price returns, one-batch-per-prescription-line preparation and actual review projection; professional clearance remains Task11. Applied SQL literal bytes are preserved by Git attributes and verified against staged blobs.
 
 ## Task 9: Lab/radiology orders, barcode samples and reports
 

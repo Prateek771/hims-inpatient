@@ -22,7 +22,7 @@ Consumables remain linked to the episode and the bed/stay/unit where used. Medic
 
 ## Charges and configuration
 
-Clinical documentation is retained when fee configuration is absent or mismatched. An explicit unresolved billing task identifies the gap; missing configuration never becomes a zero-price default. Source IDs, configured rate versions and transactional posting prevent retries from duplicating a fee. Procedure task completion and billing status remain separate. Lab/radiology completion and pharmacy stock fulfillment are implemented in their subsequent modules. See [billing](BILLING.md).
+Clinical documentation is retained when fee configuration is absent or mismatched. An explicit unresolved billing task identifies the gap; missing configuration never becomes a zero-price default. Source IDs, configured rate versions and transactional posting prevent retries from duplicating a fee. Procedure task completion and billing status remain separate. [Pharmacy](PHARMACY.md) implements stock fulfillment against persisted Doctor-selected identity, exact units and current prescription. Lab/radiology completion follows in its next module. See [billing](BILLING.md).
 
 ## Current limits and verification
 

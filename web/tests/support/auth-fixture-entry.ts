@@ -5,7 +5,7 @@ import { user } from "../../src/server/schema/auth";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 async function prepare() {
-  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE"] as const) {
+  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY"] as const) {
     const email = `${role.toLowerCase()}@e2e.fixture.invalid`;
     const [existing] = await db
       .select()
@@ -94,9 +94,10 @@ async function prepare() {
   await prepareBillingFixtures(h);
   await prepareCareFixtures(h);
   await prepareTransferFixtures(h);
+  await preparePharmacyFixtures(h);
   // Workflow browser contexts reuse real synthetic sessions, avoiding unrelated login-limiter traffic.
   // These signed cookies are credentials and stay exclusively inside the ignored test output folder.
-  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE"] as const) {
+  for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY"] as const) {
     const response = await getAuth().api.signInEmail({ asResponse: true, body: { email: `${role.toLowerCase()}@e2e.fixture.invalid`, password: "SyntheticE2EOnly123!" } });
     if (!response.ok) throw new Error("Synthetic storage-state sign-in failed");
     const cookies = response.headers.getSetCookie().map((header) => {
@@ -203,6 +204,30 @@ async function prepareTransferFixtures(adminHeaders: Headers) {
   const bed = await createBed(staffContext(admin, "synthetic-browser-transfer"), { label: `Synthetic transfer ICU ${crypto.randomUUID()}`, category: "ICU", reason: "Independent synthetic transfer target" });
   const episode = await prepareCareFixtures(adminHeaders, true);
   writeFileSync(resolve("tmp/e2e-transfer.json"), JSON.stringify({ ...episode, targetBedId: bed.id, targetBedLabel: bed.label }));
+}
+
+async function preparePharmacyFixtures(adminHeaders: Headers) {
+  const { listSettings,saveSetting }=await import("../../src/server/settings");
+  const { createBed,createAdmission,activateAdmission }=await import("../../src/server/admissions/commands");
+  const { recordRound,getCare,signClinicalSummary }=await import("../../src/server/clinical/commands");
+  const { recordReceipt }=await import("../../src/server/billing/commands");
+  const { recordStockReceipt }=await import("../../src/server/pharmacy/commands");
+  const staff=await db.select({id:user.id,email:user.email}).from(user);
+  const id=(role:string)=>staff.find(s=>s.email===`${role.toLowerCase()}@e2e.fixture.invalid`)!.id;
+  const ctx=(role:string)=>({actor:{type:"staff" as const,staffId:id(role)},source:"synthetic-browser-pharmacy",requestId:crypto.randomUUID()});
+  const settings=await listSettings(adminHeaders);
+  await saveSetting(adminHeaders,{expectedVersion:Math.max(0,...settings.versions.filter(v=>v.kind==="tariff").map(v=>v.version)),reason:"Synthetic pharmacy medicine",value:{type:"billable-item",code:"E2E_PHARM",name:"Synthetic pharmacy medicine",category:"medicine",department:"PHARMACY",unit:"tablet",quantityScale:0,amount:"25",active:true}});
+  const bed=await createBed(ctx("ADMIN"),{label:`Synthetic pharmacy ${crypto.randomUUID()}`,category:"GENERAL",reason:"Independent synthetic pharmacy patient"});
+  const ac=ctx("ADMISSION");
+  const a=await createAdmission(ac,{patientDetails:{name:"Synthetic E2E pharmacy patient",ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Synthetic assessment",vitals:"Synthetic vitals",triage:"Synthetic routing",destinationCategory:"GENERAL"},bedId:bed.id,paymentRoute:"SELF_PAY",expectedStayDays:2,requestId:ac.requestId});
+  const rc=ctx("BILLING");await recordReceipt(rc,{admissionId:a.admissionId,party:"PATIENT",kind:"DEPOSIT",amountPaise:"50000",mode:"CASH",channel:"Synthetic pharmacy book",sourceReference:crypto.randomUUID(),reference:"Synthetic pharmacy deposit",requestId:rc.requestId});
+  const activation=ctx("ADMISSION"),start=new Date().toISOString();await activateAdmission(activation,{admissionId:a.admissionId,arrivedAt:start,expectedVersion:1,requestId:activation.requestId});
+  const dc=ctx("DOCTOR");await recordRound(dc,{admissionId:a.admissionId,notes:"Pharmacy fixture order, no contact/clinical notes projection",orders:[{kind:"MEDICINE",requestedItem:"Synthetic pharmacy medicine",itemId:"E2E_PHARM",dose:"5",doseUnit:"mg",route:"oral",frequency:"Explicit schedule",durationDays:1,medicationPurpose:"BOTH",dispensingQuantity:"4",dispensingUnit:"tablet",schedule:{startsAt:start,intervalMinutes:60,occurrences:1}}],requestId:dc.requestId});
+  const order=(await getCare(ctx("DOCTOR"),a.admissionId)).orders[0];
+  const rx=await signClinicalSummary(ctx("DOCTOR"),{admissionId:a.admissionId,expectedVersion:0,diagnosis:"Synthetic diagnosis",course:"Synthetic course",condition:"Stable",followUp:"Follow up",advice:"Advice",prescriptionOrderIds:[order.id]});
+  const stock=ctx("PHARMACY"),suffix=crypto.randomUUID();
+  const batch=await recordStockReceipt(stock,{medicineId:"E2E_PHARM",batchNo:`E2E-${suffix}`,expiresOn:"2099-12-31",quantity:"20",unit:"tablet",barcode:`SYNTH-${suffix}`,reference:"Synthetic browser stock",reorderThreshold:"18",requestId:stock.requestId});
+  writeFileSync(resolve("tmp/e2e-pharmacy.json"),JSON.stringify({admissionId:a.admissionId,orderId:order.id,batchId:batch.id,barcode:`SYNTH-${suffix}`,prescriptionVersionId:rx.id}));
 }
 
 prepare()

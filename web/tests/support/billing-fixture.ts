@@ -16,7 +16,7 @@ export async function billingFixture() {
     return new Headers({ cookie: response.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ") });
   }
   const ah = await login("admin@billing.invalid");
-  for (const role of ["BILLING", "ADMISSION", "DOCTOR", "NURSE", "LAB"] as const) {
+  for (const role of ["BILLING", "ADMISSION", "DOCTOR", "NURSE", "LAB", "PHARMACY"] as const) {
     await createStaff(ah, {
       name: `Synthetic ${role}`, email: `${role.toLowerCase()}@billing.invalid`, password, role, reason: "synthetic fixture"
     });
@@ -27,6 +27,7 @@ export async function billingFixture() {
   const doctor = await requireStaff(await login("doctor@billing.invalid"));
   const nurse = await requireStaff(await login("nurse@billing.invalid"));
   const lab = await requireStaff(await login("lab@billing.invalid"));
+  const pharmacy = await requireStaff(await login("pharmacy@billing.invalid"));
   let rule = 0, tariff = 0;
   async function setting(value: Record<string, unknown>) {
     const kind = ["tariff", "billable-item"].includes(String(value.type)) ? "tariff" : "rule";
@@ -56,6 +57,6 @@ export async function billingFixture() {
     });
   }
   return {
-    ah, admin, desk, cashier, doctor, nurse, lab, setting, episode, room, ctx: () => staffContext(cashier, "synthetic-billing"), deskCtx: () => staffContext(desk, "synthetic-desk")
+    ah, admin, desk, cashier, doctor, nurse, lab, pharmacy, setting, episode, room, ctx: () => staffContext(cashier, "synthetic-billing"), deskCtx: () => staffContext(desk, "synthetic-desk")
   };
 }

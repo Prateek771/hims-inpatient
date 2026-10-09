@@ -119,3 +119,10 @@ dl { margin-top: 16px; display: grid; gap: 12px; }
 .care-metric { font-size: 16px !important; }
 @media (max-width: 1050px) { .care-columns { grid-template-columns: minmax(0,1fr); } }
 @media (max-width: 600px) { .care-columns table { min-width: 500px; } }
+.pharmacy-columns { display: grid; grid-template-columns: minmax(0,1.9fr) minmax(280px,1fr); gap: 24px; align-items: start; }
+.pharmacy-columns > *, .pharmacy-columns td { min-width: 0; overflow-wrap: anywhere; }
+.pharmacy-identity { display: flex; align-items: center; flex-wrap: wrap; gap: 24px; }
+.pharmacy-columns .notice { margin-top: 20px; }
+.pharmacy-columns table { min-width: 560px; }
+.pharmacy-columns th:nth-child(2), .pharmacy-columns td:nth-child(2), .pharmacy-columns th:nth-child(3), .pharmacy-columns td:nth-child(3) { width: 80px; white-space: nowrap; }
+@media (max-width: 1050px) { .pharmacy-columns { grid-template-columns: minmax(0,1fr); } }
