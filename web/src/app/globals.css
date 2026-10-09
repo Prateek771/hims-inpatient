@@ -1,6 +1,10 @@
 @import "tailwindcss";
 
 :root {
+  --green: #216847;
+  --green-tint: #eaf5ee;
+  --amber: #80530d;
+  --amber-tint: #fff4d9;
   --canvas: #f3f7f8;
   --surface: #fff;
   --navy: #122c3a;
@@ -12,6 +16,21 @@
   --blue-tint: #edf3fa;
   --radius: 10px;
 }
+.discharge-worklist { margin: 0 0 20px; }
+.discharge-identity { display: flex; align-items: center; gap: 32px; flex-wrap: wrap; }
+.discharge-identity > div { flex: 1; min-width: 200px; }
+.discharge-gates .card { padding: 20px; }
+.discharge-gates .caption { overflow-wrap: anywhere; }
+.clearance-approved { color: var(--green); }
+.clearance-pending { color: var(--amber); }
+.discharge-money { display: grid; gap: 16px; margin: 20px 0; }
+.discharge-money div { display: flex; justify-content: space-between; flex-wrap: nowrap; gap: 20px; }
+.discharge-money dt { color: var(--muted); }
+.discharge-money dd { font-weight: 500; text-align: right; }
+.discharge-blockers { padding-left: 20px; color: var(--amber); margin: 16px 0; }
+.discharge-blockers li { margin-bottom: 10px; }
+.notice.clearance-warning { background: var(--amber-tint); color: var(--amber); }
+.notice.clearance-success { background: var(--green-tint); color: var(--green); margin-top: 16px; }
 
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--canvas); color: var(--navy); font-family: var(--font-plex-sans), Arial, sans-serif; font-size: 15px; line-height: 1.5; }

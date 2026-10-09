@@ -41,12 +41,11 @@ async function temporalFixture(runtime: Client) {
   return { f, admission, nursing, admin, nc, active, spare, input };
 }
 
-it("rejects a factual target stay overlap with no changed money/history and accepts the exact prior end", async () => {
+it("rejects target overlap and uncleaned vacancy without changing history, then accepts recorded cleaning", async () => {
   await withTestDatabase(async ({ runtime }) => {
     process.env.DATABASE_URL = runtimeUrl;
     const f = await temporalFixture(runtime), a = await f.active(), b = await f.active();
-    const base = Date.now(), exit = new Date(base + 7200000), tooEarly = new Date(base + 3600000);
-    vi.spyOn(Date, "now").mockReturnValue(base + 10800000);
+    const tooEarly=new Date();await new Promise(resolve=>setTimeout(resolve,20));const exit=new Date();
     const leave = f.nc();
     await f.admission.transferAdmission(leave, f.input(a, f.spare.id, exit, leave));
     async function bState() {
@@ -61,11 +60,16 @@ it("rejects a factual target stay overlap with no changed money/history and acce
     const before = await bState(), move = f.nc();
     await expect(f.admission.transferAdmission(move, f.input(b, a.source.bed_id, tooEarly, move))).rejects.toMatchObject({ code: "CONFLICT" });
     expect(await bState()).toEqual(before);
-    // A half-open stay frees the bed at its actual end, not one millisecond later.
+    // Physical non-overlap alone is insufficient until actual housekeeping completes.
     const equal = f.nc();
-    const result = await f.admission.transferAdmission(equal, f.input(b, a.source.bed_id, exit, equal));
+    await expect(f.admission.transferAdmission(equal,f.input(b,a.source.bed_id,exit,equal))).rejects.toMatchObject({code:"CONFLICT"});
+    expect(await bState()).toEqual(before);
+    const {completeBedTurnover}=await import("../../src/server/discharge/commands");
+    const turnover=(await runtime.query("select id from hims.bed_turnovers where stay_id=$1",[a.source.id])).rows[0];const cleanedAt=new Date(),clean=f.admin();
+    await completeBedTurnover(clean,{turnoverId:turnover.id,completedAt:cleanedAt.toISOString(),evidence:"Actual synthetic housekeeping confirmation",requestId:clean.requestId});
+    const result = await f.admission.transferAdmission(equal, f.input(b, a.source.bed_id, cleanedAt, equal));
     const next = (await runtime.query("select * from hims.room_stays where id=$1", [result.newStayId])).rows[0];
-    expect(next.started_at.toISOString()).toBe(exit.toISOString());
+    expect(next.started_at.toISOString()).toBe(cleanedAt.toISOString());
     expect((await runtime.query("select count(*)::int n from hims.room_stays x join hims.room_stays y on x.bed_id=y.bed_id and x.id<y.id where tstzrange(x.started_at,x.ended_at,'[)') && tstzrange(y.started_at,y.ended_at,'[)')")).rows[0].n).toBe(0);
   });
 }, 120000);

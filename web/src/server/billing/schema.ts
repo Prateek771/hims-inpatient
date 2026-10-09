@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, index, jsonb, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigint, check, index, integer, jsonb, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { hims, hospitalSettings, settingVersions } from "../schema/core";
 import { admissions } from "../admissions/schema";
 const time = () => timestamp("created_at", { withTimezone: true }).notNull().defaultNow();
@@ -54,3 +54,20 @@ export const billingRequests = hims.table("billing_requests", {
     id: string;
   }>().notNull(), createdAt: time(),
 }, (t) => [uniqueIndex("billing_request_actor_key").on(t.actorId, t.requestId)]);
+export const receiptRefunds = hims.table("receipt_refunds", {
+  id: uuid("id").primaryKey().defaultRandom(), hospitalId: uuid("hospital_id").notNull().references(() => hospitalSettings.id),
+  admissionId: uuid("admission_id").notNull().references(() => admissions.id), receiptId: uuid("receipt_id").notNull().references(() => receipts.id),
+  amountPaise: amount(), mode: text("mode").notNull(), channel: text("channel").notNull(), sourceReference: text("source_reference").notNull(),
+  evidence: text("evidence").notNull(), reason: text("reason").notNull(), refundedAt: timestamp("refunded_at", { withTimezone: true }).notNull(),
+  reviewedHash: text("reviewed_hash").notNull(), reviewedBillVersion: integer("reviewed_bill_version").notNull(), identityPayload: text("identity_payload").notNull(), ...actor(),
+}, t => [index("refund_receipt").on(t.receiptId), index("refund_episode").on(t.admissionId), uniqueIndex("refund_cash_identity").on(t.hospitalId,t.mode,t.channel,t.sourceReference), check("refund_amount", sql`${t.amountPaise}>0`), check("refund_mode", sql`${t.mode} in ('CASH','CARD','UPI','BANK')`), check("refund_staff", sql`${t.actorType}='staff'`)]);
+export const allocationCancellations = hims.table("allocation_cancellations", {
+  id: uuid("id").primaryKey().defaultRandom(), allocationId: uuid("allocation_id").notNull().references(() => receiptAllocations.id),
+  reason: text("reason").notNull(), reviewedHash: text("reviewed_hash").notNull(), reviewedBillVersion: integer("reviewed_bill_version").notNull(), ...actor(),
+}, t => [uniqueIndex("allocation_cancel_once").on(t.allocationId), check("allocation_cancel_staff", sql`${t.actorType}='staff'`)]);
+export const selfPayReviews = hims.table("self_pay_reviews", {
+  id: uuid("id").primaryKey().defaultRandom(), admissionId: uuid("admission_id").notNull().references(() => admissions.id),
+  billBasis: text("bill_basis").notNull(), netPaise: bigint("net_paise", { mode: "bigint" }).notNull(),
+  insurerPaise: bigint("insurer_paise", { mode: "bigint" }).notNull(), patientPaise: bigint("patient_paise", { mode: "bigint" }).notNull(),
+  reason: text("reason").notNull(), ...actor(),
+}, t => [index("self_pay_review_episode").on(t.admissionId), check("self_pay_review_amounts", sql`${t.netPaise}>=0 and ${t.insurerPaise}>=0 and ${t.patientPaise}>=0 and ${t.insurerPaise}+${t.patientPaise}=${t.netPaise}`)]);

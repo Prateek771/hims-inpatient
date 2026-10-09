@@ -176,6 +176,55 @@
       "when": 1791543447869,
       "tag": "0024_insurance_history_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791547482329,
+      "tag": "0025_discharge_gates",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791547719404,
+      "tag": "0026_discharge_cash_cutoff",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791547750132,
+      "tag": "0027_discharge_source_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791548344913,
+      "tag": "0028_bed_turnover_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791549548177,
+      "tag": "0029_discharge_physical_sources",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791552910694,
+      "tag": "0030_vacancy_attendance_guard",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1791552952723,
+      "tag": "0031_vacancy_attendance_branch",
+      "breakpoints": true
     }
   ]
 }

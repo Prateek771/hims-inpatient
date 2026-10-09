@@ -8,7 +8,10 @@ import { db, withTransaction, type Transaction } from "../db";
 import { admissionOperator } from "../admissions/commands";
 import { admissions, beds, patients } from "../admissions/schema";
 import { settingVersions } from "../schema/core";
-import { billingRequests, charges, chargeFinalizations, chargeReversals, receipts, receiptAllocations } from "./schema";
+import { billingRequests, charges, chargeFinalizations, chargeReversals, receipts, receiptAllocations, receiptRefunds, allocationCancellations, selfPayReviews } from "./schema";
+import { insuranceCases, insuranceDecisions, insuranceEvents, insuranceConversions, insuranceTransferResolutions } from "../insurance/schema";
+import { transferInsuranceTasks } from "../admissions/transfer-schema";
+import { computeResponsibilities } from "../insurance/responsibility";
 import { paise, quantityAmount } from "./money";
 import { estimateRoomChargesInTransaction, reconcileRoomChargesInTransaction } from "./room-charges";
 const reason = z.string().trim().min(3).max(500);
@@ -288,8 +291,10 @@ export async function allocateDepositInTransaction(tx: Transaction, ctx: Command
   if (receipt.party !== "PATIENT" || receipt.kind === "PAYMENT") throw new DomainError("PRECONDITION", "Allocate a patient deposit or top-up");
   const prior = await tx.select().from(receiptAllocations).where(eq(receiptAllocations.receiptId, receipt.id));
   const amountPaise = paise(value.amountPaise);
-  if (prior.reduce((n, r) => n + r.amountPaise, 0n) + amountPaise > receipt.amountPaise) throw new DomainError("PRECONDITION", "Allocation exceeds unallocated deposit cash");
   const bill = await billProjection(tx, episode, new Date());
+  void prior;
+  const allocated = bill.activeAllocations.filter(a=>a.receiptId===receipt.id).reduce((n,a)=>n+a.amountPaise,0n), refunded = bill.refunds.filter(r=>r.receiptId===receipt.id).reduce((n,r)=>n+r.amountPaise,0n);
+  if (allocated + refunded + amountPaise > receipt.amountPaise) throw new DomainError("PRECONDITION", "Allocation exceeds unallocated deposit cash");
   if (amountPaise > bill.outstandingPaise) throw new DomainError("PRECONDITION", "Allocation exceeds the posted bill remaining balance");
   const [line] = await tx.insert(receiptAllocations).values({ receiptId: receipt.id, amountPaise, reason: value.reason, ...actorColumns(ctx) }).returning();
   const revision = await bumpBillRevision(tx, episode.id);
@@ -298,39 +303,89 @@ export async function allocateDepositInTransaction(tx: Transaction, ctx: Command
 }
 export async function refundReceipt(ctx: CommandContext, input: unknown) {
   const value = z.strictObject({
-    receiptId: z.uuid(), amountPaise: amountInput, reason, requestId: z.uuid()
+    receiptId: z.uuid(), amountPaise: amountInput, reason, requestId: z.uuid(),
+    expectedReviewHash: z.string().length(64).optional(), expectedBillVersion: z.number().int().positive().optional(),
+    mode: z.enum(["CASH", "CARD", "UPI", "BANK"]).optional(), channel: z.string().trim().min(2).max(100).optional(), sourceReference: z.string().trim().min(1).max(100).optional(), evidence: reason.optional(), refundedAt: z.iso.datetime().optional()
   }).parse(input);
   requestKey(ctx, value.requestId);
-  await admissionOperator(ctx, ["ADMIN", "BILLING"]);
-  throw new DomainError("PRECONDITION", "Refunds require current Doctor, Pharmacy and Nursing clearances and Gate 4 review; these gates are not yet available");
+  return withTransaction(async tx => {
+    const staff = await admissionOperator(ctx, ["ADMIN", "BILLING"], tx);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+    const [receipt] = await tx.select().from(receipts).where(eq(receipts.id, value.receiptId));
+    if (!receipt) throw new DomainError("FORBIDDEN", "Receipt access denied");
+    const e = await lockBillingAdmission(tx, receipt.admissionId);
+    return billingRequest(tx, ctx, "refund", value, async () => {
+      const identityPayload = fingerprint({ ...value, requestId: undefined, expectedReviewHash: undefined, expectedBillVersion: undefined });
+      if(value.mode&&value.channel&&value.sourceReference)await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`refund:${e.hospitalId}:${value.mode}:${value.channel}:${value.sourceReference}`},0))`);
+      const old = value.mode && value.channel && value.sourceReference ? await tx.select().from(receiptRefunds).where(and(eq(receiptRefunds.hospitalId, e.hospitalId), eq(receiptRefunds.mode, value.mode), eq(receiptRefunds.channel, value.channel), eq(receiptRefunds.sourceReference, value.sourceReference))) : [];
+      if (old[0]) { if (old[0].identityPayload !== identityPayload) throw new DomainError("CONFLICT", "Refund reference already has different details"); return { id: old[0].id }; }
+      openEpisode(e, true);
+      const { requireGate4Review } = await import("../discharge/commands");
+      await requireGate4Review(tx, e, value.expectedReviewHash, value.expectedBillVersion);
+      if (!value.mode || !value.channel || !value.sourceReference || !value.evidence || !value.refundedAt) throw new DomainError("VALIDATION", "Record actual refund channel, source reference, evidence and time");
+      const refundedAt = new Date(value.refundedAt);
+      if (refundedAt < receipt.createdAt || refundedAt > new Date()) throw new DomainError("VALIDATION", "Actual refund must follow its receipt and be no later than now");
+      const bill = await billProjection(tx, e, new Date()), financial = await financialResponsibilityInTransaction(tx, e, bill);
+      const applied = bill.activeAllocations.filter(a => a.receiptId === receipt.id).reduce((n,a)=>n+a.amountPaise,0n);
+      const returned = bill.refunds.filter(r => r.receiptId === receipt.id).reduce((n,r)=>n+r.amountPaise,0n);
+      const amount = paise(value.amountPaise), available = receipt.amountPaise - returned - (receipt.kind === "PAYMENT" ? 0n : applied);
+      const excess = receipt.party === "PATIENT" ? financial.responsibility?.patientExcessPaise : financial.responsibility?.insurerExcessPaise;
+      if (!financial.responsibility?.allocationComplete || excess === undefined || amount > available || amount > excess) throw new DomainError("PRECONDITION", "Refund exceeds reviewed party excess or unallocated original receipt cash; cancel its allocation first if necessary");
+      const [refund] = await tx.insert(receiptRefunds).values({ admissionId: e.id, hospitalId: e.hospitalId, receiptId: receipt.id, amountPaise: amount, reason: value.reason, mode: value.mode, channel: value.channel, sourceReference: value.sourceReference, evidence: value.evidence, refundedAt, reviewedHash: value.expectedReviewHash!, reviewedBillVersion: value.expectedBillVersion!, identityPayload, ...actorColumns(ctx) }).returning();
+      const revision = await bumpBillRevision(tx, e.id);
+      await appendAudit(tx, ctx, { event: "billing.refund-recorded", entityType: "receipt-refund", entityId: refund.id, reason: value.reason, afterVersion: revision });
+      return { id: refund.id };
+    });
+  });
 }
 export async function cancelAllocation(ctx: CommandContext, input: unknown) {
-  const value = z.strictObject({ allocationId: z.uuid(), reason, requestId: z.uuid() }).parse(input);
+  const value = z.strictObject({ allocationId: z.uuid(), reason, requestId: z.uuid(), expectedReviewHash: z.string().length(64).optional(), expectedBillVersion: z.number().int().positive().optional() }).parse(input);
   requestKey(ctx, value.requestId);
-  await admissionOperator(ctx, ["ADMIN", "BILLING"]);
-  throw new DomainError("PRECONDITION", "Deposit adjustments require current clearances and Gate 4 review");
+  return withTransaction(async tx => {
+    const staff = await admissionOperator(ctx, ["ADMIN", "BILLING"], tx);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+    const [source] = await tx.select({ allocation: receiptAllocations, receipt: receipts }).from(receiptAllocations).innerJoin(receipts, eq(receipts.id, receiptAllocations.receiptId)).where(eq(receiptAllocations.id, value.allocationId));
+    if (!source) throw new DomainError("FORBIDDEN", "Allocation access denied");
+    const e = await lockBillingAdmission(tx, source.receipt.admissionId);
+    return billingRequest(tx, ctx, "cancel-allocation", value, async () => {
+      const [old] = await tx.select().from(allocationCancellations).where(eq(allocationCancellations.allocationId, value.allocationId));
+      if (old) {if(old.reason!==value.reason)throw new DomainError("CONFLICT","Allocation cancellation already has different facts");return { id: old.id };}
+      openEpisode(e, true);
+      const { requireGate4Review } = await import("../discharge/commands");
+      await requireGate4Review(tx, e, value.expectedReviewHash, value.expectedBillVersion);
+      const [cancel] = await tx.insert(allocationCancellations).values({ allocationId: value.allocationId, reason: value.reason, reviewedHash: value.expectedReviewHash!, reviewedBillVersion: value.expectedBillVersion!, ...actorColumns(ctx) }).returning();
+      await bumpBillRevision(tx, e.id);
+      await appendAudit(tx, ctx, { event: "billing.allocation-cancelled", entityType: "allocation-cancellation", entityId: cancel.id, reason: value.reason });
+      return { id: cancel.id };
+    });
+  });
 }
-async function billProjection(tx: Transaction, episode: typeof admissions.$inferSelect, cutoff: Date) {
+export async function billProjection(tx: Transaction, episode: typeof admissions.$inferSelect, cutoff: Date) {
   const lines = await tx.select().from(charges).where(eq(charges.admissionId, episode.id)).orderBy(asc(charges.createdAt), asc(charges.id));
   const ids = lines.map((r) => r.id);
-  const reversals = ids.length ? await tx.select().from(chargeReversals).where(inArray(chargeReversals.chargeId, ids)) : [];
+  const reversals = ids.length ? await tx.select().from(chargeReversals).where(inArray(chargeReversals.chargeId, ids)).orderBy(asc(chargeReversals.id)) : [];
   const finalizations = ids.length ? await tx.select().from(chargeFinalizations).where(inArray(chargeFinalizations.chargeId, ids)) : [];
-  const cash = await tx.select().from(receipts).where(eq(receipts.admissionId, episode.id)).orderBy(asc(receipts.createdAt));
+  const cash = await tx.select().from(receipts).where(eq(receipts.admissionId, episode.id)).orderBy(asc(receipts.createdAt),asc(receipts.id));
   const cashIds = cash.map((r) => r.id);
-  const allocations = cashIds.length ? await tx.select().from(receiptAllocations).where(inArray(receiptAllocations.receiptId, cashIds)) : [];
+  const allocations = cashIds.length ? await tx.select().from(receiptAllocations).where(inArray(receiptAllocations.receiptId, cashIds)).orderBy(asc(receiptAllocations.id)) : [];
+  const refunds = await tx.select().from(receiptRefunds).where(eq(receiptRefunds.admissionId, episode.id)).orderBy(asc(receiptRefunds.id));
+  const cancellations = allocations.length ? await tx.select().from(allocationCancellations).where(inArray(allocationCancellations.allocationId, allocations.map(a=>a.id))).orderBy(asc(allocationCancellations.id)) : [];
+  const activeAllocations = allocations.filter(a => !cancellations.some(c => c.allocationId === a.id));
+  const retained = (r: typeof receipts.$inferSelect) => r.amountPaise - refunds.filter(f => f.receiptId === r.id).reduce((n,f)=>n+f.amountPaise,0n);
   const finalized = new Set(finalizations.map((r) => r.chargeId));
   const isFinal = (r: typeof charges.$inferSelect) => r.initialStatus === "FINAL" || finalized.has(r.id);
   const netPending = (r: typeof charges.$inferSelect) => r.amountPaise - reversals.filter(v=>v.chargeId===r.id).reduce((n,v)=>n+v.amountPaise,0n);
   const grossPaise = lines.filter(isFinal).reduce((n, r) => n + r.amountPaise, 0n);
   const reversedPaise = reversals.filter((r) => lines.some((c) => c.id === r.chargeId && isFinal(c))).reduce((n, r) => n + r.amountPaise, 0n);
   const netPaise = grossPaise - reversedPaise;
-  const patientCashPaise = cash.filter((r) => r.party === "PATIENT").reduce((n, r) => n + r.amountPaise, 0n);
-  const insurerCashPaise = cash.filter((r) => r.party === "INSURER").reduce((n, r) => n + r.amountPaise, 0n);
-  const depositCashPaise = cash.filter((r) => r.kind !== "PAYMENT").reduce((n, r) => n + r.amountPaise, 0n);
-  const depositAllocatedPaise = allocations.reduce((n, r) => n + r.amountPaise, 0n);
-  const billPaidPaise = cash.filter((r) => r.kind === "PAYMENT").reduce((n, r) => n + r.amountPaise, 0n) + depositAllocatedPaise;
+  const patientCashPaise = cash.filter((r) => r.party === "PATIENT").reduce((n, r) => n + retained(r), 0n);
+  const insurerCashPaise = cash.filter((r) => r.party === "INSURER").reduce((n, r) => n + retained(r), 0n);
+  const depositCashPaise = cash.filter((r) => r.kind !== "PAYMENT").reduce((n, r) => n + retained(r), 0n);
+  const depositAllocatedPaise = activeAllocations.reduce((n, r) => n + r.amountPaise, 0n);
+  const billPaidPaise = cash.filter((r) => r.kind === "PAYMENT").reduce((n, r) => n + retained(r), 0n) + depositAllocatedPaise;
   const unpostedRoomPaise = await estimateRoomChargesInTransaction(tx, episode.id, cutoff);
   return {
+    refunds, cancellations, activeAllocations, retainedPaise: patientCashPaise+insurerCashPaise, refundedPaise: refunds.reduce((n,r)=>n+r.amountPaise,0n), patientReceivedPaise: cash.filter(r=>r.party==="PATIENT").reduce((n,r)=>n+r.amountPaise,0n), insurerReceivedPaise: cash.filter(r=>r.party==="INSURER").reduce((n,r)=>n+r.amountPaise,0n),
     admissionId: episode.id, status: episode.status, ipCode: episode.ipCode, paymentRoute: episode.paymentRoute, revision: episode.billRevision, asOf: cutoff, grossPaise, reversedPaise, netPaise, pendingPaise: lines.filter((r) => !isFinal(r)).reduce((n, r) => n + netPending(r), 0n), patientCashPaise, insurerCashPaise, depositCashPaise, depositAllocatedPaise, unallocatedDepositPaise: depositCashPaise - depositAllocatedPaise, billPaidPaise, outstandingPaise: netPaise > billPaidPaise ? netPaise - billPaidPaise : 0n, overpaidPaise: billPaidPaise > netPaise ? billPaidPaise - netPaise : 0n, unpostedRoomPaise, payerResponsibility: episode.paymentRoute === "INSURED" ? "UNAVAILABLE" : "SELF_PAY", charges: lines.map((r) => ({ ...r, status: isFinal(r) ? "FINAL" : "PENDING" })), reversals, receipts: cash, allocations
   };
 }
@@ -341,8 +396,47 @@ export async function getBill(ctx: CommandContext, admissionId: string, cutoff?:
  * Insurance receives amounts, never unrestricted receipt/charge or clinical details. */
 export async function insuranceMoneyInTransaction(tx: Transaction, episode: typeof admissions.$inferSelect) {
   const b=await billProjection(tx,episode,new Date());
-  const allocationBasis=fingerprint({charges:b.charges.map(c=>({id:c.id,source:c.sourceEventId,status:c.status,amount:c.amountPaise.toString(),tariff:c.tariffVersionId})),reversals:b.reversals.map(r=>({id:r.id,chargeId:r.chargeId,amount:r.amountPaise.toString()})).sort((a,b)=>a.id.localeCompare(b.id))});
-  return {revision:b.revision,allocationBasis,netPaise:b.netPaise,pendingPaise:b.pendingPaise,unpostedRoomPaise:b.unpostedRoomPaise,insurerCashPaise:b.insurerCashPaise,patientCashPaise:b.patientCashPaise,patientAppliedPaise:b.billPaidPaise-b.insurerCashPaise,depositCashPaise:b.depositCashPaise,unallocatedDepositPaise:b.unallocatedDepositPaise};
+  return {revision:b.revision,allocationBasis:economicBasis(b),netPaise:b.netPaise,pendingPaise:b.pendingPaise,unpostedRoomPaise:b.unpostedRoomPaise,insurerCashPaise:b.insurerCashPaise,patientCashPaise:b.patientCashPaise,patientAppliedPaise:b.billPaidPaise-b.insurerCashPaise,depositCashPaise:b.depositCashPaise,unallocatedDepositPaise:b.unallocatedDepositPaise,refundedPaise:b.refundedPaise,retainedPaise:b.retainedPaise};
+}
+export function economicBasis(b: Awaited<ReturnType<typeof billProjection>>) {
+  return fingerprint({charges:b.charges.map(c=>({id:c.id,source:c.sourceEventId,status:c.status,amount:c.amountPaise.toString(),tariff:c.tariffVersionId})),reversals:b.reversals.map(r=>({id:r.id,chargeId:r.chargeId,amount:r.amountPaise.toString()})).sort((a,b)=>a.id.localeCompare(b.id))});
+}
+/** The sole responsibility/cash projection reused by Insurance and discharge. No authorization is cash. */
+export async function financialResponsibilityInTransaction(tx: Transaction, e: typeof admissions.$inferSelect, bill?: Awaited<ReturnType<typeof billProjection>>) {
+  const b = bill ?? await billProjection(tx,e,new Date()), basis = economicBasis(b);
+  const [c] = await tx.select().from(insuranceCases).where(eq(insuranceCases.admissionId,e.id));
+  const decisions = c ? await tx.select().from(insuranceDecisions).where(eq(insuranceDecisions.caseId,c.id)).orderBy(desc(insuranceDecisions.caseVersion)) : [];
+  const events = c ? await tx.select().from(insuranceEvents).where(eq(insuranceEvents.caseId,c.id)).orderBy(desc(insuranceEvents.caseVersion)) : [];
+  const [conversion] = c ? await tx.select().from(insuranceConversions).where(eq(insuranceConversions.caseId,c.id)) : [];
+  const [review] = await tx.select().from(selfPayReviews).where(eq(selfPayReviews.admissionId,e.id)).orderBy(desc(selfPayReviews.createdAt),desc(selfPayReviews.id)).limit(1);
+  const decision=decisions[0], policy=events.find(v=>v.kind==="POLICY");
+  const current = e.paymentRoute==="SELF_PAY" && conversion && review ? {billBasis:review.billBasis,netBillPaise:review.netPaise.toString()} : conversion?.allocation ?? decision?.allocation;
+  const amounts = e.paymentRoute==="SELF_PAY" ? (conversion ? (review ? {insurerPaise:review.insurerPaise,patientPaise:review.patientPaise,unallocatedPaise:0n,coPayPaise:0n,nonPayablePaise:0n} : {insurerPaise:paise(conversion.allocation.retainedInsurerLiabilityPaise),patientPaise:paise(conversion.allocation.verifiedPatientLiabilityPaise),unallocatedPaise:0n,coPayPaise:0n,nonPayablePaise:0n}) : {insurerPaise:0n,patientPaise:b.netPaise,unallocatedPaise:0n,coPayPaise:0n,nonPayablePaise:0n}) : decision ? computeResponsibilities({netBillPaise:paise(decision.allocation.netBillPaise),eligibleBillPaise:paise(decision.allocation.eligibleBillPaise),coPayBps:decision.coPayBps,insurerAuthorizedPaise:decision.approvedPaise,...(decision.allocation.verifiedPatientLiabilityPaise===undefined?{}:{verifiedPatientLiabilityPaise:paise(decision.allocation.verifiedPatientLiabilityPaise)})}) : null;
+  const stale = !!current && (current.billBasis!==basis || paise(current.netBillPaise)!==b.netPaise || (e.paymentRoute==="INSURED" && policy?.id!==decision?.policyEventId));
+  const due=(a:bigint,paid:bigint)=>a>paid?a-paid:0n;
+  const responsibility = amounts ? {...amounts,stale,allocationComplete:!stale&&amounts.unallocatedPaise===0n&&(e.paymentRoute==="SELF_PAY"||decision?.status!=="PENDING"),insurerOutstandingPaise:due(amounts.insurerPaise,b.insurerCashPaise),patientOutstandingPaise:due(amounts.patientPaise,b.billPaidPaise-b.insurerCashPaise),insurerExcessPaise:due(b.insurerCashPaise,amounts.insurerPaise),patientExcessPaise:due(b.patientCashPaise,amounts.patientPaise)} : null;
+  const pendingTransfers=await tx.select({id:transferInsuranceTasks.id}).from(transferInsuranceTasks).leftJoin(insuranceTransferResolutions,eq(insuranceTransferResolutions.taskId,transferInsuranceTasks.id)).where(and(eq(transferInsuranceTasks.admissionId,e.id),sql`${insuranceTransferResolutions.id} is null`)).orderBy(asc(transferInsuranceTasks.id));
+  return { responsibility, caseId:c?.id, reviewRevision:c?.reviewRevision, policyId:policy?.id, decisionId:decision?.id, conversionId:conversion?.id, selfPayReviewId:review?.id, pendingTransfers, insurerAuthorizedPaise:decision?.approvedPaise??0n };
+}
+export async function reviewSelfPayResponsibility(ctx: CommandContext, input: unknown) {
+  const v=z.strictObject({admissionId:z.uuid(),expectedBillVersion:z.number().int().positive(),reason,requestId:z.uuid()}).parse(input);requestKey(ctx,v.requestId);
+  return withTransaction(async tx=>{
+    const staff=await admissionOperator(ctx,["ADMIN","BILLING"],tx);
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+    const e=await lockBillingAdmission(tx,v.admissionId);
+    return billingRequest(tx,ctx,"self-pay-review",v,async()=>{
+      openEpisode(e,true);
+      if(e.paymentRoute!=="SELF_PAY"||e.billRevision!==v.expectedBillVersion)throw new DomainError("CONFLICT","Review the current self-pay bill");
+      const b=await billProjection(tx,e,new Date());
+      const [c]=await tx.select({conversion:insuranceConversions}).from(insuranceConversions).innerJoin(insuranceCases,eq(insuranceCases.id,insuranceConversions.caseId)).where(eq(insuranceCases.admissionId,e.id));
+      if(!c)throw new DomainError("PRECONDITION","Native self-pay already assigns the current bill to the patient");
+      const original=paise(c.conversion.allocation.retainedInsurerLiabilityPaise);
+      const retained=original>b.insurerCashPaise?b.insurerCashPaise:original;
+      const insurerPaise=retained>b.netPaise?b.netPaise:retained;
+      const [review]=await tx.insert(selfPayReviews).values({admissionId:e.id,billBasis:economicBasis(b),netPaise:b.netPaise,insurerPaise,patientPaise:b.netPaise-insurerPaise,reason:v.reason,...actorColumns(ctx)}).returning();
+      await bumpBillRevision(tx,e.id);await appendAudit(tx,ctx,{event:"billing.self-pay-reviewed",entityType:"self-pay-review",entityId:review.id,reason:v.reason});return {id:review.id};
+    });
+  });
 }
 /** Role-safe read for final cutoff after room reconciliation within the owning transaction. */
 export async function getBillInTransaction(tx: Transaction, ctx: CommandContext, admissionId: string, cutoff?: Date) {

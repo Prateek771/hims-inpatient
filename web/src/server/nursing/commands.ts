@@ -363,11 +363,14 @@ export async function endShiftInTransaction(tx: Transaction, ctx: CommandContext
           .where(eq(nursingConsumables.shiftId, shift.id));
         const { admissionTransfers } = await import("../admissions/transfer-schema");
         const transfers = await tx.select({ transferredAt: admissionTransfers.transferredAt }).from(admissionTransfers).where(and(eq(admissionTransfers.admissionId, shift.admissionId), eq(admissionTransfers.shiftId, shift.id)));
+        const { roomVacations } = await import("../discharge/schema");
+        const vacancies = await tx.select({ vacatedAt: roomVacations.vacatedAt }).from(roomVacations).where(eq(roomVacations.shiftId, shift.id));
         if (
           mar.some((v) => v.actualAt > endedAt) ||
           vitals.some((v) => v.observedAt > endedAt) ||
           uses.some((v) => v.usedAt > endedAt) ||
-          transfers.some((v) => v.transferredAt > endedAt)
+          transfers.some((v) => v.transferredAt > endedAt) ||
+          vacancies.some((v) => v.vacatedAt > endedAt)
         )
           throw new DomainError(
             "VALIDATION",

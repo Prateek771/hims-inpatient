@@ -7,11 +7,13 @@ test("billing shows real ledger history and records/allocates manual top-ups", a
   await page.getByRole("link", { name: "Charges & payments", exact: true }).click();
   await expect(page.getByRole("heading", { name: "One bill. Every receipt visible." })).toBeVisible();
   await page.getByRole("link", { name: /Synthetic E2E billing patient/ }).first().click();
+  await expect(page).toHaveURL(/\/billing\?admissionId=/);
+  const admissionId=new URL(page.url()).searchParams.get("admissionId");
   await expect(page.getByRole("heading", { name: "Itemised charges" })).toBeVisible();
   await expect(page.getByRole("cell").filter({ hasText: "Synthetic recorded consultation" })).toBeVisible();
   await expect(page.getByText("Staff-recorded; HIMS has not verified bank receipt.")).toBeVisible();
   await expect(page.getByText(/Self-pay: patient responsibility is the reconciled bill/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Record refund" })).toBeDisabled();
+  await expect(page.getByRole("link", { name: "Open discharge and refund review" })).toHaveAttribute("href",`/discharge?admissionId=${admissionId}`);
   await page.getByLabel("Receipt kind").selectOption("TOP_UP");
   await page.getByLabel("Amount received (INR)").fill("100");
   await page.getByLabel("Payment mode").selectOption("UPI");

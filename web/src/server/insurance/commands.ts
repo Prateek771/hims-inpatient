@@ -8,7 +8,7 @@ import { admissions, beds, patients } from "../admissions/schema";
 import { transferInsuranceTasks } from "../admissions/transfer-schema";
 import { user } from "../schema/auth";
 import { settingVersions } from "../schema/core";
-import { billingRequest, insuranceMoneyInTransaction, lockBillingAdmission } from "../billing/commands";
+import { billingRequest, insuranceMoneyInTransaction, lockBillingAdmission, financialResponsibilityInTransaction } from "../billing/commands";
 import { paise } from "../billing/money";
 import { appendAudit } from "../audit";
 import { computeResponsibilities } from "./responsibility";
@@ -123,7 +123,6 @@ export async function convertToSelfPayInTransaction(tx:Transaction,ctx:CommandCo
   },["ADMIN","BILLING"]);
 }
 async function pendingTransferTasks(tx:Transaction,admissionId:string){return tx.select({id:transferInsuranceTasks.id,reason:transferInsuranceTasks.reason,createdAt:transferInsuranceTasks.createdAt}).from(transferInsuranceTasks).leftJoin(insuranceTransferResolutions,eq(insuranceTransferResolutions.taskId,transferInsuranceTasks.id)).where(and(eq(transferInsuranceTasks.admissionId,admissionId),isNull(insuranceTransferResolutions.id)));}
-const due=(liability:bigint,cash:bigint)=>liability>cash?liability-cash:0n;
 export async function insuranceReviewInTransaction(tx:Transaction,ctx:CommandContext,caseId:string){
   const s=await insuranceCaseSource(tx,ctx,caseId),money=await insuranceMoneyInTransaction(tx,s.episode);
   const events=await tx.select().from(insuranceEvents).where(eq(insuranceEvents.caseId,caseId)).orderBy(desc(insuranceEvents.caseVersion));
@@ -132,10 +131,8 @@ export async function insuranceReviewInTransaction(tx:Transaction,ctx:CommandCon
   const [conversion]=await tx.select().from(insuranceConversions).where(eq(insuranceConversions.caseId,caseId));const d=decisions[0],policy=events.find(e=>e.kind==="POLICY");
   const actorIds=[...new Set([...events,...decisions,...docs,...(conversion?[conversion]:[])].map(row=>row.recordedBy))];
   const actors=actorIds.length?await tx.select({id:user.id,name:user.name}).from(user).where(inArray(user.id,actorIds)):[];
-  const currentAllocation=conversion?.allocation??d?.allocation;
-  const amounts=conversion?{insurerPaise:paise(conversion.allocation.retainedInsurerLiabilityPaise),patientPaise:paise(conversion.allocation.verifiedPatientLiabilityPaise),unallocatedPaise:0n,coPayPaise:0n,nonPayablePaise:0n}:d?computeResponsibilities({netBillPaise:paise(d.allocation.netBillPaise),eligibleBillPaise:paise(d.allocation.eligibleBillPaise),coPayBps:d.coPayBps,insurerAuthorizedPaise:d.approvedPaise,...(d.allocation.verifiedPatientLiabilityPaise===undefined?{}:{verifiedPatientLiabilityPaise:paise(d.allocation.verifiedPatientLiabilityPaise)})}):null;
-  const stale=!!currentAllocation&&(currentAllocation.billBasis!==money.allocationBasis||paise(currentAllocation.netBillPaise)!==money.netPaise||(!conversion&&policy?.id!==d?.policyEventId));
-  const responsibility=amounts?{...amounts,stale,insurerOutstandingPaise:due(amounts.insurerPaise,money.insurerCashPaise),patientOutstandingPaise:due(amounts.patientPaise,money.patientAppliedPaise),insurerExcessPaise:due(money.insurerCashPaise,amounts.insurerPaise),patientExcessPaise:due(money.patientAppliedPaise,amounts.patientPaise),allocationComplete:!stale&&amounts.unallocatedPaise===0n&&(!!conversion||d.status!=="PENDING")}:null;
+  const {responsibility}=await financialResponsibilityInTransaction(tx,s.episode);
+  const stale=responsibility?.stale??false;
   const [identity]=await tx.select({name:patients.name,uhid:patients.uhid,bedLabel:beds.label}).from(patients).innerJoin(beds,eq(beds.id,s.episode.bedId)).where(eq(patients.id,s.episode.patientId));
   const settings=await tx.select().from(settingVersions).where(and(eq(settingVersions.hospitalId,s.episode.hospitalId),eq(settingVersions.kind,"rule"))).orderBy(desc(settingVersions.version));
   const thresholds=(basis:string)=>{const v=settings.find(r=>r.payload.type==="alert"&&r.payload.basis===basis);return {percent:v?Number(v.payload.percent):80,configured:!!v};};

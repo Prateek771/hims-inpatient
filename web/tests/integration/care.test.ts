@@ -136,11 +136,20 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
           if (!blocked) await new Promise((resolve) => setTimeout(resolve, 10));
         }
         expect(blocked).toBe(true);
-        const laterPrice = await f.setting({ ...policy, amount: "999" });
-        expect(laterPrice.id).not.toBe(firstPrice.id);
+        // Source transactions now share the settings/staff safety lock. A settings
+        // write must wait for these readers, then must not reprice their source.
+        const laterPricePending = f.setting({ ...policy, amount: "999" });
+        let settingsBlocked=false;
+        for(let attempt=0;attempt<100&&!settingsBlocked;attempt++){
+          settingsBlocked=(await runtime.query("select exists(select 1 from pg_locks where locktype='advisory' and objid=729104211 and not granted) blocked")).rows[0].blocked;
+          if(!settingsBlocked)await new Promise(resolve=>setTimeout(resolve,10));
+        }
+        expect(settingsBlocked).toBe(true);
         release();
         expect(await first).toEqual({ id: source.id });
         expect(await second).toEqual({ id: source.id });
+        const laterPrice=await laterPricePending;
+        expect(laterPrice.id).not.toBe(firstPrice.id);
         const resolved = (await care.getCare(dc(), a.admissionId)).billing[0];
         await care.completeClinicalTask(dc(), {
           orderId: source.orderId!,

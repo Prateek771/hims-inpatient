@@ -241,6 +241,11 @@ export async function getPharmacyReview(ctx: CommandContext, admissionId: string
 export async function getPharmacyReviewInTransaction(tx: Transaction, ctx: CommandContext, admissionId: string) {
   await operator(tx,ctx);
   const e = await episode(tx,z.uuid().parse(admissionId),false);
+  return pharmacyClearanceSourceInTransaction(tx, e);
+}
+/** Internal clearance composition: admission is locked and caller enforces the purpose-specific role.
+ * This also supports an explicit empty prescription without granting a general no-order Pharmacy chart. */
+export async function pharmacyClearanceSourceInTransaction(tx: Transaction, e: typeof admissions.$inferSelect) {
   const [p] = await tx.select({name:patients.name,uhid:patients.uhid,sex:patients.sex}).from(patients).where(eq(patients.id,e.patientId));
   const [bed] = await tx.select({label:beds.label}).from(beds).where(eq(beds.id,e.bedId));
   const orders = await tx.select({id:clinicalOrders.id,requestedItem:clinicalOrders.requestedItem,medicineItemId:clinicalOrders.medicineItemId,medicineCatalogVersionId:clinicalOrders.medicineCatalogVersionId,details:clinicalOrders.details,signedBy:clinicalOrders.signedBy,signedAt:clinicalOrders.signedAt}).from(clinicalOrders).where(and(eq(clinicalOrders.admissionId,e.id),eq(clinicalOrders.kind,"MEDICINE")));
@@ -275,7 +280,7 @@ export async function getPharmacyReviewInTransaction(tx: Transaction, ctx: Comma
   const current = preparations[0];
   if (!rx) unresolved.push("Doctor has not signed a take-home prescription version");
   else {
-    if (!current || current.prescriptionVersionId !== rx.id) unresolved.push("Current signed prescription needs take-home preparation");
+    if ((orders.length || rx.prescription.length) && (!current || current.prescriptionVersionId !== rx.id)) unresolved.push("Current signed prescription needs take-home preparation");
     const h = await hospital(tx);
     for (const line of rx.prescription) {
       const net = issues.filter(i=>i.purpose === "TAKE_HOME" && i.orderId === line.orderId).reduce((n,i)=>n+stockUnits(i.netQuantity),0n);
@@ -286,7 +291,11 @@ export async function getPharmacyReviewInTransaction(tx: Transaction, ctx: Comma
         if (batch.expiresOn < hospitalDate(new Date(),h.timezone)) unresolved.push(`${line.requestedItem}: prepared batch expired; return and replace before collection`);
       }
     }
-    for (const i of issues.filter(i=>i.purpose === "TAKE_HOME" && stockUnits(i.netQuantity)>0n)) if (!rx.prescription.some(p=>p.orderId===i.orderId)) unresolved.push("Previously issued take-home medicine is absent from the current prescription; return/review required");
+    for (const i of issues.filter(i=>i.purpose === "TAKE_HOME" && stockUnits(i.netQuantity)>0n)) {
+      if (!rx.prescription.some(p=>p.orderId===i.orderId)) unresolved.push("Previously issued take-home medicine is absent from the current prescription; return/review required");
+      const [batch]=await tx.select().from(pharmacyBatches).where(eq(pharmacyBatches.id,i.batchId));
+      if(batch.expiresOn<hospitalDate(new Date(),h.timezone))unresolved.push(`Take-home issue ${i.id}: retained batch expired; return and replace before collection`);
+    }
   }
   return { episode:{id:e.id,ipCode:e.ipCode,status:e.status,bedLabel:bed.label,...p},orders:orders.map(o=>({...o,stopped:stops.some(s=>s.orderId===o.id)})),prescription:rx,preparations,issues,unresolved:[...new Set(unresolved)],prepared:unresolved.length===0,sealRecorded:false as const };
 }

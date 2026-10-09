@@ -44,7 +44,7 @@ export default async function BillingPage({ searchParams }: {
         <p>{bill.ipCode} · {selected?.bedLabel} · <span className="status">{bill.status}</span> · {bill.paymentRoute}</p>
         <p className="caption">Financial revision {bill.revision} · captured {bill.asOf.toISOString()} (UTC)</p>
         </section>
-      <div className="billing-metrics">{[["Posted net bill", bill.netPaise, "Gross charges minus linked reversals"], ["Patient cash received", bill.patientCashPaise, "Includes held deposits; allocations add no cash"], ["Unallocated deposit", bill.unallocatedDepositPaise, "Held liability pending allocation"], ["Insurer received", bill.insurerCashPaise, "Actual staff-recorded receipts"]].map(([label, amount, detail]) => <section className="card metric" key={String(label)}>
+      <div className="billing-metrics">{[["Posted net bill", bill.netPaise, "Gross charges minus linked reversals"], ["Patient cash retained", bill.patientCashPaise, "After actual refunds; allocations add no cash"], ["Unallocated deposit", bill.unallocatedDepositPaise, "Held liability pending allocation"], ["Insurer received", bill.insurerCashPaise, "Actual staff-recorded receipts"]].map(([label, amount, detail]) => <section className="card metric" key={String(label)}>
             <p>{String(label)}</p>
             <strong>{formatINR(amount as bigint)}</strong>
             <p className="caption">{String(detail)}</p>
@@ -102,13 +102,13 @@ export default async function BillingPage({ searchParams }: {
         <dd>{formatINR(bill.overpaidPaise)}</dd>
         </div>
         </dl>
-        <p className="notice">{bill.payerResponsibility === "UNAVAILABLE" ? "Payer share unavailable until externally verified responsibility is recorded." : "Self-pay: patient responsibility is the reconciled bill."} Pending charges and room estimates still require reconciliation.</p>
+        <p className="notice">{bill.payerResponsibility === "UNAVAILABLE" ? "Review current externally verified payer responsibility in discharge clearance." : "Self-pay: patient responsibility is the reconciled bill."} Pending charges and room estimates still require reconciliation.</p>
         <p>Staff-recorded; HIMS has not verified bank receipt.</p>
         {["PENDING", "ADMITTED"].includes(bill.status) && <><h2>Record a manual receipt</h2>
         <ReceiptForm admissionId={bill.admissionId} requestId={crypto.randomUUID()}/></>}
         <h2 className="billing-subheading">Refund review</h2>
-        <p>{bill.status === "CANCELLED" ? "Cancelled-deposit returns require explicit administrator authority and the exception/return workflow, which is not yet available. This episode was never admitted." : "Refunds and deposit adjustments require Doctor → Pharmacy → Nursing clearances and Gate 4 review. These gates are not yet available."}</p>
-        <button className="button secondary" disabled>Record refund</button>
+        <p>{bill.status === "CANCELLED" ? "Cancelled-deposit returns require explicit administrator authority and the exception/return workflow, which is not yet available. This episode was never admitted." : "Refunds and deposit adjustments require Doctor → Pharmacy → Nursing clearances and Gate 4 review. Open discharge clearance for current human reviews and actual refund recording."}</p>
+        {bill.status === "ADMITTED" && <Link className="button secondary" href={`/discharge?admissionId=${bill.admissionId}`}>Open discharge and refund review</Link>}
         </section>
         </div>
       <section className="card">
@@ -124,16 +124,17 @@ export default async function BillingPage({ searchParams }: {
         </tr>
         </thead>
         <tbody>{bill.receipts.map((receipt) => {
-                const allocated = bill.allocations.filter((a) => a.receiptId === receipt.id).reduce((n, a) => n + a.amountPaise, 0n);
+                const allocated = bill.activeAllocations.filter((a) => a.receiptId === receipt.id).reduce((n, a) => n + a.amountPaise, 0n);
+                const refunded = bill.refunds.filter(r=>r.receiptId===receipt.id).reduce((n,r)=>n+r.amountPaise,0n);
                 return <tr key={receipt.id}>
                 <td>{receipt.reference}<p className="caption">{receipt.party} · {receipt.kind} · {receipt.mode}<br />{receipt.channel} / {receipt.sourceReference}<br />Cashier {receipt.actorId} · {receipt.createdAt.toISOString()}<br />Evidence: {receipt.evidenceId ?? "Not supplied"}</p>
                 </td>
-                <td>{formatINR(receipt.amountPaise)}</td>
-                <td>{formatINR(allocated)}{receipt.kind !== "PAYMENT" && bill.status === "ADMITTED" && allocated < receipt.amountPaise && <AllocationForm admissionId={bill.admissionId} receiptId={receipt.id} requestId={crypto.randomUUID()}/>}</td>
+                <td>{formatINR(receipt.amountPaise)}<p className="caption">Returned {formatINR(refunded)} · retained {formatINR(receipt.amountPaise-refunded)}</p></td>
+                <td>{formatINR(allocated)}{receipt.kind !== "PAYMENT" && bill.status === "ADMITTED" && allocated + refunded < receipt.amountPaise && <AllocationForm admissionId={bill.admissionId} receiptId={receipt.id} requestId={crypto.randomUUID()}/>}</td>
                 </tr>;
             })}</tbody>
         </table>
-        </div>{!bill.receipts.length && <p>No manual receipts recorded.</p>}{bill.allocations.map((a) => <p className="caption" key={a.id}>Allocation {a.id} · {formatINR(a.amountPaise)} · receipt {a.receiptId} · {a.reason} · {a.createdAt.toISOString()}</p>)}</section>
+        </div>{!bill.receipts.length && <p>No manual receipts recorded.</p>}{bill.allocations.map((a) => <p className="caption" key={a.id}>Allocation {a.id} · {formatINR(a.amountPaise)} · receipt {a.receiptId} · {a.reason} · {a.createdAt.toISOString()} · {bill.cancellations.some(c=>c.allocationId===a.id)?"Cancelled by linked correction":"Active"}</p>)}{bill.refunds.map(r=><p className="caption" key={r.id}>Refund {formatINR(r.amountPaise)} · original receipt {r.receiptId} · {r.channel} / {r.sourceReference} · {r.refundedAt.toISOString()} · {r.evidence} · {r.reason}</p>)}</section>
     </>}
   </>;
 }

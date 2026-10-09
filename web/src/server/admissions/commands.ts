@@ -101,6 +101,9 @@ export async function admissionOperator(
   roles: readonly StaffRole[],
   connection: typeof db | Transaction = db,
 ) {
+  // All composed sources share this order with staff/settings administration.
+  // Autocommit reads release it immediately; transaction commands retain it before staff locks.
+  await connection.execute(sql`select pg_advisory_xact_lock_shared(729104211)`);
   const actor = assertHumanActor(ctx);
   z.uuid().parse(ctx.requestId);
   if (!ctx.source.trim())
@@ -334,9 +337,11 @@ export async function createAdmission(
       .from(beds)
       .where(eq(beds.id, value.bedId))
       .for("update");
+    const cleaning = await tx.execute(sql`select 1 from hims.bed_turnovers t where t.bed_id=${value.bedId} and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id) limit 1`);
     if (
       !bed ||
       !bed.active ||
+      cleaning.rows.length ||
       (await tx.select().from(bedHolds).where(eq(bedHolds.bedId, value.bedId)))
         .length
     )
@@ -596,6 +601,8 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
     // The new stay is open-ended; any persisted target interval ending after T overlaps it.
     const targetHistory = await tx.execute(sql`SELECT 1 FROM hims.room_stays WHERE bed_id=${target.id} AND (ended_at IS NULL OR ended_at > ${T}) LIMIT 1`);
     if (targetHistory.rows.length) throw new DomainError("CONFLICT", "Target bed was occupied at this actual transfer time. Preserve the factual time and use the correction workflow");
+    const cleaning=await tx.execute(sql`select 1 from hims.bed_turnovers t left join hims.bed_turnover_completions c on c.turnover_id=t.id where t.bed_id=${target.id} and (c.id is null or c.completed_at>${T}) limit 1`);
+    if(cleaning.rows.length)throw new DomainError("CONFLICT","Target bed housekeeping was not complete at the actual transfer time");
     if (target.category !== order.destinationCategory) throw new DomainError("VALIDATION", "Target bed must match the clinician-selected destination category");
     const versions = await tx.select().from(settingVersions).where(eq(settingVersions.hospitalId, episode.hospitalId)).orderBy(desc(settingVersions.version));
     const category = versions.find(v => v.payload.type === "bed-category" && v.payload.code === target.category);
@@ -611,6 +618,8 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
     await tx.insert(bedHolds).values({ admissionId: episode.id, bedId: target.id, heldAt: T });
     await tx.update(admissions).set({ bedId: target.id, version: sql`${admissions.version}+1`, billRevision: sql`${admissions.billRevision}+1` }).where(eq(admissions.id, episode.id));
     const [transfer] = await tx.insert(admissionTransfers).values({ admissionId: episode.id, transferOrderId: order.id, oldStayId: stay.id, newStayId: next.id, oldBedId: stay.bedId, targetBedId: target.id, shiftId: value.handover.shiftId, handover: value.handover.notes, transferredAt: T, signedBy: staff.id }).returning();
+    const {bedTurnovers}=await import("../discharge/schema");
+    await tx.insert(bedTurnovers).values({bedId:stay.bedId,stayId:stay.id,admissionId:episode.id,vacatedAt:T,reason:"Actual transfer vacated the previous physical bed",signedBy:staff.id,signedAt:new Date()});
     if (episode.paymentRoute === "INSURED") await tx.insert(transferInsuranceTasks).values({ admissionId: episode.id, transferId: transfer.id, reason: "Insurance staff must review the transfer's externally verified insurance implications using existing payer channels" });
     await appendAudit(tx, ctx, { event: "admission.transferred", entityType: "transfer", entityId: transfer.id, reason: value.handover.notes, beforeVersion: episode.version, afterVersion: episode.version + 1 });
     return { id: transfer.id };
@@ -632,6 +641,7 @@ export async function admissionWorkspace(ctx: CommandContext) {
       category: beds.category,
       active: beds.active,
       admissionId: bedHolds.admissionId,
+      cleaning: sql<boolean>`exists(select 1 from hims.bed_turnovers t where t.bed_id=${beds.id} and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id))`,
     })
     .from(beds)
     .leftJoin(bedHolds, eq(bedHolds.bedId, beds.id))

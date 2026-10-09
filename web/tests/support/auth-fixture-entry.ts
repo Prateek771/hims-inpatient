@@ -98,6 +98,7 @@ async function prepare() {
   await preparePharmacyFixtures(h);
   await prepareLabFixtures(h);
   await prepareInsuranceFixtures(h);
+  await prepareDischargeFixture(h);
   // Workflow browser contexts reuse real synthetic sessions, avoiding unrelated login-limiter traffic.
   // These signed cookies are credentials and stay exclusively inside the ignored test output folder.
   for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB", "INSURANCE"] as const) {
@@ -289,6 +290,32 @@ async function prepareInsuranceFixtures(adminHeaders:Headers){
   assert.equal(initial.responsibility?.patientExcessPaise,0n);
   assert.equal(initial.responsibility?.insurerOutstandingPaise,0n);
   writeFileSync(resolve("tmp/e2e-insurance.json"),JSON.stringify({caseId:assigned.id,wrongCaseId:unassigned.id,revisedCaseId:revised.id}));
+}
+
+async function prepareDischargeFixture(adminHeaders:Headers){
+  const {listSettings,saveSetting}=await import("../../src/server/settings");
+  const {createBed,createAdmission,activateAdmission}=await import("../../src/server/admissions/commands");
+  const {signClinicalSummary}=await import("../../src/server/clinical/commands");
+  const {assignNurse,recordShift}=await import("../../src/server/nursing/commands");
+  const staff=await db.select({id:user.id,email:user.email}).from(user),id=(role:string)=>staff.find(s=>s.email===`${role.toLowerCase()}@e2e.fixture.invalid`)!.id;
+  const ctx=(role:string)=>({actor:{type:"staff" as const,staffId:id(role)},source:"synthetic-browser-discharge",requestId:crypto.randomUUID()});
+  for(const value of [{type:"bed-category",code:"DISCHARGE",name:"Synthetic exact-hour discharge",active:true},{type:"deposit",category:"DISCHARGE",route:"self-pay",requirement:"not-required",amount:"0"},{type:"tariff",category:"DISCHARGE",amount:"3600",basis:"hour",rounding:"exact",graceMinutes:0}]){
+    const state=await listSettings(adminHeaders),kind=value.type==="tariff"?"tariff":"rule";
+    await saveSetting(adminHeaders,{value,expectedVersion:Math.max(0,...state.versions.filter(v=>v.kind===kind).map(v=>v.version)),reason:"Isolated synthetic discharge browser policy"});
+  }
+  const bed=await createBed(ctx("ADMIN"),{label:`Synthetic discharge ${crypto.randomUUID()}`,category:"DISCHARGE",reason:"Isolated discharge browser bed"});
+  const a=ctx("ADMISSION"),admission=await createAdmission(a,{patientDetails:{name:"Synthetic E2E discharge patient",ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Private clinical assessment not for Billing",vitals:"Synthetic vitals",triage:"Synthetic route",destinationCategory:"DISCHARGE"},bedId:bed.id,paymentRoute:"SELF_PAY",expectedStayDays:1,requestId:a.requestId});
+  const ac=ctx("ADMISSION"),arrivedAt=new Date().toISOString();await activateAdmission(ac,{admissionId:admission.admissionId,arrivedAt,expectedVersion:1,requestId:ac.requestId});
+  await assignNurse(ctx("ADMIN"),{admissionId:admission.admissionId,nurseId:id("NURSE"),reason:"Actual browser nursing assignment",authority:"Synthetic roster"});
+  const nurse=ctx("NURSE");await recordShift(nurse,{admissionId:admission.admissionId,startedAt:new Date().toISOString(),handover:"Continue monitoring until physical departure",requestId:nurse.requestId});
+  await signClinicalSummary(ctx("DOCTOR"),{admissionId:admission.admissionId,expectedVersion:0,diagnosis:"Synthetic Doctor diagnosis",course:"Signed human course",condition:"Reviewed by Doctor",followUp:"Human follow-up",advice:"Human advice",prescriptionOrderIds:[]});
+  const settings=await listSettings(adminHeaders);await saveSetting(adminHeaders,{value:{type:"deposit",category:"DISCHARGE",route:"insured",requirement:"not-required",amount:"0"},expectedVersion:Math.max(0,...settings.versions.filter(v=>v.kind==="rule").map(v=>v.version)),reason:"Synthetic unallocated insured browser policy"});
+  const unallocatedBed=await createBed(ctx("ADMIN"),{label:`Synthetic unallocated ${crypto.randomUUID()}`,category:"DISCHARGE",reason:"Independent responsibility review fixture"});
+  const u=ctx("ADMISSION"),unallocated=await createAdmission(u,{patientDetails:{name:"Synthetic unallocated discharge patient",ageYearsAtRegistration:40,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Synthetic complaint",vitals:"Synthetic vitals",triage:"Synthetic route",destinationCategory:"DISCHARGE"},bedId:unallocatedBed.id,paymentRoute:"INSURED",expectedStayDays:1,requestId:u.requestId});
+  const arrival=ctx("ADMISSION");await activateAdmission(arrival,{admissionId:unallocated.admissionId,arrivedAt:new Date().toISOString(),expectedVersion:1,requestId:arrival.requestId});
+  await new Promise(resolve=>setTimeout(resolve,80));
+  const {reconcileBill,getBill}=await import("../../src/server/billing/commands");await reconcileBill(ctx("BILLING"),{admissionId:unallocated.admissionId,cutoff:new Date().toISOString()});assert((await getBill(ctx("BILLING"),unallocated.admissionId)).netPaise>0n);
+  writeFileSync(resolve("tmp/e2e-discharge.json"),JSON.stringify({admissionId:admission.admissionId,bedLabel:bed.label,arrivedAt,unallocatedAdmissionId:unallocated.admissionId}));
 }
 
 prepare()

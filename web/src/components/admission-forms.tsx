@@ -78,6 +78,7 @@ export function AdmissionForm({
     (b) =>
       b.active &&
       !b.admissionId &&
+      !("cleaning" in b && b.cleaning) &&
       categories.some((c) => c.code === b.category),
   );
   const unavailable =
