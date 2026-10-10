@@ -29,8 +29,12 @@ git diff --check
 
 Follow [database setup](docs/DATABASE_SETUP.md) and apply migrations before complete checks. Unit and real PostgreSQL integration tests execute; missing access fails the check. Playwright owns an isolated local server on port 3100 and shuts it down afterward. Browser binaries and local test output are ignored. Never report an empty or skipped suite as passed.
 
+Durable insurance paperwork also needs the explicit migration-owner command `npm --prefix web run paperwork:setup`. No request/import automatically creates its schema. Core hospital readiness stays separate; see [paperwork contracts](docs/PAPERWORK.md).
+
 Follow [staff access](docs/STAFF_ACCESS.md) for one-time local login initialization. Preserve existing accounts; the bootstrap deliberately refuses a database that already contains staff. CI additionally runs the actual demo bootstrap against its fresh synthetic application database.
 
 In this Codex Windows session, sandboxed Next.js builds have repeatedly left a CSS-worker failure cached in `.next`: the child exits with code 0 before connecting. Authorized host execution of the standard build/check is the verified path here; this is not an instruction to change compiler/checks or run a terminal as administrator. If that exact failure recurs, first verify no project preview/test listener is active, stop only this project's known preview process if needed, verify the resolved absolute target is this checkout's plain generated `web/.next` directory, clear only that cache and retry the unchanged build with authorized host execution. Do not remove source, dependencies or database files, and do not treat recovery as proof of the upstream cause. Restart any preview after validation.
 
 Never commit credentials, real patient records, private uploads, database files or dumps. No existing database resets, applied-migration rewrites or provider replacements are authorized by these setup commands.
+
+An accepted preview copied under ignored `INS/tmp/local-preview-taskN-SHA/` uses its own compiled assets and may remain live during source builds or a verified source `.next` cache recovery. Confirm the running process's actual artifact path first; preserve that artifact, its manifest and existing credentials. Stop a preview only when its own files must change or during the short controlled accepted-checkpoint refresh.

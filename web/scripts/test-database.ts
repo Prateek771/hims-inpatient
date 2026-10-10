@@ -1,6 +1,7 @@
 import { Client } from "pg";
 import { loadLocalEnvironment, migrate } from "./migrate.ts";
 import { getTestDatabaseConfig } from "./test-database-guard.ts";
+import { setupPaperworkCheckpointer } from "./paperwork-checkpointer.ts";
 export { assertTestDatabase, assertTestDatabasePair } from "./test-database-guard.ts";
 /** Migration-only preparation for browsers. Never resets existing test records/schema. */
 export async function prepareTestDatabase() {
@@ -12,6 +13,7 @@ export async function prepareTestDatabase() {
     await owner.query("SELECT pg_advisory_lock(729104210)");
     try {
       await migrate(owner);
+      await setupPaperworkCheckpointer(ownerUrl);
     } finally {
       await owner.query("SELECT pg_advisory_unlock(729104210)");
     }
@@ -33,7 +35,9 @@ export async function withTestDatabase<T>(fn: (clients: { owner: Client; runtime
     await owner.query("SELECT pg_advisory_lock(729104210)");
     locked = true;
     await owner.query("DROP SCHEMA IF EXISTS hims CASCADE; DROP TABLE IF EXISTS public.hims_migrations");
+    await owner.query("DROP SCHEMA IF EXISTS hims_paperwork_checkpoints CASCADE");
     await migrate(owner);
+    await setupPaperworkCheckpointer(ownerUrl);
     await runtime.connect();
     return await fn({ owner, runtime });
   } finally {

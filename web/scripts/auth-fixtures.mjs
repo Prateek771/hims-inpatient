@@ -39,6 +39,7 @@ export async function prepareAuthFixtures() {
     env: {
       ...process.env,
       DATABASE_URL: runtimeUrl,
+      HIMS_INSURANCE_STORAGE: "synthetic",
       BETTER_AUTH_URL: "http://127.0.0.1:3100",
       BETTER_AUTH_SECRET: "SyntheticE2EOnlySecretAtLeast32Characters12345",
     },

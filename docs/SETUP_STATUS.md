@@ -1,6 +1,10 @@
 # Foundation setup status
 
-Verified on **9 October 2026**. Working folder: `C:\Users\prate\OneDrive\Desktop\INS`; working branch: `codex/hims-development`. This is foundation setup, not a working hospital system or deployment.
+Verified on **9 October 2026**. Working folder: `C:\Users\prate\OneDrive\Desktop\INS`; working branch: `codex/hims-development`. The foundation evidence below is historical; subsequent acceptance sections record implemented hospital flows. No deployment or real-patient readiness is claimed.
+
+## Task 14 paperwork acceptance, 10 October 2026
+
+Task 14 is independently approved by GPT-6.1 specification and quality review. The controller original full check passed 40 unit tests, 127 actual PostgreSQL tests across 14 files, lint, type checks, production build and 31 Chromium/HTTP checks. After the scoped corrections, the controller passed all 11 affected PostgreSQL tests; the author passed the affected three browser checks, import unit check, lint, type checks and production build. Runtime audit found zero vulnerabilities. Exact final-commit complete CI results are recorded in the local ledger before main integration. Reviewed ordinary migrations 0000–0053 and official checkpointer versions 0–4 are current. Fresh before/after hashes preserve all 25 original records across 71 original tables and columns; all 54 applied SQL checksums match literal files. No database reset, patient/policy seed, live provider, sender or deployment was introduced. See [Paperwork](PAPERWORK.md) for manual-input limits, immutable history, protected file binding, recorded-intent recovery and explicit setup. Existing role accounts and credentials remain unchanged. The owner preview stays available at [localhost:3000](http://localhost:3000/login); Task 15 requires the next approval. Existing Vite/Node module-format and browser color-environment warnings remain disclosed; required checks were not weakened.
 
 ## Installed and checked
 

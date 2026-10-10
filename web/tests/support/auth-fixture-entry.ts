@@ -265,6 +265,10 @@ async function prepareInsuranceFixtures(adminHeaders:Headers){
   const ctx=(role:string)=>({actor:{type:"staff" as const,staffId:id(role)},source:"synthetic-browser-insurance",requestId:crypto.randomUUID()});
   async function episode(assigned:boolean,name=assigned?"Synthetic E2E insurance patient":"Synthetic unassigned private case"){const bed=await createBed(ctx("ADMIN"),{label:`Synthetic insurance ${crypto.randomUUID()}`,category:"GENERAL",reason:"Independent synthetic insurance case"});const a=ctx("ADMISSION"),admission=await createAdmission(a,{patientDetails:{name,ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Private clinical assessment excluded from Insurance",vitals:"Synthetic vitals",triage:"Synthetic routing",destinationCategory:"GENERAL"},bedId:bed.id,paymentRoute:"INSURED",expectedStayDays:2,requestId:a.requestId});const c=ctx("ADMIN"),record=await createInsuranceCase(c,{admissionId:admission.admissionId,assignedStaffId:assigned?id("INSURANCE"):null,reason:"Synthetic case assignment",requestId:c.requestId});return {...record,admissionId:admission.admissionId};}
   const assigned=await episode(true),unassigned=await episode(false);
+  const paperwork=await episode(true,"Synthetic E2E paperwork review");
+  const {attachCaseDocument}=await import("../../src/server/insurance/documents");
+  const documentContext=ctx("INSURANCE"),document=await attachCaseDocument(documentContext,{caseId:paperwork.id,expectedCaseVersion:1,requestId:documentContext.requestId,file:new File(["%PDF-1.4\nSynthetic manual paperwork source only\n%%EOF"],"paperwork-source.pdf",{type:"application/pdf"})});
+  writeFileSync(resolve("tmp/e2e-paperwork.json"),JSON.stringify({caseId:paperwork.id,documentId:document.id,wrongCaseId:unassigned.id}));
   // A real signed consultation and Billing receipts reproduce the revised-allocation refund review.
   for(const value of [
     {type:"deposit",category:"GENERAL",route:"insured",requirement:"not-required",amount:"0"},

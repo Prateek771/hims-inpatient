@@ -54,6 +54,8 @@ jobs:
           HIMS_SETUP_ADMIN_PASSWORD: hims-ci-only
       - name: Apply HIMS migrations
         run: npm run db:migrate
+      - name: Prepare official durable paperwork checkpointer
+        run: npm run paperwork:setup
       - name: Verify fresh local staff setup
         run: npm run auth:bootstrap -- --demo
         env:

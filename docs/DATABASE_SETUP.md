@@ -23,12 +23,17 @@ After successful setup:
 
 ```powershell
 npm --prefix web run db:migrate
+npm --prefix web run paperwork:setup
 npm --prefix web run test:unit
 npm --prefix web run test:integration
 ```
 
 The integration helper may recreate the HIMS schema only in the explicitly named synthetic test database. It checks the actual connected database/account and rejects the application database. Never place hospital records in `hims_test`.
 
+`paperwork:setup` explicitly prepares the official persistent checkpointer in the fixed `hims_paperwork_checkpoints` schema under the dedicated migration owner. It checks library migration versions0–4 and grants runtime scoped access without CREATE or DELETE. Application requests/imports never perform this setup. Preserve existing checkpoint rows if setup is retried; see [paperwork contracts](PAPERWORK.md). Future authorized backup/restore must preserve this schema along with HIMS records and protected file storage.
+
 `/api/health` reports whether the app is running. `/api/health/ready` reports whether its configured database is ready, without returning credentials or database details. Database setup and a healthy endpoint do not establish that staff login or hospital workflows are implemented.
+
+Core readiness does not claim that paperwork checkpoints are configured. Missing checkpoint setup produces a truthful paperwork capability failure while the ordinary hospital workflows remain available.
 
 GitHub Checks uses a fresh PostgreSQL service and synthetic credentials for every run; it does not connect to this computer or contain local passwords.
