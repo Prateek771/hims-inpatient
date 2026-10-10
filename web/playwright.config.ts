@@ -19,6 +19,6 @@ export default defineConfig({
     url: "http://127.0.0.1:3100",
     reuseExistingServer: false,
     timeout: 120_000,
-    env: { HIMS_DOCUMENT_STORAGE: "synthetic", HIMS_INSURANCE_STORAGE: "synthetic", NEXT_TELEMETRY_DISABLED: "1", DATABASE_URL: runtimeUrl, BETTER_AUTH_URL: "http://127.0.0.1:3100", BETTER_AUTH_SECRET: "SyntheticE2EOnlySecretAtLeast32Characters12345" },
+    env: { HIMS_SYNTHETIC_TEST_RUN: "1", HIMS_DOCUMENT_STORAGE: "synthetic", HIMS_INSURANCE_STORAGE: "synthetic", NEXT_TELEMETRY_DISABLED: "1", DATABASE_URL: runtimeUrl, BETTER_AUTH_URL: "http://127.0.0.1:3100", BETTER_AUTH_SECRET: "SyntheticE2EOnlySecretAtLeast32Characters12345" },
   },
 });

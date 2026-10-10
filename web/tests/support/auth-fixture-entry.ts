@@ -1,11 +1,15 @@
 import { db } from "../../src/server/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { createStaffAuth } from "../../src/server/auth";
 import { user } from "../../src/server/schema/auth";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import assert from "node:assert/strict";
 async function prepare() {
+  const identity = (await db.execute<{ database: string; role: string; port: number }>(sql`select current_database() database,current_user role,inet_server_port() port`)).rows[0];
+  assert(identity.role === "hims_test_runtime" && (identity.database === "hims_test" || (process.env.CI === "true" && /^hims_test_ci_[a-z0-9]{8,40}$/.test(identity.database))));
+  assert(process.env.HIMS_SYNTHETIC_TEST_RUN === "1" && process.env.HIMS_INSURANCE_STORAGE === "synthetic" && process.env.HIMS_DOCUMENT_STORAGE === "synthetic");
+  mkdirSync(resolve("tmp"), { recursive: true }); writeFileSync(resolve("tmp/e2e-database-identity.json"), JSON.stringify(identity, null, 2));
   for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB", "INSURANCE"] as const) {
     const email = `${role.toLowerCase()}@e2e.fixture.invalid`;
     const [existing] = await db
@@ -103,6 +107,8 @@ async function prepare() {
   const { prepareDocumentsBrowserFixture } = await import("./documents-browser-fixture");
   await prepareDocumentsBrowserFixture(h);
   await prepareOverviewFixture(h);
+  const { prepareInpatientJourney } = await import("./inpatient-journey-fixture");
+  await prepareInpatientJourney(h);
   // Workflow browser contexts reuse real synthetic sessions, avoiding unrelated login-limiter traffic.
   // These signed cookies are credentials and stay exclusively inside the ignored test output folder.
   for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB", "INSURANCE"] as const) {
@@ -414,6 +420,9 @@ prepare()
         fixtureError: error.name,
         code: error.code ?? error.cause?.code ?? null,
         message: error.name === "DomainError" ? error.message : undefined,
+        issues: error.name === "ZodError" ? error.issues.map((issue: { path: (string | number)[]; code: string }) => ({ path: issue.path, code: issue.code })) : undefined,
+        location: error.stack?.split("\n").find((line: string) => line.includes("auth-fixtures.mjs:"))?.replace(/^.*auth-fixtures\.mjs:/, "fixture-bundle:"),
+        typeFailure: error.name === "TypeError" ? error.message.match(/toISOString is not a function|Cannot read properties of (?:undefined|null)/)?.[0] : undefined,
       }),
     );
     process.exit(1);

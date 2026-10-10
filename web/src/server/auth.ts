@@ -6,6 +6,7 @@ import { admin } from "better-auth/plugins";
 import { createAccessControl } from "better-auth/plugins/access";
 import { db, type Transaction } from "./db";
 import * as schema from "./schema/auth";
+import { authConfiguration } from "./auth-configuration";
 export const staffRoles = [
   "ADMIN",
   "ADMISSION",
@@ -28,10 +29,11 @@ const roles = Object.fromEntries(
   ]),
 );
 export function createStaffAuth(database: typeof db | Transaction = db) {
+  const configuration = authConfiguration();
   return betterAuth({
     appName: "HIMS",
-    baseURL: process.env.BETTER_AUTH_URL,
-    secret: process.env.BETTER_AUTH_SECRET,
+    baseURL: configuration.baseURL,
+    secret: configuration.secret,
     database: drizzleAdapter(database, {
       provider: "pg",
       schema,

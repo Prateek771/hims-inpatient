@@ -7,7 +7,8 @@ test("staff workspace is readable, keyboard accessible and honest about setup", 
   await expect(page.getByRole("main")).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Hospital sections" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "A clear view of today" })).toBeVisible();
-  await expect(page.getByText("Workspace setup in progress", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Staff inpatient workspace", exact: true })).toBeVisible();
+  await expect(page.getByText(/Patient records and hospital workflows will be added/)).toHaveCount(0);
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: testInfo.outputPath("workspace-desktop.png"), fullPage: true });
   await page.keyboard.press("Tab");

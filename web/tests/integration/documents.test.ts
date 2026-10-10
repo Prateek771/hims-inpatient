@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadLocalEnvironment } from "../../scripts/migrate";
-import { withTestDatabase } from "../../scripts/test-database";
+import { withTestDatabase, waitForTestDatabaseIdle } from "../../scripts/test-database";
 import { getTestDatabaseConfig } from "../../scripts/test-database-guard";
 import { staffContext } from "../../src/server/access";
 import { billingFixture } from "../support/billing-fixture";
@@ -48,7 +48,7 @@ function paragraphGlyphText() {
 }
 const ordinaryUrl = process.env.DATABASE_URL;
 const testUrl = getTestDatabaseConfig().runtimeUrl;
-afterEach(() => { process.env.DATABASE_URL = ordinaryUrl; delete process.env.HIMS_DOCUMENT_STORAGE; vi.useRealTimers(); layoutEvidence.active = false; layoutEvidence.value = null; });
+afterEach(async () => { await waitForTestDatabaseIdle(); process.env.DATABASE_URL = ordinaryUrl; delete process.env.HIMS_DOCUMENT_STORAGE; vi.useRealTimers(); layoutEvidence.active = false; layoutEvidence.value = null; }, 60000);
 process.env.BETTER_AUTH_URL = "http://127.0.0.1:3100";
 process.env.BETTER_AUTH_SECRET = "SyntheticDocumentsOnlySecretAtLeast32Characters12345";
 
@@ -224,7 +224,7 @@ describe("immutable protected discharge documents", () => {
     const file = await d.downloadDischargeDocument(f.ctx(), third.documentId);
     await mkdir(resolve("../tmp/task13"), { recursive: true }); await writeFile(resolve("../tmp/task13/seven-day.pdf"), file.bytes);
     await writeFile(resolve("../tmp/task13/seven-day.json"), JSON.stringify({ rawChargeCount: statement.rawChargeCount, statementLines: statement.lines.length, sourceCharacters: JSON.stringify(final.snapshot).length, pdfBytes: file.bytes.length, captureMilliseconds, renderMilliseconds, publishMilliseconds, grossPaise: statement.grossPaise, reversedPaise: statement.reversedPaise, netPaise: statement.netPaise, sourceHash: final.sourceHash, sha256: final.pdfHash }, null, 2));
-  }));
+  }), 60000); // 10,083 entries and multiple source captures; individual SQL remains bounded.
   it("appends a current version when a mutable physical source reverts to older superseded content", async () => withTestDatabase(async ({ runtime }) => {
     const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId), first = await d.createDischargeDocument(f.ctx(), r.input);
     const bed = (await runtime.query("select b.id,b.label from hims.beds b join hims.admissions a on a.bed_id=b.id where a.id=$1", [f.admissionId])).rows[0];

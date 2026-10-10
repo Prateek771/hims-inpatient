@@ -24,6 +24,7 @@ After successful setup:
 ```powershell
 npm --prefix web run db:migrate
 npm --prefix web run paperwork:setup
+npm --prefix web run storage:setup
 npm --prefix web run test:unit
 npm --prefix web run test:integration
 ```
@@ -32,8 +33,10 @@ The integration helper may recreate the HIMS schema only in the explicitly named
 
 `paperwork:setup` explicitly prepares the official persistent checkpointer in the fixed `hims_paperwork_checkpoints` schema under the dedicated migration owner. It checks library migration versions0–4 and grants runtime scoped access without CREATE or DELETE. Application requests/imports never perform this setup. Preserve existing checkpoint rows if setup is retried; see [paperwork contracts](PAPERWORK.md). Future authorized backup/restore must preserve this schema along with HIMS records and protected file storage.
 
-`/api/health` reports whether the app is running. `/api/health/ready` reports whether its configured database is ready, without returning credentials or database details. Database setup and a healthy endpoint do not establish that staff login or hospital workflows are implemented.
+`storage:setup` explicitly prepares the protected project directories before startup. Readiness never creates them; authorized document publication/upload retains its existing directory preparation. Set an explicit private auth secret of at least 32 characters and app origin in the private environment file. HTTP is accepted only on loopback; a remote staff origin requires HTTPS. See [staff access](STAFF_ACCESS.md) and [local pilot](LOCAL_PILOT.md) for new-installation initialization and the unresolved real-hospital responsibilities.
+
+`/api/health` reports whether the app is running. `/api/health/ready` checks complete core tables/columns, required limited runtime grants, auth configuration and protected-storage access, returning only ready/unavailable without credentials or schema details. Its success does not approve hospital policies, staff permissions, backup operations or real-patient use.
 
 Core readiness does not claim that paperwork checkpoints are configured. Missing checkpoint setup produces a truthful paperwork capability failure while the ordinary hospital workflows remain available.
 
-GitHub Checks uses a fresh PostgreSQL service and synthetic credentials for every run; it does not connect to this computer or contain local passwords.
+GitHub Checks uses fresh PostgreSQL services and synthetic credentials for every run; it does not connect to this computer or contain local passwords. Recovery restores a quiescent synthetic snapshot and protected files into an empty independent cluster/storage namespace, preserving ordinary `hims_local`. Follow the [pilot guide](LOCAL_PILOT.md); never restore over the working database to test recovery.

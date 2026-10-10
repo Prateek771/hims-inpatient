@@ -6,7 +6,7 @@ Work only in `C:\Users\prate\OneDrive\Desktop\INS`. Read [AGENTS.md](AGENTS.md) 
 
 Use `codex/hims-development` for active work in this same checkout. Start from the latest `main` without discarding local changes. Make focused commits, run the affected checks, and push the development branch. Review the diff and GitHub Checks before integrating it into `main`; switch back to development for the next change. The owner explicitly authorized the initial foundation merge/push. Future merges follow the authorization for the current task; CI passing alone does not grant permission.
 
-GitHub provisions fresh synthetic PostgreSQL databases and runs unit/integration tests, lint, type checks, production dependency audit, a production build and browser tests for development/main pushes and PRs targeting main. Dependabot proposes updates weekly; it does not merge them automatically. `main` is a reviewed code checkpoint, not an automatic deployment.
+GitHub provisions fresh synthetic PostgreSQL services and runs unit/integration tests, lint, type checks, production dependency audit, a production build, browser tests and isolated backup/restore for development/main pushes and PRs targeting main. The single required job uses pinned actions/images and `npm ci`; see [local pilot](docs/LOCAL_PILOT.md). Dependabot proposes updates weekly; it does not merge them automatically. `main` is a reviewed code checkpoint, not an automatic deployment. After Task 16, the later whole-branch review/main integration requires the owner's next approval.
 
 ## Local commands
 
@@ -23,11 +23,12 @@ For checks, stop the interactive dev server if it occupies test port 3100, then 
 ```powershell
 npm --prefix web run check
 npm --prefix web audit --omit=dev
+npm --prefix web audit
 powershell -File scripts/check-postgres.ps1
 git diff --check
 ```
 
-Follow [database setup](docs/DATABASE_SETUP.md) and apply migrations before complete checks. Unit and real PostgreSQL integration tests execute; missing access fails the check. Playwright owns an isolated local server on port 3100 and shuts it down afterward. Browser binaries and local test output are ignored. Never report an empty or skipped suite as passed.
+Follow [database setup](docs/DATABASE_SETUP.md) and explicit setup in the [pilot guide](docs/LOCAL_PILOT.md) for a new installation. Preserve existing accounts, applied migrations and records. Unit and real PostgreSQL integration tests execute; missing access fails the check. Playwright owns an isolated local server on port 3100 and shuts it down afterward; recovery then uses that port with an independent restored database/storage. Stop a retained synthetic review preview before these checks. Browser binaries and local test/recovery output are ignored. Never report an empty or skipped suite as passed.
 
 Durable insurance paperwork also needs the explicit migration-owner command `npm --prefix web run paperwork:setup`. No request/import automatically creates its schema. Core hospital readiness stays separate; see [paperwork contracts](docs/PAPERWORK.md).
 

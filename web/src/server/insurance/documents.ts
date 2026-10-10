@@ -1,6 +1,5 @@
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
 import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { and, eq } from "drizzle-orm";
@@ -9,17 +8,13 @@ import { DomainError, type CommandContext } from "../contracts";
 import { withTransaction, type Transaction } from "../db";
 import { insuranceDocuments } from "./schema";
 import { bumpInsuranceCase, caseInput, insuranceAudit, insuranceCaseSource, insuranceCommand, insuranceOperator, requestLock } from "./commands";
+import { protectedStorageDirectory } from "../protected-storage";
 export function documentSizeLimit(){
   const value=Number(process.env.HIMS_INSURANCE_MAX_BYTES??10485760);
   if(!Number.isSafeInteger(value)||value<1024||value>52428800)throw new DomainError("PRECONDITION","Document size configuration must be between 1 KiB and 50 MiB");return value;
 }
 export function insuranceStorageDirectory(){
-  const project=existsSync(resolve(process.cwd(),"web/package.json"))?process.cwd():resolve(process.cwd(),"..");
-  if(!existsSync(resolve(project,"web/package.json")))throw new DomainError("PRECONDITION","Protected storage requires the INS project folder");
-  let synthetic=false;try{synthetic=/^hims_test(?:_ci_[a-z0-9]{8,40})?$/.test(decodeURIComponent(new URL(process.env.DATABASE_URL??"").pathname.slice(1)));}catch{throw new DomainError("PRECONDITION","Protected storage requires configured database identity");}
-  if(synthetic!==(process.env.HIMS_INSURANCE_STORAGE==="synthetic"))throw new DomainError("PRECONDITION","Synthetic documents require explicitly isolated synthetic storage");
-  if(process.env.HIMS_INSURANCE_STORAGE&&process.env.HIMS_INSURANCE_STORAGE!=="synthetic")throw new DomainError("PRECONDITION","Arbitrary protected storage paths are not supported");
-  return resolve(project,synthetic?"tmp/insurance-test-storage":"private-uploads/insurance");
+  return protectedStorageDirectory("insurance");
 }
 const hash=(bytes:Uint8Array)=>createHash("sha256").update(bytes).digest("hex");
 function pathFor(key:string){return resolve(insuranceStorageDirectory(),`${z.uuid().parse(key)}.bin`);}

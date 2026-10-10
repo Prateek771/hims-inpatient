@@ -14,6 +14,24 @@ process.env.BETTER_AUTH_URL = "http://127.0.0.1:3100";
 process.env.BETTER_AUTH_SECRET =
   "SyntheticTestOnlySecretAtLeast32Characters12345";
 
+it("issues Secure HttpOnly SameSite=Lax staff cookies for an explicit HTTPS origin", async () => withTestDatabase(async () => {
+  process.env.DATABASE_URL = testRuntimeUrl;
+  const previousOrigin = process.env.BETTER_AUTH_URL;
+  try {
+    process.env.BETTER_AUTH_URL = "https://synthetic-pilot.invalid";
+    const { createStaffAuth } = await import("../../src/server/auth");
+    const auth = createStaffAuth();
+    await auth.api.createUser({ body: { name: "Synthetic HTTPS administrator", email: "https@fixture.invalid", password: "SyntheticOnly123!", role: "ADMIN" } });
+    // The installed resolver supports x-forwarded-for; keep this synthetic client
+    // separate from the existing test's genuine five-attempt loopback budget.
+    const response = await auth.handler(new Request("https://synthetic-pilot.invalid/api/auth/sign-in/email", { method: "POST", headers: { "content-type": "application/json", origin: "https://synthetic-pilot.invalid", "x-forwarded-for": "127.0.0.2" }, body: JSON.stringify({ email: "https@fixture.invalid", password: "SyntheticOnly123!" }) }));
+    expect(response.status).toBe(200);
+    const cookies = response.headers.getSetCookie(); expect(cookies.length).toBeGreaterThan(0);
+    expect(cookies.some(cookie => /;\s*Secure/i.test(cookie) && /;\s*HttpOnly/i.test(cookie) && /SameSite=Lax/i.test(cookie))).toBe(true);
+    expect(cookies.some(cookie => cookie.startsWith("__Secure-"))).toBe(true);
+  } finally { process.env.BETTER_AUTH_URL = previousOrigin; }
+}));
+
 describe("staff access and settings on real PostgreSQL", () => {
   it("requires signed-in staff, prevents actor forgery, preserves roles and immutable settings", async () => {
     await withTestDatabase(async ({ runtime }) => {

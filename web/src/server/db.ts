@@ -2,6 +2,7 @@ import "server-only";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema";
+import { assertSyntheticRuntime } from "./synthetic-runtime";
 
 type Database = ReturnType<typeof createDatabase>;
 const globalDb = globalThis as typeof globalThis & { himsDatabase?: Database };
@@ -9,6 +10,7 @@ const globalDb = globalThis as typeof globalThis & { himsDatabase?: Database };
 function createDatabase() {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) throw new Error("DATABASE_URL is required");
+  assertSyntheticRuntime(connectionString);
   const pool = new Pool({ connectionString, max: 5, connectionTimeoutMillis: 3000, idleTimeoutMillis: 30000, statement_timeout: 5000 });
   // Idle connection errors must not terminate the web process or expose credentials.
   pool.on("error", () => console.error("HIMS database connection unavailable"));

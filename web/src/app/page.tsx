@@ -37,13 +37,13 @@ export default function Home() {
         See what needs attention, who owns it and where a patient is waiting.
       </p>
       <section className="notice" aria-labelledby="setup-heading">
-        <h2 id="setup-heading">Workspace setup in progress</h2>
+        <h2 id="setup-heading">Staff inpatient workspace</h2>
         <a className="button" href="/login">
           Staff sign in
         </a>
         <p>
-          Staff sign in is available. Patient records and hospital workflows
-          will be added in the next stages.
+          Sign in to your authorized worklist for admission, care, money,
+          discharge and documents. Staff record decisions and payments.
         </p>
       </section>
       <section className="card" aria-labelledby="sections-heading">
@@ -65,8 +65,8 @@ export default function Home() {
       <section className="card" aria-labelledby="design-heading">
         <h2 id="design-heading">Approved hospital workspace design</h2>
         <p>
-          Review the agreed role screens and patient journey while the working
-          sections are built.
+          Review the agreed role screens and patient journey. Prototype records
+          are fictional; use the staff workspace for hospital work.
         </p>
         <a
           className="button"

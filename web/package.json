@@ -13,10 +13,12 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --experimental-strip-types scripts/migrate-cli.ts",
     "paperwork:setup": "node --experimental-strip-types scripts/paperwork-checkpointer-cli.ts",
+    "storage:setup": "node --experimental-strip-types scripts/storage-setup.ts",
     "billing:room-worker": "node scripts/room-worker.mjs",
     "test:e2e": "node scripts/playwright.mjs test",
+    "test:recovery": "node scripts/recovery.mjs",
     "test:install": "node scripts/playwright.mjs install chromium",
-    "check": "npm run test:unit && npm run test:integration && npm run lint && npm run typecheck && npm run build && npm run test:e2e",
+    "check": "npm run test:unit && npm run test:integration && npm run lint && npm run typecheck && npm run build && npm run test:e2e && npm run test:recovery",
     "auth:bootstrap": "node scripts/bootstrap-admin.mjs"
   },
   "dependencies": {

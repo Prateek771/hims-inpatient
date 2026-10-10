@@ -3,6 +3,11 @@ import { loadLocalEnvironment, migrate } from "./migrate.ts";
 import { getTestDatabaseConfig } from "./test-database-guard.ts";
 import { setupPaperworkCheckpointer } from "./paperwork-checkpointer.ts";
 export { assertTestDatabase, assertTestDatabasePair } from "./test-database-guard.ts";
+const inFlight = new Set<Promise<void>>();
+/** Vitest timeouts do not cancel callbacks. Drain before restoring mutable test env. */
+export async function waitForTestDatabaseIdle() {
+  while (inFlight.size) await Promise.all([...inFlight]);
+}
 /** Migration-only preparation for browsers. Never resets existing test records/schema. */
 export async function prepareTestDatabase() {
   loadLocalEnvironment();
@@ -28,6 +33,8 @@ export async function withTestDatabase<T>(fn: (clients: { owner: Client; runtime
   const owner = new Client({ connectionString: ownerUrl, connectionTimeoutMillis: 3000 });
   const runtime = new Client({ connectionString: runtimeUrl, connectionTimeoutMillis: 3000 });
   let locked = false;
+  let finished!: () => void;
+  const completion = new Promise<void>(done => { finished = done; }); inFlight.add(completion);
   try {
     await owner.connect();
     const { rows: [identity] } = await owner.query("SELECT current_database() AS name, current_user AS role, rolsuper, rolcreatedb, rolcreaterole FROM pg_roles WHERE rolname=current_user");
@@ -41,7 +48,10 @@ export async function withTestDatabase<T>(fn: (clients: { owner: Client; runtime
     await runtime.connect();
     return await fn({ owner, runtime });
   } finally {
-    if (locked) await owner.query("SELECT pg_advisory_unlock(729104210)");
-    await Promise.all([owner.end(), runtime.end()]);
+    try { if (locked) await owner.query("SELECT pg_advisory_unlock(729104210)"); }
+    finally {
+      try { await Promise.all([owner.end(), runtime.end()]); }
+      finally { inFlight.delete(completion); finished(); }
+    }
   }
 }

@@ -11,8 +11,9 @@ import { admissions } from "../admissions/schema";
 import { lockBillingAdmission } from "../billing/commands";
 import { appendAudit } from "../audit";
 import { dischargeDocuments } from "./schema";
-import { documentProjectDirectory, renderDischargePDF } from "./pdf";
+import { renderDischargePDF } from "./pdf";
 import { canonicalJSON, documentSourceInTransaction, snapshotHash, type DischargeSnapshot, type DocumentSource } from "./snapshot";
+import { protectedStorageDirectory } from "../protected-storage";
 
 const hashes = z.string().regex(/^[0-9a-f]{64}$/);
 const input = z.strictObject({ admissionId: z.uuid(), billVersion: z.number().int().positive(), clearanceVersions: z.strictObject({ DOCTOR: z.uuid().nullable(), PHARMACY: z.uuid().nullable(), NURSING: z.uuid().nullable(), BILLING: z.uuid().nullable() }), exceptionId: z.uuid().optional(), expectedSourceHash: hashes });
@@ -23,11 +24,7 @@ function binding(source: DocumentSource) {
   return { admissionId: source.admission.id, billVersion: source.money.bill.revision, clearanceVersions: Object.fromEntries(source.seals.map(s => [s.gate, s.seal?.id ?? null])) as z.infer<typeof input>["clearanceVersions"], ...(source.departure.exception ? { exceptionId: source.departure.exception.id } : {}), expectedSourceHash: snapshotHash(source) };
 }
 export function documentStorageDirectory() {
-  let synthetic = false;
-  try { synthetic = /^hims_test(?:_ci_[a-z0-9]{8,40})?$/.test(decodeURIComponent(new URL(process.env.DATABASE_URL ?? "").pathname.slice(1))); }
-  catch { throw new DomainError("PRECONDITION", "Protected final documents require configured database identity"); }
-  if (synthetic !== (process.env.HIMS_DOCUMENT_STORAGE === "synthetic") || (process.env.HIMS_DOCUMENT_STORAGE && process.env.HIMS_DOCUMENT_STORAGE !== "synthetic")) throw new DomainError("PRECONDITION", "Synthetic final documents require explicitly isolated synthetic storage; supplied paths are refused");
-  return resolve(documentProjectDirectory(), synthetic ? "tmp/document-test-storage" : "private-uploads/discharge");
+  return protectedStorageDirectory("discharge");
 }
 function pathFor(key: string) { return resolve(documentStorageDirectory(), `${z.uuid().parse(key)}.pdf`); }
 type StoredDocument = Omit<typeof dischargeDocuments.$inferSelect, "snapshot"> & { snapshot: DischargeSnapshot };
