@@ -1,7 +1,9 @@
 import { DomainError } from "../contracts";
 /** Bound both declared and streamed JSON before parsing manual transcription. */
 export async function paperworkBody(request:Request){
-  const limit=131072;
+  return boundedJsonBody(request,131072);
+}
+export async function boundedJsonBody(request:Request,limit:number){
   if(!request.headers.get("content-type")?.startsWith("application/json"))throw new DomainError("VALIDATION","Paperwork requires JSON");
   if(Number(request.headers.get("content-length")??0)>limit)throw new DomainError("VALIDATION","Paperwork text exceeds the request limit");
   const reader=request.body?.getReader();if(!reader)throw new DomainError("VALIDATION","Paperwork body required");

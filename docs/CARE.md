@@ -16,6 +16,8 @@ Assigned nurses record attributable shift boundaries and handover. Ending a shif
 
 Observations retain scheduled time, actual time, readings and signing identity. MAR records retain the prescribed order, scheduled occurrence, actual dose/unit and GIVEN, HELD or REFUSED outcome; held/refused outcomes require a reason. Factual late entries may use an owned ended shift when actual care was within that shift and before an applicable doctor stop. Signing time is current, and access must still be assigned. Future, outside-shift or post-stop ordinary records are rejected. Corrections append nursing addenda.
 
+New clinical and nursing signatures use the actual server signing time after admission ownership is acquired. A Doctor stop waiting for another transaction does not appear to precede care genuinely performed while it waited. Historical timestamps and applied defaults remain retained.
+
 Consumables remain linked to the episode and the bed/stay/unit where used. Medication administration never creates a second medicine charge: pharmacy issue owns that financial event. Nursing financial clearance will not itself stop monitoring.
 
 [Transfers](TRANSFERS.md) require a current doctor's versioned decision and the assigned nurse's actual handover. Existing orders, occurrences, MAR and consumable locations survive the move. A shift cannot end before its signed transfer; both transfer and closure recheck attendance under the admission lock.
@@ -23,6 +25,8 @@ Consumables remain linked to the episode and the bed/stay/unit where used. Medic
 ## Charges and configuration
 
 Clinical documentation is retained when fee configuration is absent or mismatched. An explicit unresolved billing task identifies the gap; missing configuration never becomes a zero-price default. Source IDs, configured rate versions and transactional posting prevent retries from duplicating a fee. Procedure task completion and billing status remain separate. [Pharmacy](PHARMACY.md) implements stock fulfillment against persisted Doctor-selected identity, exact units and current prescription. [Lab](LAB.md) provides human results/addenda to the assigned Doctor and retains pending/unpriced fee distinctions. A Doctor stop blocks new collection/processing; previously processed work retains report evidence. See [billing](BILLING.md).
+
+After exceptional departure, an Admin can authorize `CARE_BILLING` for an originally retained performed consultation or consumable. The original source's proper current Doctor or assigned Nurse resolves its missing price through Exceptions using the original item, unit, quantity and rate pin. Authority and bill version must still be current; retrying the same request retains one result. This records a financial amendment and never reopens care or creates new retrospective clinical work. The source must have existed before departure was recorded. Source-bound diagnostic reconciliation remains its existing Lab workflow.
 
 ## Current limits and verification
 

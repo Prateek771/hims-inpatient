@@ -70,7 +70,12 @@ export async function documentSourceInTransaction(tx: Transaction, e: typeof adm
   const names = await tx.select({ id: user.id, name: user.name }).from(user).orderBy(asc(user.id)).for("share");
   const name = (id: string) => names.find(n => n.id === id)?.name ?? id;
   const bill = await billProjection(tx, e, actual.departedAt), financial = await financialResponsibilityInTransaction(tx, e, bill);
-  const { asOf: _asOf, ...stableBill } = bill; void _asOf;
+  const { asOf: _asOf, ...billColumns } = bill; void _asOf;
+  // Additive nullable provenance must not change old document source hashes.
+  const stableBill = { ...billColumns,
+    charges: billColumns.charges.map(({ correctionExceptionId, ...line }) => ({ ...line, ...(correctionExceptionId ? { correctionExceptionId } : {}) })),
+    reversals: billColumns.reversals.map(({ correctionExceptionId, physicalAmendmentId, ...line }) => ({ ...line, ...(correctionExceptionId ? { correctionExceptionId } : {}), ...(physicalAmendmentId ? { physicalAmendmentId } : {}) })),
+  };
   const totals = [
     { label: "Gross finalized charges", paise: bill.grossPaise.toString() }, { label: "Returns / linked adjustments", paise: bill.reversedPaise.toString() }, { label: "Net bill", paise: bill.netPaise.toString() },
     { label: "Insurer authorization (not money received)", paise: e.paymentRoute === "INSURED" && !financial.decisionId ? null : financial.insurerAuthorizedPaise.toString() }, { label: "Actual insurer payment received", paise: bill.insurerReceivedPaise.toString() },

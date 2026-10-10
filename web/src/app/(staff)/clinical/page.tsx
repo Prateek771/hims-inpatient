@@ -263,6 +263,8 @@ export default async function ClinicalPage({
                 {chart.transferOrders.map(o => <article className="care-entry" key={o.id}>
                   <p>Decision {o.version} · {o.destinationCategory} · <span className="status">{o.status}</span></p><p>{o.reason}</p>
                   <p className="caption">Doctor signature · {chart.actors[o.signedBy]} · <HospitalTimestamp value={o.signedAt.toISOString()}/></p>
+                  {active && o.status === "PENDING" && <CareForm action={action("withdraw-transfer", o.id)} button="Withdraw unperformed transfer" testId="transfer-withdraw-form"><CareField label="Reason for clinical reconsideration" name="reason" /><p className="caption">An actual move or witnessed handover must be recorded; it cannot be withdrawn.</p></CareForm>}
+                  {chart.transferCancellations.filter(c => c.transferOrderId === o.id).map(c => <p className="caption" key={c.id}>Withdrawal · {c.reason} · {chart.actors[c.signedBy]} · <HospitalTimestamp value={c.signedAt.toISOString()} /></p>)}
                 </article>)}
               </section>
               <TransferTimeline chart={chart} />

@@ -14,6 +14,7 @@ import { bedTurnovers as originalBedTurnovers, effectiveRoomVacations } from "./
 import { requireException, actualEpisodeDeparture } from "./exceptions";
 import { appendAudit } from "../audit";
 import { careEpisode } from "../clinical/commands";
+import { transferAuthority } from "../admissions/transfer-authority";
 import { invalidateAffectedClearances } from "./dependencies";
 export async function applyDelayedTransfer(ctx: CommandContext, input: unknown): Promise<{
   oldStayId: string;
@@ -37,7 +38,9 @@ export async function applyDelayedTransfer(ctx: CommandContext, input: unknown):
       const [latest] = await tx.select().from(transferOrders).where(eq(transferOrders.admissionId, e.id)).orderBy(desc(transferOrders.version)).limit(1);
       const [consumed] = await tx.select().from(admissionTransfers).where(eq(admissionTransfers.transferOrderId, evidence.sourceId));
       const T = evidence.actualAt;
-      if (!stay || !order || order.admissionId !== e.id || order.sourceStayId !== stay.id || latest?.id !== order.id || consumed || T <= stay.startedAt || T < order.signedAt)
+      const current = (await transferAuthority(tx, e.id)).orders[0];
+      const earlier = current?.status === "CANCELLED" && current.cancelledAt && T < current.cancelledAt && current.pendingFactualMove;
+      if (!stay || !order || order.admissionId !== e.id || order.sourceStayId !== stay.id || latest?.id !== order.id || consumed || (current?.status !== "WITNESSED" && !earlier) || T <= stay.startedAt || T < order.signedAt)
         throw new DomainError("CONFLICT", "Actual time and original unconsumed Doctor order must match the current source stay");
       const physical = await tx.select().from(beds).where(inArray(beds.id, [stay.bedId, v.targetBedId].sort())).orderBy(asc(beds.id)).for("update");
       const target = physical.find(b => b.id === v.targetBedId), holds = await tx.select().from(bedHolds).where(inArray(bedHolds.bedId, [stay.bedId, v.targetBedId]));

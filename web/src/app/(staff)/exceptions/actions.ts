@@ -53,6 +53,10 @@ export async function exceptionAction(action: string, b: ExceptionBinding, _prio
         data = { reason: field("reason"), expectedBillVersion: b.billVersion };
       } else if (kind === "LAB_BILLING") {
         data = { orderId: b.sourceId, reason: field("reason"), requestId: b.requestId };
+      } else if (kind === "REVERSE_CHARGE") {
+        data = { amountPaise: amount("amount"), reason: field("reason"), expectedBillVersion: b.billVersion };
+      } else if (kind === "CARE_BILLING") {
+        data = { sourceEventId: b.sourceId, reason: field("reason"), expectedBillVersion: b.billVersion };
       } else if (kind === "SELF_PAY_REVIEW") {
         data = { admissionId: b.admissionId, reason: field("reason"), expectedBillVersion: b.billVersion, requestId: b.requestId };
       } else if (kind === "LAB_REPORT") {

@@ -11,6 +11,7 @@ import {
   signClinicalSummary,
   stopClinicalOrder,
   orderTransfer,
+  cancelTransferOrder,
 } from "@/server/clinical/commands";
 import { DomainError } from "@/server/contracts";
 import type { CareState } from "@/components/care-forms";
@@ -20,7 +21,7 @@ const timestamp = (form: FormData, name: string) =>
 export async function saveClinical(
   admissionId: string,
   requestId: string,
-  operation: "round" | "addendum" | "complete" | "stop" | "billing" | "summary" | "transfer",
+  operation: "round" | "addendum" | "complete" | "stop" | "billing" | "summary" | "transfer" | "withdraw-transfer",
   targetId: string,
   version: number,
   _previous: CareState,
@@ -73,6 +74,9 @@ export async function saveClinical(
       });
       message =
         "Round signed. Orders and any unresolved billing work are retained.";
+    } else if (operation === "withdraw-transfer") {
+      await cancelTransferOrder(ctx, { admissionId, transferOrderId: targetId, reason: field(form, "reason"), requestId });
+      message = "Transfer authority withdrawn with your reason. The original decision and any actual handover remain retained.";
     } else if (operation === "transfer") {
       await orderTransfer(ctx, { admissionId, destinationCategory: field(form, "destinationCategory"), reason: field(form, "reason"), requestId });
       message = "Transfer order signed for the current stay. Nursing records the actual bed move and handover.";

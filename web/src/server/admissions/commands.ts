@@ -20,6 +20,7 @@ import {
   effectiveRoomStays as roomStays, roomStays as originalRoomStays,
 } from "./schema";
 import { admissionTransfers, transferInsuranceTasks, transferOrders } from "./transfer-schema";
+import { transferAuthority } from "./transfer-authority";
 
 const categoryCode = z
   .string()
@@ -582,7 +583,8 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
     const [order] = await tx.select().from(transferOrders).where(eq(transferOrders.id, value.transferOrderId));
     const [latest] = await tx.select().from(transferOrders).where(eq(transferOrders.admissionId, episode.id)).orderBy(desc(transferOrders.version)).limit(1);
     const used = await tx.select({ id: admissionTransfers.id }).from(admissionTransfers).where(eq(admissionTransfers.transferOrderId, value.transferOrderId));
-    if (!stay || stay.bedId !== episode.bedId || !order || order.admissionId !== episode.id || order.sourceStayId !== stay.id || latest?.id !== order.id || used.length)
+    const current = (await transferAuthority(tx, episode.id)).orders[0];
+    if (!stay || stay.bedId !== episode.bedId || !order || order.admissionId !== episode.id || order.sourceStayId !== stay.id || latest?.id !== order.id || used.length || !current || !["PENDING", "WITNESSED"].includes(current.status))
       throw new DomainError("CONFLICT", "Transfer authority is missing, superseded or already consumed. Refresh the current stay and doctor order");
     const { actual: T } = await shiftForCare(tx, staff, value.handover.shiftId, episode.id, value.transferredAt);
     if (T <= stay.startedAt || T < order.signedAt || (stay.lastReconciledAt && T < stay.lastReconciledAt))
@@ -628,7 +630,7 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
     await tx.delete(bedHolds).where(eq(bedHolds.admissionId, episode.id));
     await tx.insert(bedHolds).values({ admissionId: episode.id, bedId: target.id, heldAt: T });
     await tx.update(admissions).set({ bedId: target.id, version: sql`${admissions.version}+1`, billRevision: sql`${admissions.billRevision}+1` }).where(eq(admissions.id, episode.id));
-    const [transfer] = await tx.insert(admissionTransfers).values({ admissionId: episode.id, transferOrderId: order.id, oldStayId: stay.id, newStayId: next.id, oldBedId: stay.bedId, targetBedId: target.id, shiftId: value.handover.shiftId, handover: value.handover.notes, transferredAt: T, signedBy: staff.id }).returning();
+    const [transfer] = await tx.insert(admissionTransfers).values({ admissionId: episode.id, transferOrderId: order.id, oldStayId: stay.id, newStayId: next.id, oldBedId: stay.bedId, targetBedId: target.id, shiftId: value.handover.shiftId, handover: value.handover.notes, transferredAt: T, signedBy: staff.id, signedAt: new Date() }).returning();
     const {bedTurnovers}=await import("../discharge/schema");
     await tx.insert(bedTurnovers).values({bedId:stay.bedId,stayId:stay.id,admissionId:episode.id,vacatedAt:T,reason:"Actual transfer vacated the previous physical bed",signedBy:staff.id,signedAt:new Date()});
     if (episode.paymentRoute === "INSURED") await tx.insert(transferInsuranceTasks).values({ admissionId: episode.id, transferId: transfer.id, reason: "Insurance staff must review the transfer's externally verified insurance implications using existing payer channels" });

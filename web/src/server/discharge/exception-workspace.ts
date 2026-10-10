@@ -42,7 +42,7 @@ export async function exceptionWorkspace(ctx: CommandContext, selectedId?: strin
     const id = z.uuid().parse(selectedId);
     const e = await lockBillingAdmission(tx, id);
     // The worklist is navigation. Admission ownership must precede selected access and identity.
-    const [row] = await tx.select({ id: admissions.id, ipCode: admissions.ipCode, status: admissions.status, version: admissions.version, name: patients.name, identityStatus: patients.identityStatus, identityProvenance: patients.identityProvenance, bedLabel: beds.label })
+    const [row] = await tx.select({ id: admissions.id, ipCode: admissions.ipCode, status: admissions.status, version: admissions.version, billRevision: admissions.billRevision, name: patients.name, identityStatus: patients.identityStatus, identityProvenance: patients.identityProvenance, bedLabel: beds.label })
       .from(admissions).innerJoin(patients, eq(patients.id, admissions.patientId)).innerJoin(beds, eq(beds.id, admissions.bedId)).where(and(eq(admissions.id, id), access));
     if (!row)
       throw new DomainError("FORBIDDEN", "Current role or assignment does not permit this admission");
@@ -72,10 +72,13 @@ export async function exceptionWorkspace(ctx: CommandContext, selectedId?: strin
       await addSources("SHIFT", sql `select s.id,'Attendance · '||u.name||' · '||s.started_at::text label from hims.nursing_shifts s join hims.staff_user u on u.id=s.nurse_id where s.admission_id=${id} and (${staff.role}='ADMIN' or s.nurse_id=${staff.id})`);
     }
     if (finance) {
+      await addSources("CHARGE", sql`select c.id,'Original non-room charge · '||c.description label from hims.charges c where c.admission_id=${id} and c.category<>'room' and c.source_event_id not like 'room:%' and c.amount_paise>coalesce((select sum(r.amount_paise) from hims.charge_reversals r where r.charge_id=c.id),0)`);
       await addSources("CONVERSION", sql `select v.id,'Original externally verified self-pay conversion' label from hims.insurance_conversions v join hims.insurance_cases c on c.id=v.case_id where c.admission_id=${id}`);
       await addSources("RECEIPT", sql `select id,party||' '||kind||' · '||source_reference label from hims.receipts where admission_id=${id}`);
       await addSources("ALLOCATION", sql `select a.id,'Original deposit allocation · '||a.created_at::text label from hims.receipt_allocations a join hims.receipts r on r.id=a.receipt_id where r.admission_id=${id} and not exists(select 1 from hims.allocation_cancellations c where c.allocation_id=a.id)`);
     }
+    if (["ADMIN", "DOCTOR", "NURSE"].includes(staff.role))
+      await addSources("CARE_BILLING", sql`select b.id,'Original performed '||b.category||' · '||b.quantity||' '||b.unit label from hims.care_billing_events b where b.admission_id=${id} and b.state='UNRESOLVED' and ((${staff.role} in ('ADMIN','DOCTOR') and b.category='consultation') or (${staff.role} in ('ADMIN','NURSE') and b.category='consumable'))`);
     if (["ADMIN", "BILLING", "INSURANCE"].includes(staff.role))
       await addSources("INSURANCE_CASE", sql `select id,'Retained insurance case · version '||version::text label from hims.insurance_cases where admission_id=${id}`);
     if (["ADMIN", "DOCTOR"].includes(staff.role))

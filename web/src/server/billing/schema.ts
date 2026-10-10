@@ -19,6 +19,7 @@ export const charges = hims.table("charges", {
   ratePaise: bigint("rate_paise", { mode: "bigint" }).notNull(),
   amountPaise: amount(),
   initialStatus: text("initial_status", { enum: ["PENDING", "FINAL"] }).notNull(),
+  correctionExceptionId: uuid("correction_exception_id"),
   ...actor(),
 }, (t) => [uniqueIndex("charge_source_unique").on(t.admissionId, t.sourceEventId), index("charges_admission_idx").on(t.admissionId), check("charge_amount", sql `${t.amountPaise} >= 0 and ${t.ratePaise} >= 0`), check("charge_status", sql `${t.initialStatus} in ('PENDING','FINAL')`), check("charge_actor", sql `(${t.actorType}='staff' and length(trim(${t.actorId}))>0) or (${t.actorType}='system' and ${t.actorId}='room-charge' and ${t.category}='room')`)]);
 export const chargeFinalizations = hims.table("charge_finalizations", {
@@ -30,6 +31,8 @@ export const chargeReversals = hims.table("charge_reversals", {
   id: uuid("id").primaryKey().defaultRandom(),
   chargeId: uuid("charge_id").notNull().references(() => charges.id),
   amountPaise: amount(), reason: text("reason").notNull(), ...actor(),
+  correctionExceptionId: uuid("correction_exception_id"),
+  physicalAmendmentId: uuid("physical_amendment_id"),
 }, (t) => [index("charge_reversal_idx").on(t.chargeId), check("reversal_amount", sql `${t.amountPaise} > 0`)]);
 export const receipts = hims.table("receipts", {
   id: uuid("id").primaryKey().defaultRandom(),

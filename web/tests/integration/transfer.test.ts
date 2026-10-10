@@ -255,8 +255,8 @@ it("serializes target-bed races, consumed orders and worker cursors on distinct 
       expect(pidA).not.toBe(pidB);
       const ta = drizzle(ca, { schema }), tb = drizzle(cb, { schema });
       const input = (v: typeof first, ctx: ReturnType<typeof nc>, bedId = target.id) => ({ admissionId: v.a.admissionId, transferOrderId: v.order.id, targetBedId: bedId, handover: { shiftId: v.shift.id, notes: "Synthetic actual transfer handover" }, transferredAt: T.toISOString(), requestId: ctx.requestId });
-      // Database now() is transaction-start time: authoritative revision must follow
-      // admission-lock serialization even when timestamp order is reversed.
+      // Earlier transaction start must not backdate the later serialized signature.
+      // The episode-specific version remains the authority ordering.
       let earlierCommitted: { id: string } | undefined;
       await ta.transaction(async tx => {
         await tx.execute(sql`select now()`);
@@ -267,8 +267,7 @@ it("serializes target-bed races, consumed orders and worker cursors on distinct 
       });
       const serialized = (await runtime.query("select id, signed_at, version from hims.transfer_orders where id=ANY($1::uuid[]) order by version", [[earlierCommitted!.id, first.order.id]])).rows;
       expect(serialized[1].version).toBe(serialized[0].version + 1);
-      // Compare at PostgreSQL microsecond precision; pg's JavaScript Date truncates milliseconds.
-      expect((await runtime.query("select latest.signed_at < earlier.signed_at reversed from hims.transfer_orders latest join hims.transfer_orders earlier on earlier.id=$1 where latest.id=$2", [earlierCommitted!.id, first.order.id])).rows[0].reversed).toBe(true);
+      expect((await runtime.query("select latest.signed_at >= earlier.signed_at actual_signing_order from hims.transfer_orders latest join hims.transfer_orders earlier on earlier.id=$1 where latest.id=$2", [earlierCommitted!.id, first.order.id])).rows[0].actual_signing_order).toBe(true);
       const obsolete = nc();
       await expect(admission.transferAdmission(obsolete, input({ ...first, order: earlierCommitted! }, obsolete))).rejects.toMatchObject({ code: "CONFLICT" });
       const x = nc(), y = nc();

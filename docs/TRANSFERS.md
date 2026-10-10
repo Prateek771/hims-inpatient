@@ -2,6 +2,10 @@
 
 The doctor records an attributable transfer decision for the current admission and occupied stay. A currently assigned nurse records the actual move, destination bed and handover within their own attendance. Administrator access does not substitute for either signature. Newer doctor decisions supersede older unconsumed decisions through an admission-specific version, rather than timestamp ordering.
 
+The current Doctor may withdraw a truly unperformed current order from the clinical chart with a reason. An immutable cancellation retains the original authority, Doctor, signing time and reason. Completed or superseded orders and a retained same-source Nurse `TRANSFER_HANDOVER` cannot be withdrawn. Actual transfer and withdrawal serialize on the admission; only one prospective outcome succeeds. Care, Doctor/Admin worklists and discharge use the same effective state, so an unperformed withdrawn order no longer leaves an impossible discharge blocker. Closed episodes cannot acquire a new withdrawal.
+
+A withdrawal does not erase a genuinely earlier physical move discovered later. A Nurse may retain delayed factual handover only when its actual time precedes withdrawal. The existing source-bound Admin `DELAYED_TRANSFER` path may record that earlier move against the original latest order, attendance, physical amendment and exact witness. Prospective moves after withdrawal fail. A retained earlier witness requires factual reconciliation before discharge; after reconciliation the order is completed while cancellation history remains. The existing limit on recovering an order superseded by a newer order remains; no invented move or coordinated intermediate-boundary correction is provided.
+
 ## Actual move and retained history
 
 The old stay ends exactly when the new stay begins. The same transaction reconciles old-room charges to that boundary, closes and opens the stays, moves the physical hold and admission pointer, records the signed handover and creates any insurance follow-up task. Each stay retains its original tariff. Consumables remain attached to the bed/stay/unit where used; medication records, prescribed occurrences and overdue work remain intact.
@@ -15,6 +19,7 @@ Insured moves create a persistent task owned by insurance staff. This records wo
 ## Server composition
 
 - `orderTransfer(ctx, { admissionId, destinationCategory, reason, requestId })` returns the immutable doctor's transfer-order ID.
+- `cancelTransferOrder(ctx, { admissionId, transferOrderId, reason, requestId })` appends the current Doctor's source-bound withdrawal.
 - `transferAdmission(ctx, { admissionId, transferOrderId, targetBedId, handover: { shiftId, notes }, transferredAt, requestId })` returns `{ oldStayId, newStayId }`.
 - Supplied-transaction variants compose without nested pool transactions. They acquire shared settings/staff advisory lock `729104211` before staff or admission locks, then current staff, actor/request identity, admission and affected physical beds sorted by ID. Outer composing callers must preserve this order.
 - `endShiftInTransaction` retains the existing staff/request/admission order and checks actual transfer times alongside observations, MAR and consumables. A caller composing it with transfer takes the shared configuration lock first.

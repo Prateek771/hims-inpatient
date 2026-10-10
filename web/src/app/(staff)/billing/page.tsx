@@ -39,7 +39,7 @@ export default async function BillingPage({ searchParams }: {
             <Link href={`/billing?admissionId=${row.id}`}>{row.name} · {row.ipCode} · {row.bedLabel} · {row.status}{row.requiresCashReview ? ` · Never admitted; held cash ${formatINR(row.heldCashPaise)} — admin review required` : ""}</Link>
             </li>)}</ul> : <p>No pending or admitted episodes. Configure financial policies in hospital settings before activation.</p>}</details></section>
     {bill && <>
-      {bill.status === "CANCELLED" && <section className="notice"><h2>Cancelled before admission — held cash needs admin review</h2><p>The reservation was cancelled and no occupied stay began. Actual recorded cash remains visible; cancellation does not return money. An administrator-authorized cancelled-deposit return/exception workflow is required and will be available in the exception phase.</p></section>}
+      {bill.status === "CANCELLED" && <section className="notice"><h2>Cancelled before admission — held cash needs admin review</h2><Link href={`/exceptions?admissionId=${bill.admissionId}`}>Open cancelled-deposit return authority</Link><p>The reservation was cancelled and no occupied stay began. Actual recorded cash remains visible; cancellation does not return money. Admin records specific cancelled-deposit authority for the original receipt; Billing then records the actual linked return in Exceptions.</p></section>}
       <section className="card billing-identity">
         <h2>{selected?.name ?? bill.ipCode}</h2>
         <p>{bill.ipCode} · {selected?.bedLabel} · <span className="status">{bill.status}</span> · {bill.paymentRoute}</p>
@@ -108,7 +108,7 @@ export default async function BillingPage({ searchParams }: {
         {["PENDING", "ADMITTED"].includes(bill.status) && <><h2>Record a manual receipt</h2>
         <ReceiptForm admissionId={bill.admissionId} requestId={crypto.randomUUID()}/></>}
         <h2 className="billing-subheading">Refund review</h2>
-        <p>{bill.status === "CANCELLED" ? "Cancelled-deposit returns require explicit administrator authority and the exception/return workflow, which is not yet available. This episode was never admitted." : "Refunds and deposit adjustments require Doctor → Pharmacy → Nursing clearances and Gate 4 review. Open discharge clearance for current human reviews and actual refund recording."}</p>
+        <p>{bill.status === "CANCELLED" ? "Admin authorizes return of the original deposit in Exceptions. Billing records the actual returned money against that authority; this episode was never admitted." : "Refunds and deposit adjustments require Doctor → Pharmacy → Nursing clearances and Gate 4 review. Open discharge clearance for current human reviews and actual refund recording."}</p>
         {bill.status === "ADMITTED" && <Link className="button secondary" href={`/discharge?admissionId=${bill.admissionId}`}>Open discharge and refund review</Link>}
         </section>
         </div>

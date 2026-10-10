@@ -113,7 +113,7 @@ export async function assignNurse(ctx: CommandContext, input: unknown) {
       if (old) return { id: old.id };
       const [assignment] = await tx
         .insert(nurseAssignments)
-        .values({ ...value, signedBy: staff.id })
+        .values({ ...value, signedBy: staff.id, signedAt: new Date() })
         .returning();
       await appendAudit(tx, ctx, {
         event: "care.nurse-assigned",
@@ -193,7 +193,7 @@ export async function revokeNurseAssignmentInTransaction(
         );
       const [revocation] = await tx
         .insert(nurseAssignmentRevocations)
-        .values({ ...value, signedBy: staff.id })
+        .values({ ...value, signedBy: staff.id, signedAt: new Date() })
         .returning();
       await appendAudit(tx, ctx, {
         event: "care.nurse-assignment-revoked",
@@ -286,7 +286,7 @@ export async function recordShift(ctx: CommandContext, input: unknown) {
             nurseId: staff.id,
             startedAt: start,
             handover: value.handover,
-            signedBy: staff.id,
+            signedBy: staff.id, signedAt: new Date(),
           })
           .returning();
         if (end)
@@ -294,7 +294,7 @@ export async function recordShift(ctx: CommandContext, input: unknown) {
             shiftId: shift.id,
             endedAt: end,
             handover: value.handover,
-            signedBy: staff.id,
+            signedBy: staff.id, signedAt: new Date(),
           });
         await audit(tx, ctx, "shift-started", shift.id, value.handover);
         return { id: shift.id };
@@ -358,7 +358,7 @@ export async function endShiftInTransaction(tx: Transaction, ctx: CommandContext
         await validateAttendanceEnd(tx, shift.id, endedAt);
         const [end] = await tx
           .insert(originalShiftEnds)
-          .values({ ...value, endedAt, signedBy: staff.id })
+          .values({ ...value, endedAt, signedBy: staff.id, signedAt: new Date() })
           .returning();
         await audit(tx, ctx, "shift-ended", end.id, value.handover);
         return { id: end.id };
@@ -495,7 +495,7 @@ export async function recordObservation(ctx: CommandContext, input: unknown) {
             occurrenceId: occurrence.id,
             observedAt: actual,
             values: value.values as Record<string, number>,
-            signedBy: staff.id,
+            signedBy: staff.id, signedAt: new Date(),
           })
           .returning();
         await audit(
@@ -604,7 +604,7 @@ export async function recordAdministrationInTransaction(
         doseUnit: value.doseUnit,
         outcome: value.outcome,
         reason: value.reason,
-        signedBy: staff.id,
+        signedBy: staff.id, signedAt: new Date(),
       })
       .returning();
     await audit(
@@ -664,7 +664,7 @@ export async function recordConsumable(ctx: CommandContext, input: unknown) {
             usedAt: actual,
             bedId: stay.bedId,
             stayId: stay.id,
-            signedBy: staff.id,
+            signedBy: staff.id, signedAt: new Date(),
           })
           .returning();
         await createCareBillingEvent(
@@ -726,7 +726,7 @@ export async function addNursingAddendumInTransaction(
       );
     const [addendum] = await tx
       .insert(nursingAddenda)
-      .values({ ...value, signedBy: staff.id })
+      .values({ ...value, signedBy: staff.id, signedAt: new Date() })
       .returning();
     await audit(tx, ctx, "addendum-signed", addendum.id, value.reason);
     return { id: addendum.id };

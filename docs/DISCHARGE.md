@@ -13,6 +13,8 @@ The discharge workspace coordinates four human reviews, actual money records and
 
 Staff can prepare work beforehand. Formal signing follows Doctor -> Pharmacy -> Nursing -> Billing. Admin cannot issue another profession's seal. A signed empty prescription still requires Pharmacy review. Medicine issue quantity does not prove that a dose was administered, and generic clinical task completion does not substitute for actual pharmacy reconciliation.
 
+Summary-only Pharmacy work opens this discharge review and its real Pharmacy signing form. Episodes with medicine orders, including take-home-only orders, retain the medicine preparation workspace. Doctor transfer withdrawal is attributable original-order history; shared effective transfer state blocks only current authority or a retained actual move awaiting factual recording.
+
 Every seal retains its inputs, signer, role, actual signing time, review hash, reason and predecessor. Billing also binds the bill version. The server checks current staff access and assignment before mutations and historical retries. A changed source reopens the affected review and its successors: ordinary money changes reopen Billing; medicine/MAR changes reopen Pharmacy onward; routine nursing records reopen Nursing onward; clinical summary/order/result changes reopen Doctor onward. Previous signatures remain in history.
 
 Nursing clearance covers the records and hours through that review's signing time. An open shift is shown as open. Financial clearance does not end attendance or stop prescribed monitoring. Later actual care remains attributable and can require another Nursing/Billing review.
@@ -28,6 +30,8 @@ Billing can then review a stable actual room amount and sign. Staff separately r
 Occupied time cannot be frozen or treated as a free waiting interval. An attempted departure while the bed is still occupied commits legitimate room catch-up and returns a new review requirement, without recording hospital departure or releasing the hold. A factual cutoff behind already posted history requires an attributable correction rather than an invented later time. A return to bed needs proper clinical authority and a new attributable priced stay, preserving the prior vacancy/history. [Accountable exceptions](EXCEPTIONS.md) implement those narrow transitions, including proper source-bound Doctor reconsideration before an ordinary departure when a return instruction remains pending.
 
 This distinction is an implementation judgment, not an approved policy for a particular hospital. A hospital charging until its door exit regardless of physical bed use needs a revised documented charging contract before real financial use. Actual vacancy and hospital exit must always remain separate facts.
+
+Exceptional selected Doctor disposition facts must have occurred no later than the Nurse's actual hospital exit; later retrospective signing is legitimate. Planned financial exceptional exit also rechecks outstanding return-to-bed instructions. A source-bound Doctor cancellation or actual return followed by a fresh plan is required. A truthful unplanned early exit remains available with retained debt, follow-up and missing seals. See [Exceptions](EXCEPTIONS.md) for current native/application source rules and later financial amendments.
 
 ## Actual cash and responsibility
 

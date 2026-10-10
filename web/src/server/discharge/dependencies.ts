@@ -3,6 +3,7 @@ import { desc, eq, sql, type SQL } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import type { Transaction } from "../db";
 import { admissions } from "../admissions/schema";
+import { transferAuthority } from "../admissions/transfer-authority";
 import { clinicalSummaries } from "../clinical/schema";
 import { pharmacyClearanceSourceInTransaction } from "../pharmacy/commands";
 import { clearanceInvalidations, clearanceSeals, gates, type Gate } from "./schema";
@@ -33,6 +34,7 @@ export async function clinicalClearanceInputs(tx: Transaction, id: string) {
   const reportAddenda = await rows(tx, sql`select a.* from hims.lab_report_addenda a join hims.lab_reports r on r.id=a.report_id where r.admission_id=${id} order by a.id`);
   const dispositions = await rows(tx, sql`select * from hims.lab_dispositions where admission_id=${id} order by id`);
   const transfers = await rows(tx, sql`select * from hims.admission_transfers where admission_id=${id} order by id`);
+  const transferState = await transferAuthority(tx, id);
   const transferOrders = await rows(tx, sql`select * from hims.transfer_orders where admission_id=${id} order by version desc`);
   const exceptionInstructions = await rows(tx, sql`select * from hims.exception_evidence where admission_id=${id} and role='DOCTOR' order by id`);
   const returns = await rows(tx, sql`select * from hims.room_returns where admission_id=${id} order by id`);
@@ -47,8 +49,8 @@ export async function clinicalClearanceInputs(tx: Transaction, id: string) {
     const details = o.details as { medicationPurpose?: string };
     if (o.kind === "MEDICINE" && !stopped && ["TAKE_HOME", "BOTH"].includes(details.medicationPurpose ?? "") && !summary?.prescription.some(p => p.orderId === o.id)) blockers.push(`${o.requested_item}: current take-home order is absent from the signed prescription.`);
   }
-  if (transferOrders[0] && !transfers.some(t => t.transfer_order_id === transferOrders[0].id)) blockers.push("Current Doctor transfer order has not been carried out; Doctor review is required.");
-  return { inputs: jsonSnapshot({ summary: summary ?? null, rounds, addenda, orders, events, reports, reportAddenda, dispositions, transfers, transferOrders, exceptionInstructions, returns }), blockers };
+  if (transferState.orders[0] && (["PENDING", "WITNESSED"].includes(transferState.orders[0].status) || transferState.orders[0].pendingFactualMove)) blockers.push("Current Doctor transfer order or witnessed earlier move requires attributable review and factual recording.");
+  return { inputs: jsonSnapshot({ summary: summary ?? null, rounds, addenda, orders, events, reports, reportAddenda, dispositions, transfers, transferOrders, ...(transferState.cancellations.length ? { transferCancellations: transferState.cancellations } : {}), exceptionInstructions, returns }), blockers };
 }
 export async function pharmacyClearanceInputs(tx: Transaction, episode: typeof admissions.$inferSelect) {
   const source = await pharmacyClearanceSourceInTransaction(tx, episode);

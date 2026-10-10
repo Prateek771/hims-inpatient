@@ -7,11 +7,12 @@ import { careEpisode } from "../clinical/commands";
 import { clinicalAddenda, clinicalRounds } from "../clinical/schema";
 import { nursingAddenda, nursingConsumables, nursingObservations, nursingShifts, medicationAdministrations } from "../nursing/schema";
 import { labReportAddenda, labReports } from "../lab/schema";
-import { allocateDepositInTransaction, cancelAllocationInTransaction, refundReceiptInTransaction, billingRequest, recordReceiptInTransaction } from "../billing/commands";
+import { allocateDepositInTransaction, cancelAllocationInTransaction, refundReceiptInTransaction, billingRequest, recordReceiptInTransaction, reverseChargeInTransaction } from "../billing/commands";
 import { appendAudit } from "../audit";
-export const correctionKinds = ["RECEIPT", "REFUND", "ALLOCATE", "CANCEL_ALLOCATION", "INSURANCE_DECISION", "DISPOSITION_REVIEW", "CLINICAL_ADDENDUM", "NURSING_ADDENDUM", "LAB_ADDENDUM", "LAB_REPORT", "LAB_BILLING", "SELF_PAY_REVIEW"] as const;
+export const correctionKinds = ["RECEIPT", "REFUND", "ALLOCATE", "CANCEL_ALLOCATION", "INSURANCE_DECISION", "DISPOSITION_REVIEW", "CLINICAL_ADDENDUM", "NURSING_ADDENDUM", "LAB_ADDENDUM", "LAB_REPORT", "LAB_BILLING", "SELF_PAY_REVIEW", "REVERSE_CHARGE", "CARE_BILLING"] as const;
 export type CorrectionKind = typeof correctionKinds[number];
 export function correctionRoles(kind: CorrectionKind): readonly StaffRole[] {
+  if (kind === "CARE_BILLING") return ["DOCTOR", "NURSE"];
   if (kind === "CLINICAL_ADDENDUM" || kind === "DISPOSITION_REVIEW")
     return ["DOCTOR"];
   if (kind === "NURSING_ADDENDUM")
@@ -25,6 +26,8 @@ export function correctionRoles(kind: CorrectionKind): readonly StaffRole[] {
 /** Exact retained source, checked when routing and again before applying. */
 export async function validateCorrectionSource(tx: Transaction, admissionId: string, kind: CorrectionKind, sourceId: string) {
   const queries = {
+    REVERSE_CHARGE: sql`select id from hims.charges where id=${sourceId} and admission_id=${admissionId} and category<>'room' and source_event_id not like 'room:%'`,
+    CARE_BILLING: sql`select b.id from hims.care_billing_events b where b.id=${sourceId} and b.admission_id=${admissionId} and ((b.category='consultation' and exists(select 1 from hims.clinical_rounds r where r.id=b.round_id and r.admission_id=b.admission_id)) or (b.category='consumable' and exists(select 1 from hims.nursing_consumables n where n.id=b.id and n.admission_id=b.admission_id)))`,
     DISPOSITION_REVIEW: sql `select id from hims.exceptional_departures where id=${sourceId} and admission_id=${admissionId}`,
     INSURANCE_DECISION: sql `select id from hims.insurance_cases where id=${sourceId} and admission_id=${admissionId}`,
     REFUND: sql `select id from hims.receipts where id=${sourceId} and admission_id=${admissionId}`,
@@ -54,6 +57,15 @@ export async function applyCorrectionEffect(tx: Transaction, ctx: CommandContext
   id: string;
 }> {
   await validateCorrectionSource(tx, v.admissionId, v.kind, v.sourceId);
+  if (v.kind === "REVERSE_CHARGE") {
+    const data = z.strictObject({ amountPaise: z.string().regex(/^\d+$/), reason: z.string().trim().min(3).max(500), expectedBillVersion: z.number().int().positive() }).parse(v.data);
+    return billingRequest(tx, ctx, "exception.charge-reversed", v, () => reverseChargeInTransaction(tx, ctx, { chargeId: v.sourceId, ...data }, v.exceptionId));
+  }
+  if (v.kind === "CARE_BILLING") {
+    if (v.data.sourceEventId !== v.sourceId) throw new DomainError("VALIDATION", "Fee resolution must bind the authorized original care source");
+    const { resolveCareBillingInTransaction } = await import("../clinical/commands");
+    return resolveCareBillingInTransaction(tx, ctx, v.data, v.exceptionId);
+  }
   if (v.kind === "RECEIPT") {
     if (v.data.admissionId !== v.admissionId || v.data.requestId !== ctx.requestId)
       throw new DomainError("VALIDATION", "Correction cash must belong to this episode and request");

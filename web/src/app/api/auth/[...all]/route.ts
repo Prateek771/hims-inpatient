@@ -1,6 +1,7 @@
 import { getAuth } from "@/server/auth";
 import { requireStaff } from "@/server/access";
 import { apiError } from "@/server/http";
+import { boundedJsonBody } from "@/server/insurance/paperwork-http";
 import { z } from "zod";
 const passwordChange = z.strictObject({
   currentPassword: z.string().min(1).max(128),
@@ -25,7 +26,7 @@ async function handle(request: Request) {
   if (path === "/change-password") {
     try {
       await requireStaff(request.headers);
-      const body = passwordChange.parse(await request.json());
+      const body = passwordChange.parse(await boundedJsonBody(request, 16384));
       request = new Request(request, {
         body: JSON.stringify({
           currentPassword: body.currentPassword,

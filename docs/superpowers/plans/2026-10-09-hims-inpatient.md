@@ -1,5 +1,7 @@
 # HIMS Inpatient Workspace Implementation Plan
 
+**Final checkpoint authorization, 10 October 2026:** After Task 16 exact development CI passed at `53711b4`, the owner authorized final whole-branch review, fixes, fresh checks and main integration only after exact-commit CI passes, plus data-preserving preview/database restarts. All eleven runtime findings and the narrow inherited insurance-fixture/recovery-inventory repairs are independently accepted; writers/reviewers are released. Final full local, exact development/main CI, preservation and latest copied-preview evidence are recorded in the [current handoff](../../agent/BUILD_HANDOFF.md) and ignored [final review ledger](../../../.superpowers/sdd/2026-10-09-hims-inpatient/final-review-progress.md). This supersedes earlier pause/next-approval gates below. No completed task is redispatched; keep the sole checkout on development and preserve all data/artifacts.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build one hospital's staff-facing inpatient journey, from admission through care, charges, externally verified insurance records, human discharge clearances and final documents, following the approved Figma design.

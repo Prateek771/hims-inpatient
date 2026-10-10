@@ -16,6 +16,14 @@ import { reconcileRoomChargesInTransaction, correctAmendedRoomCharges } from "..
 import { effectiveBedTurnovers as bedTurnovers, bedTurnovers as originalBedTurnovers, departures, effectiveRoomVacations as roomVacations } from "./schema";
 import { correctionKinds, correctionRoles, validateCorrectionSource, applyCorrectionEffect } from "./exception-corrections";
 const reason = z.string().trim().min(3).max(1000);
+/** Caller owns admission; financial routing cannot override a current clinical instruction. */
+async function plannedExitInstruction(tx: Transaction, admissionId: string, evidence: typeof exceptionEvidence.$inferSelect[]) {
+  const pending = await tx.execute(sql`select p.id from hims.exception_evidence p where p.admission_id=${admissionId} and p.kind='RETURN_TO_BED' and not exists(select 1 from hims.exception_evidence c where c.kind='RETURN_CANCELLED' and c.source_id=p.id) and not exists(select 1 from hims.room_returns r where r.doctor_evidence_id=p.id)`);
+  if (pending.rows.length) throw new DomainError("PRECONDITION", "Current Doctor return instruction requires actual return or explicit source-bound reconsideration before planned departure");
+  const [returned] = await tx.execute<{ returned_at: Date | string }>(sql`select returned_at from hims.room_returns where admission_id=${admissionId} order by returned_at desc limit 1`).then(r => r.rows);
+  if (returned && !evidence.some(p => p.role === "DOCTOR" && p.kind === "PLANNED_EXIT" && p.actualAt >= new Date(returned.returned_at) && p.signedAt >= new Date(returned.returned_at)))
+    throw new DomainError("PRECONDITION", "Actual return requires a fresh appropriate Doctor exit disposition");
+}
 export async function exceptionObligationsInTransaction(tx: Transaction, e: typeof admissions.$inferSelect) {
   const bill = await billProjection(tx, e, new Date()), financial = await financialResponsibilityInTransaction(tx, e, bill);
   const pendingSources = (await billingClearanceInputs(tx, e, bill)).inputs.unresolved;
@@ -118,6 +126,8 @@ export async function authorizeExceptionInTransaction(tx: Transaction, ctx: Comm
     }
     if (["CREDIT", "INSURANCE_DELAY", "INSURANCE_DENIAL"].includes(v.type) && v.disposition === "EXCEPTIONAL_EXIT" && !evidence.some(r => r.role === "DOCTOR" && r.kind === "PLANNED_EXIT"))
       throw new DomainError("PRECONDITION", "Planned exceptional departure requires the responsible Doctor's signed actual disposition");
+    if (["CREDIT", "INSURANCE_DELAY", "INSURANCE_DENIAL"].includes(v.type) && v.disposition === "EXCEPTIONAL_EXIT")
+      await plannedExitInstruction(tx, e.id, evidence);
     if (v.type === "INSURANCE_DELAY" || v.type === "INSURANCE_DENIAL") {
       const { insuranceCases, insuranceDecisions } = await import("../insurance/schema");
       const [c] = await tx.select().from(insuranceCases).where(and(eq(insuranceCases.id, v.sourceId ?? "00000000-0000-0000-0000-000000000000"), eq(insuranceCases.admissionId, e.id)));
@@ -168,6 +178,13 @@ export async function recordExceptionEvidenceInTransaction(tx: Transaction, ctx:
     if ((e.status !== "ADMITTED" && !(e.status === "DISCHARGED" && v.kind === "ROOM_CUTOFF")) || !e.admittedAt)
       throw new DomainError("PRECONDITION", "New disposition evidence requires an active episode");
     const actual = actualTime(v.actualAt, e.admittedAt);
+    if (v.kind === "TRANSFER_HANDOVER") {
+      const { transferAuthority } = await import("../admissions/transfer-authority");
+      const current = (await transferAuthority(tx, e.id)).orders[0];
+      const earlier = current?.status === "CANCELLED" && current.cancelledAt && actual < current.cancelledAt && !current.pendingFactualMove;
+      if (!current || current.id !== v.sourceId || (current.status !== "PENDING" && !earlier) || actual < current.signedAt)
+        throw new DomainError("PRECONDITION", "Use current original Doctor authority; a later withdrawal only permits source-bound factual recovery of an earlier actual move");
+    }
     if (["RETURN_TO_BED", "RETURN_CANCELLED", "RETURN_HANDOVER"].includes(v.kind)) {
       const [instruction] = v.kind === "RETURN_CANCELLED" ? await tx.select().from(exceptionEvidence).where(eq(exceptionEvidence.id, v.sourceId ?? "00000000-0000-0000-0000-000000000000")) : [];
       const sourceId = instruction?.sourceId ?? v.sourceId;
@@ -234,6 +251,11 @@ export async function recordExceptionalDepartureInTransaction(tx: Transaction, c
     const [evidence] = await tx.select().from(exceptionEvidence).where(eq(exceptionEvidence.id, v.physicalEvidenceId));
     if (!evidence || evidence.admissionId !== e.id || evidence.kind !== "PHYSICAL_EXIT" || !evidence.vacatedAt || !authority.evidenceIds.includes(evidence.id))
       throw new DomainError("VALIDATION", "Use the actual same-episode Nurse-witnessed departure");
+    const selected = await tx.select().from(exceptionEvidence).where(inArray(exceptionEvidence.id, authority.evidenceIds));
+    const requiredKind = ["DEATH", "EXTERNAL_TRANSFER", "AGAINST_ADVICE"].includes(authority.type) ? authority.type : ["CREDIT", "INSURANCE_DELAY", "INSURANCE_DENIAL"].includes(authority.type) ? "PLANNED_EXIT" : null;
+    if (requiredKind && (!selected.some(p => p.admissionId === e.id && p.role === "DOCTOR" && p.kind === requiredKind && p.actualAt <= evidence.actualAt) || selected.some(p => p.admissionId === e.id && p.role === "DOCTOR" && p.kind === requiredKind && p.actualAt > evidence.actualAt)))
+      throw new DomainError("PRECONDITION", "Required Doctor actual disposition cannot follow the witnessed hospital exit; later retrospective signing is retained");
+    if (requiredKind === "PLANNED_EXIT") await plannedExitInstruction(tx, e.id, selected);
     const [vacation] = await tx.select().from(roomVacations).where(eq(roomVacations.admissionId, e.id));
     const [stay] = await tx.select().from(roomStays).where(and(eq(roomStays.admissionId, e.id), vacation ? eq(roomStays.id, vacation.stayId) : isNull(roomStays.endedAt)));
     if (!stay || evidence.vacatedAt <= stay.startedAt || (vacation && vacation.vacatedAt.getTime() !== evidence.vacatedAt.getTime()))

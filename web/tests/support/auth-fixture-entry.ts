@@ -107,6 +107,8 @@ async function prepare() {
   const { prepareDocumentsBrowserFixture } = await import("./documents-browser-fixture");
   await prepareDocumentsBrowserFixture(h);
   await prepareOverviewFixture(h);
+  const { prepareFinalReviewBrowserFixture } = await import("./final-review-browser-fixture");
+  await prepareFinalReviewBrowserFixture(h);
   const { prepareInpatientJourney } = await import("./inpatient-journey-fixture");
   await prepareInpatientJourney(h);
   // Workflow browser contexts reuse real synthetic sessions, avoiding unrelated login-limiter traffic.

@@ -6,7 +6,8 @@ import { db, withTransaction, type Transaction } from "../db";
 import { DomainError, type CommandContext } from "../contracts";
 import { admissionOperator } from "../admissions/commands";
 import { admissions, bedHolds, beds, effectivePatients as patients, effectiveRoomStays as roomStays } from "../admissions/schema";
-import { admissionTransfers, transferInsuranceTasks, transferOrders } from "../admissions/transfer-schema";
+import { admissionTransfers, transferInsuranceTasks, transferOrders, transferOrderCancellations } from "../admissions/transfer-schema";
+import { transferAuthority } from "../admissions/transfer-authority";
 import { insuranceTransferResolutions } from "../insurance/schema";
 import { user } from "../schema/auth";
 import { settingVersions } from "../schema/core";
@@ -194,6 +195,7 @@ async function postCareBilling(
   ctx: CommandContext,
   source: typeof careBillingEvents.$inferSelect,
   rate?: Awaited<ReturnType<typeof resolveBillableRate>>,
+  exceptionId?: string,
 ) {
   if (!source.tariffVersionId || source.state === "POSTED") return;
   const pinned =
@@ -221,6 +223,7 @@ async function postCareBilling(
         : "FINAL",
     },
     pinned,
+    exceptionId,
   );
   await tx
     .update(careBillingEvents)
@@ -242,7 +245,7 @@ export async function recordRoundInTransaction(
       .values({
         admissionId: episode.id,
         notes: value.notes,
-        signedBy: staff.id,
+        signedBy: staff.id, signedAt: new Date(),
       })
       .returning();
     if (value.feeScheduleId)
@@ -305,7 +308,7 @@ export async function recordRoundInTransaction(
           details,
           medicineItemId,
           medicineCatalogVersionId,
-          signedBy: staff.id,
+          signedBy: staff.id, signedAt: new Date(),
         })
         .returning();
       const ownerRole = {
@@ -384,10 +387,27 @@ export async function orderTransferInTransaction(tx: Transaction, ctx: CommandCo
       const category = versions.find(v => v.payload.type === "bed-category" && v.payload.code === value.destinationCategory);
       if (category?.payload.active !== true) throw new DomainError("PRECONDITION", "Select an active configured destination category");
       const [previous] = await tx.select({ version: transferOrders.version }).from(transferOrders).where(eq(transferOrders.admissionId, episode.id)).orderBy(desc(transferOrders.version)).limit(1);
-      const [order] = await tx.insert(transferOrders).values({ admissionId: episode.id, sourceStayId: stay.id, version: (previous?.version ?? 0) + 1, destinationCategory: value.destinationCategory, reason: value.reason, signedBy: staff.id }).returning();
+      const [order] = await tx.insert(transferOrders).values({ admissionId: episode.id, sourceStayId: stay.id, version: (previous?.version ?? 0) + 1, destinationCategory: value.destinationCategory, reason: value.reason, signedBy: staff.id, signedAt: new Date() }).returning();
       await clinicalAudit(tx, ctx, "transfer-ordered", order.id, value.reason);
       return { id: order.id };
     });
+}
+export async function cancelTransferOrder(ctx: CommandContext, input: unknown) {
+  return withTransaction(tx => cancelTransferOrderInTransaction(tx, ctx, input));
+}
+export async function cancelTransferOrderInTransaction(tx: Transaction, ctx: CommandContext, input: unknown) {
+  const value = z.strictObject({ admissionId: z.uuid(), transferOrderId: z.uuid(), reason: text, requestId: z.uuid() }).parse(input);
+  requestKey(ctx, value.requestId);
+  const staff = await admissionOperator(ctx, ["DOCTOR"], tx);
+  return careRequest(tx, ctx, staff, "care.transfer-withdrawn", value, async () => {
+    await careEpisode(tx, staff, value.admissionId);
+    const state = await transferAuthority(tx, value.admissionId);
+    if (state.orders[0]?.id !== value.transferOrderId || state.orders[0].status !== "PENDING")
+      throw new DomainError("PRECONDITION", "Only current unperformed transfer authority can be withdrawn; retain and record any actual handover");
+    const [record] = await tx.insert(transferOrderCancellations).values({ admissionId: value.admissionId, transferOrderId: value.transferOrderId, reason: value.reason, signedBy: staff.id, signedAt: new Date() }).returning();
+    await clinicalAudit(tx, ctx, "transfer-withdrawn", record.id, value.reason);
+    return { id: record.id };
+  });
 }
 export async function addClinicalAddendum(ctx: CommandContext, input: unknown) {
   const value = z
@@ -405,7 +425,7 @@ export async function addClinicalAddendum(ctx: CommandContext, input: unknown) {
       await careEpisode(tx, staff, round.admissionId);
       const [addendum] = await tx
         .insert(clinicalAddenda)
-        .values({ ...value, signedBy: staff.id })
+        .values({ ...value, signedBy: staff.id, signedAt: new Date() })
         .returning();
       await clinicalAudit(
         tx,
@@ -464,7 +484,7 @@ export async function completeClinicalTask(
             orderId: order.id,
             status: "COMPLETED",
             reason: value.reason,
-            signedBy: staff.id,
+            signedBy: staff.id, signedAt: new Date(),
           })
           .returning();
         const [source] = await tx
@@ -503,7 +523,7 @@ export async function stopClinicalOrder(ctx: CommandContext, input: unknown) {
             orderId: order.id,
             status: "STOPPED",
             reason: value.reason,
-            signedBy: staff.id,
+            signedBy: staff.id, signedAt: new Date(),
           })
           .onConflictDoNothing()
           .returning();
@@ -515,10 +535,12 @@ export async function stopClinicalOrder(ctx: CommandContext, input: unknown) {
   });
 }
 export async function resolveCareBilling(ctx: CommandContext, input: unknown) {
+  return withTransaction(tx => resolveCareBillingInTransaction(tx, ctx, input));
+}
+export async function resolveCareBillingInTransaction(tx: Transaction, ctx: CommandContext, input: unknown, exceptionId?: string) {
   const value = z
-    .strictObject({ sourceEventId: z.uuid(), reason: text })
+    .strictObject({ sourceEventId: z.uuid(), reason: text, expectedBillVersion: z.number().int().positive().optional() })
     .parse(input);
-  return withTransaction(async (tx) => {
     const staff = await admissionOperator(ctx, ["DOCTOR", "NURSE"], tx);
     return careRequest(
       tx,
@@ -533,13 +555,21 @@ export async function resolveCareBilling(ctx: CommandContext, input: unknown) {
           .where(eq(careBillingEvents.id, value.sourceEventId));
         if (!locator)
           throw new DomainError("FORBIDDEN", "Care source access denied");
-        await careEpisode(tx, staff, locator.admissionId);
+        const episode = await careEpisode(tx, staff, locator.admissionId, !exceptionId);
         const [source] = await tx
           .select()
           .from(careBillingEvents)
           .where(eq(careBillingEvents.id, value.sourceEventId));
         if (!source)
           throw new DomainError("FORBIDDEN", "Care source access denied");
+        if (exceptionId) {
+          const { requireCorrectionAuthority } = await import("../discharge/exceptions");
+          const authority = await requireCorrectionAuthority(tx, episode, exceptionId, "CARE_BILLING", source.id);
+          if (value.expectedBillVersion !== episode.billRevision || authority.snapshot.billVersion !== episode.billRevision)
+            throw new DomainError("CONFLICT", "Bill changed; refresh Admin authority and the retained source review");
+          if (!["consultation", "consumable"].includes(source.category))
+            throw new DomainError("PRECONDITION", "Closed care pricing only reconciles original performed consultation or consumable work");
+        }
         if(source.orderId && ["lab","radiology"].includes(source.category) && (await tx.select().from(labDispositions).where(eq(labDispositions.orderId,source.orderId))).length)
           throw new DomainError("PRECONDITION","Unperformed diagnostic work has a retained disposition; do not create a new fee");
         if ((staff.role === "NURSE") !== (source.category === "consumable"))
@@ -547,6 +577,7 @@ export async function resolveCareBilling(ctx: CommandContext, input: unknown) {
             "FORBIDDEN",
             "Source belongs to another care department",
           );
+        if (exceptionId && source.state !== "UNRESOLVED") throw new DomainError("PRECONDITION", "Original retained care source is already reconciled; use its existing amendment history");
         if (source.state !== "UNRESOLVED") return { id: source.id };
         const rate = await resolveBillableRate(tx, {
           itemId: source.itemId,
@@ -579,6 +610,7 @@ export async function resolveCareBilling(ctx: CommandContext, input: unknown) {
             ctx,
             { ...source, state: "READY", tariffVersionId: rate.version.id },
             rate,
+            exceptionId,
           );
         await clinicalAudit(
           tx,
@@ -590,7 +622,6 @@ export async function resolveCareBilling(ctx: CommandContext, input: unknown) {
         return { id: source.id };
       },
     );
-  });
 }
 export async function signClinicalSummary(ctx: CommandContext, input: unknown) {
   const value = z
@@ -691,7 +722,7 @@ export async function signClinicalSummary(ctx: CommandContext, input: unknown) {
             advice: value.advice,
             version: value.expectedVersion + 1,
             prescription,
-            signedBy: staff.id,
+            signedBy: staff.id, signedAt: new Date(),
           })
           .returning();
         await clinicalAudit(
@@ -890,7 +921,7 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
       .where(eq(nursingAddenda.admissionId, admissionId));
     const stays = await tx.select({ stay: getViewSelectedFields(roomStays), bedLabel: beds.label, category: beds.category }).from(roomStays).innerJoin(beds, eq(beds.id, roomStays.bedId)).where(eq(roomStays.admissionId, admissionId)).orderBy(asc(roomStays.startedAt));
     const transferHistory = await tx.select().from(admissionTransfers).where(eq(admissionTransfers.admissionId, admissionId)).orderBy(asc(admissionTransfers.transferredAt));
-    const signedTransferOrders = await tx.select().from(transferOrders).where(eq(transferOrders.admissionId, admissionId)).orderBy(desc(transferOrders.version));
+    const currentTransfers = await transferAuthority(tx, admissionId);
     const latestVersions = await tx.select().from(settingVersions).where(eq(settingVersions.hospitalId, episode.hospitalId)).orderBy(desc(settingVersions.version));
     const seenCategories = new Set<string>();
     const transferCategories = latestVersions.filter(v => {
@@ -918,7 +949,8 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
           ...summaries,
           ...consumables,
           ...nursingCorrections,
-          ...signedTransferOrders,
+          ...currentTransfers.orders,
+          ...currentTransfers.cancellations,
           ...transferHistory,
           ...diagnosticReports,
           ...diagnosticAddenda,
@@ -981,7 +1013,8 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
       nursingAddenda: nursingCorrections,
       stays: stays.map(s => ({ id: s.stay.id, bedId: s.stay.bedId, startedAt: s.stay.startedAt, endedAt: s.stay.endedAt, bedLabel: s.bedLabel, category: s.category })),
       transferHistory,
-      transferOrders: signedTransferOrders.map((o, i) => ({ ...o, status: transferHistory.some(t => t.transferOrderId === o.id) ? "COMPLETED" : i !== 0 || !stays.some(s => s.stay.id === o.sourceStayId && !s.stay.endedAt) ? "SUPERSEDED" : "PENDING" })),
+      transferOrders: currentTransfers.orders,
+      transferCancellations: currentTransfers.cancellations,
       transferCategories,
       transferBeds: transferBeds.map(b => ({ id: b.id, label: b.label, category: b.category, available: b.active && !b.held && transferCategories.some(c => c.code === b.category) })),
       insuranceTransferTasks,

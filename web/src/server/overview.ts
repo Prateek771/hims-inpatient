@@ -14,6 +14,7 @@ import { billProjection, financialResponsibilityInTransaction } from "./billing/
 import { clearanceStateInTransaction } from "./discharge/commands";
 import { insuranceCases, insuranceDocuments, insuranceEvents, insuranceDecisions } from "./insurance/schema";
 import { paperworkRuns } from "./insurance/paperwork-schema";
+import { transferAuthority } from "./admissions/transfer-authority";
 
 export type StaffAlert = {
   id: string; kind: string; ownerRole: StaffRole; ownerName?: string;
@@ -94,10 +95,12 @@ async function projection(tx: Transaction, ctx: CommandContext, input: z.infer<t
   const insurerThreshold = threshold("insurer-limit"), depositThreshold = threshold("patient-deposit");
   for (const row of rows) {
     const e = row.episode, open = e.status === "PENDING" || e.status === "ADMITTED";
-    const href = staff.role === "ADMISSION" ? `/patients/${e.id}` : staff.role === "INSURANCE" ? `/insurance?caseId=${row.case!.id}` : staff.role === "LAB" ? `/lab?orderId=${orders.find(o => o.admissionId === e.id && ["LAB", "RADIOLOGY"].includes(o.kind))?.id ?? ""}` : `${paths[staff.role]}?admissionId=${e.id}`;
+    const href = staff.role === "ADMISSION" ? `/patients/${e.id}` : staff.role === "INSURANCE" ? `/insurance?caseId=${row.case!.id}` : staff.role === "LAB" ? `/lab?orderId=${orders.find(o => o.admissionId === e.id && ["LAB", "RADIOLOGY"].includes(o.kind))?.id ?? ""}` : staff.role === "PHARMACY" && !orders.some(o => o.admissionId === e.id && o.kind === "MEDICINE") ? `/discharge?admissionId=${e.id}` : `${paths[staff.role]}?admissionId=${e.id}`;
     episodes.push({ id: e.id, name: row.name, ipCode: e.ipCode, bedLabel: row.bedLabel, bedCategory: row.bedCategory, status: e.status, href, action: e.status === "PENDING" ? "Review pending admission" : open ? "Open current work" : "Review retained history" });
     if (staff.role === "ADMISSION" && e.status === "PENDING") add(row, "PENDING_ADMISSION", e.id, "ADMISSION", "Review deposit and actual arrival", "Reservation remains pending; activate only after the configured deposit and real arrival are recorded.", `/patients/${e.id}`);
     if (["DOCTOR", "ADMIN"].includes(staff.role) && e.status === "ADMITTED") {
+      const transfer = (await transferAuthority(tx, e.id)).orders[0];
+      if (transfer && (["PENDING", "WITNESSED"].includes(transfer.status) || transfer.pendingFactualMove)) add(row, "TRANSFER_REVIEW", transfer.id, "DOCTOR", "Review current transfer authority", transfer.pendingFactualMove ? "Actual handover is retained; record the factual transfer through the authorized route." : "Carry out the current transfer or sign an attributable withdrawal after review.");
       for (const o of orders.filter(o => o.admissionId === e.id && o.kind === "PROCEDURE" && !stopped.has(o.id) && !completed.has(o.id))) add(row, "PROCEDURE", o.id, "DOCTOR", "Record procedure completion or review", o.requestedItem);
     }
     if (["PHARMACY", "ADMIN"].includes(staff.role) && e.status === "ADMITTED" && (orders.some(o => o.admissionId === e.id && o.kind === "MEDICINE") || summaries.some(s => s.admissionId === e.id))) {

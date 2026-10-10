@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
-import { readFile, writeFile, lstat, copyFile } from "node:fs/promises";
+import { readFile, writeFile, readdir, lstat, copyFile } from "node:fs/promises";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
@@ -167,12 +167,16 @@ async function main() {
     await writeFile(resolve(folder, "restore-comparison.json"), JSON.stringify({ rowHashesEqual: JSON.stringify(restored) === JSON.stringify(before), grantsEqual: JSON.stringify(restoredGrants) === JSON.stringify(grants), differingTables: before.filter((t, i) => JSON.stringify(t) !== JSON.stringify(restored[i])).map(t => t.table), sourceGrants: grants, targetGrants: restoredGrants }, null, 2), { mode: 0o600 });
     phase = "restored-row-comparison"; assert.deepEqual(restored, before);
     phase = "restored-grant-comparison"; assert.deepEqual(restoredGrants, grants);
-    for (const file of files) assert.equal(hash(await readFile(resolve(targetDirectories[file.kind], file.file))), file.sha256);
-    const versions = (await targetClient.query("select v from hims_paperwork_checkpoints.checkpoint_migrations order by v")).rows.map(row => row.v); assert.deepEqual(versions, [0, 1, 2, 3, 4]);
-    const migrationRows = (await targetClient.query("select name,checksum from public.hims_migrations order by name")).rows; assert.equal(migrationRows.length, 54); for (const row of migrationRows) assert.equal(hash(await readFile(resolve(app, "drizzle", row.name))), row.checksum);
+    phase = "restored-protected-files"; for (const file of files) assert.equal(hash(await readFile(resolve(targetDirectories[file.kind], file.file))), file.sha256);
+    phase = "restored-checkpoint-versions"; const versions = (await targetClient.query("select v from hims_paperwork_checkpoints.checkpoint_migrations order by v")).rows.map(row => row.v); assert.deepEqual(versions, [0, 1, 2, 3, 4]);
+    phase = "restored-migration-inventory";
+    const migrationRows = (await targetClient.query("select name,checksum from public.hims_migrations order by name")).rows;
+    const expectedMigrations = (await readdir(resolve(app, "drizzle"))).filter(name => /^\d+.*\.sql$/.test(name)).sort();
+    assert.deepEqual(migrationRows.map(row => row.name), expectedMigrations);
+    for (const row of migrationRows) assert.equal(hash(await readFile(resolve(app, "drizzle", row.name))), row.checksum);
     const runtime = await connected(target.runtimeUrl); try { const flags = (await runtime.query("select rolsuper,rolcreatedb,rolcreaterole,rolbypassrls,has_schema_privilege(current_user,'hims','CREATE') create_schema,has_table_privilege(current_user,'hims_paperwork_checkpoints.checkpoint_blobs','UPDATE') blob_update,has_table_privilege(current_user,'hims_paperwork_checkpoints.checkpoints','DELETE') checkpoint_delete from pg_roles where rolname=current_user")).rows[0]; assert(Object.values(flags).every(value => value === false)); } finally { await runtime.end(); }
     await sourceClient.query("commit"); assert.deepEqual(await tableEvidence(sourceClient), before);
-    const manifest = { id, createdAt: new Date().toISOString(), localCluster, ...identity, originalVerificationOrigin: "http://127.0.0.1:3100", tables: before, grants: { sha256: hash(JSON.stringify(grants)), exact: true }, files, dump: { bytes: dump.length, sha256: hash(dump) }, migrations: 54, checkpointVersions: versions, exactRowsPreserved: true, sourceUnchanged: true, privateConnectionFile: "connection.private.json", stopped: false };
+    const manifest = { id, createdAt: new Date().toISOString(), localCluster, ...identity, originalVerificationOrigin: "http://127.0.0.1:3100", tables: before, grants: { sha256: hash(JSON.stringify(grants)), exact: true }, files, dump: { bytes: dump.length, sha256: hash(dump) }, migrations: migrationRows.length, checkpointVersions: versions, exactRowsPreserved: true, sourceUnchanged: true, privateConnectionFile: "connection.private.json", stopped: false };
     writeFileSync(resolve(folder, "manifest.json"), JSON.stringify(manifest, null, 2), { mode: 0o600 });
     const env = { ...process.env, DATABASE_URL: target.runtimeUrl, BETTER_AUTH_URL: "http://127.0.0.1:3100", BETTER_AUTH_SECRET: "SyntheticE2EOnlySecretAtLeast32Characters12345", HIMS_INSURANCE_STORAGE: "synthetic", HIMS_DOCUMENT_STORAGE: "synthetic", HIMS_SYNTHETIC_RECOVERY_ID: id, HIMS_RECOVERY_EVIDENCE_DIRECTORY: folder, NEXT_TELEMETRY_DISABLED: "1" };
     env.HIMS_SYNTHETIC_TEST_RUN = "1";

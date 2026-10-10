@@ -83,7 +83,7 @@ export async function correctAmendedRoomCharges(tx: Transaction, ctx: CommandCon
     const available = line.amountPaise - reversals.filter(r => r.chargeId === line.id).reduce((n, r) => n + r.amountPaise, 0n), amount = available < remaining ? available : remaining;
     if (amount > 0n) {
       const [reversal] = await tx.insert(chargeReversals).values({
-        chargeId: line.id, amountPaise: amount, reason: `Actual physical correction ${stay.amendmentId}; original pinned tariff retained`, ...actorColumns(ctx)
+        chargeId: line.id, amountPaise: amount, physicalAmendmentId: stay.amendmentId, reason: `Actual physical correction ${stay.amendmentId}; original pinned tariff retained`, ...actorColumns(ctx)
       }).returning();
       await bumpBillRevision(tx, admissionId);
       await appendAudit(tx, ctx, {

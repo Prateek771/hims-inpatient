@@ -31,3 +31,13 @@ it("keeps core readiness independent of optional native paperwork setup", async 
   const response = await GET(); expect(response.status).toBe(200); expect(await response.json()).toEqual({ status: "ready" });
   expect(response.headers.get("Cache-Control")).toBe("no-store");
 }));
+it("rejects forbidden destructive and immutable-history grants with minimal unavailable responses", async () => withTestDatabase(async ({ owner }) => {
+  synthetic();
+  for (const [table, privilege] of [["audit_events", "TRUNCATE"], ["charges", "DELETE"], ["clinical_orders", "UPDATE"], ["room_stays", "UPDATE(started_at)"]] as const) {
+    await owner.query(`grant ${privilege} on hims.${table} to hims_test_runtime`);
+    try {
+      const response = await GET(); expect(response.status).toBe(503); expect(await response.json()).toEqual({ status: "unavailable" });
+    } finally { await owner.query(`revoke ${privilege} on hims.${table} from hims_test_runtime`); }
+  }
+  expect((await GET()).status).toBe(200);
+}));

@@ -39,4 +39,16 @@ export async function assertCoreReadiness() {
     has_schema_privilege(current_user,'hims','USAGE') and not has_schema_privilege(current_user,'hims','CREATE') and not has_schema_privilege(current_user,'public','CREATE') and
     current_user in ('hims_runtime','hims_test_runtime') and not rolsuper and not rolcreatedb and not rolcreaterole and not rolbypassrls available from pg_roles where rolname=current_user`);
   if (!permissions.rows[0]?.available) throw new Error("Core privileges unavailable");
+  const destructive = await database.execute<{ unsafe: boolean }>(sql`select exists(
+    select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
+    join pg_attribute a on a.attrelid=c.oid and a.attnum>0 and not a.attisdropped
+    where n.nspname='hims' and c.relkind in ('r','p') and (
+      has_table_privilege(c.oid,'TRUNCATE') or
+      (has_table_privilege(c.oid,'DELETE') and c.relname not in ('staff_session','staff_verification','bed_holds')) or
+      (has_column_privilege(c.oid,a.attname,'UPDATE') and not (
+        c.relname in (${sql.join(fullUpdates.map(name => sql`${name}`), sql`,`)}) or
+        ${sql.join(Object.entries(updates).map(([table, columns]) => sql`(c.relname=${table} and a.attname in (${sql.join(columns.map(column => sql`${column}`), sql`,`)}))`), sql` or `)}
+      ))
+    )) unsafe`);
+  if (destructive.rows[0]?.unsafe) throw new Error("Core privileges unavailable");
 }

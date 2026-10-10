@@ -200,10 +200,17 @@ export async function postChargeInTransaction(tx: Transaction, ctx: CommandConte
     const { requireCorrectionAuthority } = await import("../discharge/exceptions");
     const {adminExceptions}=await import("../discharge/exception-schema");
     const [a]=await tx.select().from(adminExceptions).where(eq(adminExceptions.id,exceptionId));
-    if(!a||!["LAB_REPORT","LAB_BILLING"].includes(a.correctionKind??""))throw new DomainError("PRECONDITION","Specific diagnostic correction authority required");
+    if(!a||!["LAB_REPORT","LAB_BILLING","CARE_BILLING"].includes(a.correctionKind??""))throw new DomainError("PRECONDITION","Specific original-work correction authority required");
     const authority = await requireCorrectionAuthority(tx, episode, exceptionId, a.correctionKind!);
+    if (a.correctionKind === "CARE_BILLING") {
+      const { careEpisode } = await import("../clinical/commands");
+      await careEpisode(tx, operator, episode.id, false);
+      const source = await tx.execute(sql`select b.id from hims.care_billing_events b where b.id=${value.sourceEventId} and b.id=${authority.sourceId} and b.admission_id=${episode.id} and b.category=${value.category} and b.item_id=${value.itemId} and b.quantity=${value.quantity} and b.unit=${value.unit} and ((b.category='consultation' and ${operator.role}='DOCTOR' and exists(select 1 from hims.clinical_rounds r where r.id=b.round_id and r.admission_id=b.admission_id)) or (b.category='consumable' and ${operator.role}='NURSE' and exists(select 1 from hims.nursing_consumables n where n.id=b.id and n.admission_id=b.admission_id)))`);
+      if (!source.rows.length) throw new DomainError("FORBIDDEN", "Late care charge requires original performed source and its proper current care role");
+    } else {
     const source = await tx.execute(sql`select b.id from hims.care_billing_events b join hims.lab_processing p on p.order_id=b.order_id where b.id=${value.sourceEventId} and b.order_id=${authority.sourceId} and b.admission_id=${episode.id} and b.category in ('lab','radiology')`);
     if(operator.role!=="LAB"||!source.rows.length)throw new DomainError("FORBIDDEN","Late diagnostic charge must use the original performed source and proper Lab signer");
+    }
   } else openEpisode(episode, true);
   if (doctorPendingOrder && episode.admittingDoctorId !== operator.id) throw new DomainError("FORBIDDEN", "Doctor order admission access denied");
   const sourcePayload = fingerprint({ ...value, status: undefined });
@@ -221,7 +228,7 @@ export async function postChargeInTransaction(tx: Transaction, ctx: CommandConte
   if (rate.version.id !== value.tariffVersionId || rate.policy.code !== value.itemId || rate.policy.category !== value.category || rate.policy.unit !== value.unit || rate.version.hospitalId !== episode.hospitalId || rate.amountPaise !== quantityAmount(paise(rate.policy.amount), value.quantity, rate.policy.quantityScale))
     throw new DomainError("CONFLICT", "Source must pin the authorized configured rate version and quantity");
   const [charge] = await tx.insert(charges).values({
-    admissionId: value.admissionId, sourceEventId: value.sourceEventId, sourcePayload, category: value.category, itemId: value.itemId, quantity: value.quantity, unit: value.unit, tariffVersionId: rate.version.id, ratePaise: paise(rate.policy.amount), amountPaise: rate.amountPaise, description: rate.policy.name, initialStatus: value.status, ...actorColumns(ctx)
+    admissionId: value.admissionId, sourceEventId: value.sourceEventId, sourcePayload, category: value.category, itemId: value.itemId, quantity: value.quantity, unit: value.unit, tariffVersionId: rate.version.id, ratePaise: paise(rate.policy.amount), amountPaise: rate.amountPaise, description: rate.policy.name, initialStatus: value.status, correctionExceptionId: exceptionId, ...actorColumns(ctx)
   }).returning();
   const revision = await bumpBillRevision(tx, value.admissionId);
   await appendAudit(tx, ctx, {
@@ -266,19 +273,28 @@ export async function reverseChargeInTransaction(tx: Transaction, ctx: CommandCo
   chargeId: string;
   amountPaise: string;
   reason: string;
-}) {
-  const value = z.strictObject({ chargeId: z.uuid(), amountPaise: amountInput, reason }).parse(input);
+  expectedBillVersion?: number;
+}, exceptionId?: string) {
+  const value = z.strictObject({ chargeId: z.uuid(), amountPaise: amountInput, reason, expectedBillVersion: z.number().int().positive().optional() }).parse(input);
   await admissionOperator(ctx, ["ADMIN", "BILLING"], tx);
   const [charge] = await tx.select().from(charges).where(eq(charges.id, value.chargeId));
   if (!charge)
     throw new DomainError("FORBIDDEN", "Charge access denied");
-  openEpisode(await lockBillingAdmission(tx, charge.admissionId), true);
+  if (charge.category === "room" || charge.sourceEventId.startsWith("room:"))
+    throw new DomainError("PRECONDITION", "Room corrections require Admin authority and the original professional physical-cutoff evidence");
+  const episode = await lockBillingAdmission(tx, charge.admissionId);
+  if (exceptionId) {
+    const { requireCorrectionAuthority } = await import("../discharge/exceptions");
+    const authority = await requireCorrectionAuthority(tx, episode, exceptionId, "REVERSE_CHARGE", charge.id);
+    if (value.expectedBillVersion !== episode.billRevision || authority.snapshot.billVersion !== episode.billRevision)
+      throw new DomainError("CONFLICT", "Bill changed; refresh the Admin authority and original charge review");
+  } else openEpisode(episode, true);
   const old = await tx.select().from(chargeReversals).where(eq(chargeReversals.chargeId, charge.id));
   const amountPaise = paise(value.amountPaise);
   if (old.reduce((n, r) => n + r.amountPaise, 0n) + amountPaise > charge.amountPaise)
     throw new DomainError("PRECONDITION", "Reversal exceeds the remaining original charge");
   const [line] = await tx.insert(chargeReversals).values({
-    chargeId: charge.id, amountPaise, reason: value.reason, ...actorColumns(ctx)
+    chargeId: charge.id, amountPaise, reason: value.reason, correctionExceptionId: exceptionId, ...actorColumns(ctx)
   }).returning();
   const revision = await bumpBillRevision(tx, charge.admissionId);
   await appendAudit(tx, ctx, {
