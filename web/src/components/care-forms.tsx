@@ -1,5 +1,7 @@
 "use client";
 import { useActionState, useState, type ReactNode } from "react";
+import { useHospitalTimezone } from "./hospital-time-context";
+import { hospitalLocalInput } from "@/lib/hospital-time";
 export type CareState = { message: string; error?: boolean };
 export type CareAction = (
   previous: CareState,
@@ -44,14 +46,16 @@ export function CareField({
   defaultValue?: string;
   step?: string;
 }) {
+  const timezone = useHospitalTimezone();
   return (
     <label>
-      {label}
+      {type === "datetime-local" ? label.replace("(UTC)", `(${timezone})`) : label}
       <input
         name={name}
         type={type}
         required={required}
-        defaultValue={defaultValue}
+        defaultValue={type === "datetime-local" && defaultValue?.endsWith("Z") ? hospitalLocalInput(defaultValue, timezone) : defaultValue}
+        data-hospital-timezone={type === "datetime-local" ? timezone : undefined}
         step={
           step ??
           (type === "datetime-local"
@@ -61,6 +65,7 @@ export function CareField({
               : undefined)
         }
       />
+      {type === "datetime-local" && <input type="hidden" name="hospitalTimezone" value={timezone} />}
     </label>
   );
 }

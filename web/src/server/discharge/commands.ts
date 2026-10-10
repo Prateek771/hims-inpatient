@@ -27,7 +27,7 @@ async function episodeForStaff(tx: Transaction, staff: { id: string; role: strin
   return e;
 }
 /** Later gates validate predecessors internally without exposing their chart. */
-export async function clearanceStateInTransaction(tx: Transaction, episode: typeof admissions.$inferSelect, reviewedBill?: Awaited<ReturnType<typeof billProjection>>) {
+export async function clearanceStateInTransaction(tx: Transaction, episode: typeof admissions.$inferSelect, reviewedBill?: Awaited<ReturnType<typeof billProjection>>, options: { readOnly?: boolean } = {}) {
   const stored = await latestSeals(tx, episode.id);
   if(episode.status==="DISCHARGED")return {history:stored.all,reviews:gates.map(gate=>{
     const seal=stored.currentCandidates[gate];
@@ -41,7 +41,7 @@ export async function clearanceStateInTransaction(tx: Transaction, episode: type
     const inputs = jsonSnapshot({ source: source.inputs, predecessorId: previous?.id ?? null });
     const hash = reviewHash(inputs), candidate = stored.currentCandidates[gate];
     const current = !!candidate && candidate.reviewHash === hash && source.blockers.length === 0 && (index === 0 || !!previous);
-    if (candidate && !current) await invalidateAffectedClearances(tx, { admissionId: episode.id, changeKind: gate === "DOCTOR" ? "CLINICAL" : gate === "PHARMACY" ? "PHARMACY" : gate === "NURSING" ? "NURSING" : "MONEY", changedRecordIds: [candidate.id] });
+    if (candidate && !current && !options.readOnly) await invalidateAffectedClearances(tx, { admissionId: episode.id, changeKind: gate === "DOCTOR" ? "CLINICAL" : gate === "PHARMACY" ? "PHARMACY" : gate === "NURSING" ? "NURSING" : "MONEY", changedRecordIds: [candidate.id] });
     reviews.push({ gate, reviewHash: hash, inputs, blockers: [...source.blockers, ...(index > 0 && !previous ? ["The preceding professional clearance must be current before this gate can sign."] : [])], current, seal: current ? candidate : undefined, predecessorId: previous?.id ?? null });
     previous = current ? candidate : undefined;
   }

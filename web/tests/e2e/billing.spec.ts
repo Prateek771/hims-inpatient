@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { useStaffSession } from "../support/browser-session";
 import { fillUtcDateTime } from "../support/datetime-input";
+import { hospitalLocalInstant } from "../../src/lib/hospital-time";
+test.use({ timezoneId: "America/Los_Angeles" });
 test("billing shows real ledger history and records/allocates manual top-ups", async ({ page }, testInfo) => {
   await useStaffSession(page, "BILLING");
   await expect(page.getByRole("heading", { name: "Welcome, Synthetic E2E BILLING" })).toBeVisible();
@@ -34,7 +36,7 @@ test("billing shows real ledger history and records/allocates manual top-ups", a
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("billing-narrow.png"), fullPage: true });
 });
-test("admission activation uses its limited deposit view and wrong roles cannot view bills", async ({ page }) => {
+test("admission activation uses its limited deposit view and wrong roles cannot view bills", async ({ page }, testInfo) => {
   await useStaffSession(page, "ADMISSION");
   await expect(page.getByRole("heading", { name: "Welcome, Synthetic E2E ADMISSION" })).toBeVisible();
   await page.goto("/admissions");
@@ -46,13 +48,14 @@ test("admission activation uses its limited deposit view and wrong roles cannot 
   await page.getByLabel("Staff reference").fill("Synthetic browser activation deposit");
   await page.getByRole("button", { name: "Record manual receipt" }).click();
   await expect(page.getByRole("status").filter({ hasText: "Manual receipt recorded" })).toBeVisible();
-  const input = page.getByLabel("Actual bed occupancy start (UTC)");
+  const input = page.getByLabel("Actual bed occupancy start (Asia/Kolkata)");
+  expect(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone)).toBe("America/Los_Angeles");
   await expect(input).toHaveAttribute("step", "0.001");
-  for (const [iso, canonical] of [
-    ["2026-10-08T23:47:06.490Z", "2026-10-08T23:47:06.49"],
-    ["2026-10-08T23:47:06.000Z", "2026-10-08T23:47:06"],
-    ["2026-10-08T23:47:00.000Z", "2026-10-08T23:47"],
-    ["2026-10-08T23:47:00.490Z", "2026-10-08T23:47:00.49"],
+  for (const [iso, canonical, localCanonical] of [
+    ["2026-10-08T23:47:06.490Z", "2026-10-08T23:47:06.49", "2026-10-09T05:17:06.49"],
+    ["2026-10-08T23:47:06.000Z", "2026-10-08T23:47:06", "2026-10-09T05:17:06"],
+    ["2026-10-08T23:47:00.000Z", "2026-10-08T23:47", "2026-10-09T05:17"],
+    ["2026-10-08T23:47:00.490Z", "2026-10-08T23:47:00.49", "2026-10-09T05:17:00.49"],
   ]) {
     const instant = new Date(iso);
     // Demonstrate native normalization independently of the helper, without submitting old occupancy.
@@ -65,10 +68,21 @@ test("admission activation uses its limited deposit view and wrong roles cannot 
     }, instant.toISOString().slice(0, 23));
     expect(normalized).toBe(canonical);
     await fillUtcDateTime(input, instant);
-    await expect(input).toHaveValue(canonical);
-    expect(new Date(`${await input.inputValue()}Z`).getTime()).toBe(instant.getTime());
+    await expect(input).toHaveValue(localCanonical);
+    expect(hospitalLocalInstant(await input.inputValue(), "Asia/Kolkata")).toBe(iso);
     expect(await input.evaluate((element) => (element as HTMLInputElement).checkValidity())).toBe(true);
   }
+  const activation = input.locator("xpath=ancestor::form");
+  await page.screenshot({ path: testInfo.outputPath("hospital-zone-input-desktop.png"), fullPage: true });
+  await fillUtcDateTime(input, new Date());
+  await activation.locator('input[name="hospitalTimezone"]').evaluate((element) => { (element as HTMLInputElement).value = "America/New_York"; });
+  await activation.getByRole("button", { name: "Activate admission" }).click();
+  await expect(activation.getByRole("status")).toContainText("Refresh the form before entering an actual time");
+  await expect(activation.getByRole("button", { name: "Activate admission" })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("hospital-zone-stale-input-narrow.png"), fullPage: true });
+  await activation.locator('input[name="hospitalTimezone"]').evaluate((element) => { (element as HTMLInputElement).value = "Asia/Kolkata"; });
   // Only the current precise instant is submitted; the older formatting probes never leave the input.
   await fillUtcDateTime(input, new Date());
   await page.getByRole("button", { name: "Activate admission" }).click();

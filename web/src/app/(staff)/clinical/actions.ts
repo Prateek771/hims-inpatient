@@ -1,4 +1,5 @@
 "use server";
+import { hospitalFormInstant } from "@/server/hospital-time";
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import { requireStaff, staffContext } from "@/server/access";
@@ -15,7 +16,7 @@ import { DomainError } from "@/server/contracts";
 import type { CareState } from "@/components/care-forms";
 const field = (form: FormData, name: string) => String(form.get(name) ?? "");
 const timestamp = (form: FormData, name: string) =>
-  new Date(`${field(form, name)}Z`).toISOString();
+  hospitalFormInstant(field(form, name), field(form, "hospitalTimezone"));
 export async function saveClinical(
   admissionId: string,
   requestId: string,
@@ -56,7 +57,7 @@ export async function saveClinical(
           (kind === "MEDICINE" && order.medicationPurpose !== "TAKE_HOME")
         )
           order.schedule = {
-            startsAt: timestamp(form, "startsAt"),
+            startsAt: await timestamp(form, "startsAt"),
             intervalMinutes: Number(field(form, "intervalMinutes")),
             occurrences: Number(field(form, "occurrences")),
           };

@@ -8,7 +8,7 @@
 
 **Tech Stack:** Owner-selected Next.js, PostgreSQL, LangGraph and Better Auth (staff login confirmed 9 October 2026). Foundation uses TypeScript, Tailwind from the official Next.js scaffold, Drizzle/node-postgres, Zod, Vitest and Playwright. Add barcode/QR libraries only when their tasks need them. AI/OCR providers remain unselected.
 
-**Spec:** [Confirmed scope](../../PROJECT_SCOPE.md), [approved design reference](../../DESIGN_REFERENCE.md) and [agent rules](../../../AGENTS.md). Recorded 9 October 2026 against setup baseline `8c674f7633883d690d717015ec58b64e03c5d701`. Tasks1–10 are implemented, locally verified and independently reviewed; Tasks11–16 remain to build. See [setup status](../../SETUP_STATUS.md) for actual evidence, installed packages and limitations.
+**Spec:** [Confirmed scope](../../PROJECT_SCOPE.md), [approved design reference](../../DESIGN_REFERENCE.md) and [agent rules](../../../AGENTS.md). Recorded 9 October 2026 against setup baseline `8c674f7633883d690d717015ec58b64e03c5d701`. Tasks 1–15 are implemented, verified and independently accepted; Task 14 uses manual/synthetic text with live model/OCR providers unconfigured. Task 15 is accepted; pause before Task 16 for the owner's next approval. See [setup status](../../SETUP_STATUS.md) for actual evidence, installed packages and limitations.
 
 ## Global constraints
 
@@ -259,12 +259,14 @@ Task12 acceptance: independent specification/quality and fresh GPT-6.1 scoped co
 
 **Files:** create `web/src/server/overview.ts`, `web/src/app/(staff)/overview/page.tsx`, `web/tests/integration/overview.test.ts`, `web/tests/e2e/role-workspaces.spec.ts`; connect existing role worklists and alert queries. Figma `4:3` and all role screens.
 
-**Interfaces:** produces `getOverview(ctx, { asOf, wardId? })` and `getStaffWorklist(ctx)` from actual episode/task/ledger/clearance records, respecting field/access policy.
+**Interfaces:** produces `getOverview(ctx, { asOf, bedCategory? })` and `getStaffWorklist(ctx, { asOf?, bedCategory? })` from actual episode/task/ledger/clearance records, respecting field/access policy.
 
-- [ ] Write tests where overdue observations/MAR, low stock, insurer-limit/deposit thresholds, missing paperwork, pending seals and partial receipts produce the correct counts/action owner; resolved items stop appearing and retries do not duplicate tasks.
-- [ ] Show bed occupancy/turnover, active admissions, discharge blockers, staff handover work and financial summaries using live authorized queries. Do not replace unknown/failed data with misleading zeros or hard-coded prototype statistics.
-- [ ] Check every approved role view at desktop and a usable narrower width, keyboard operation, focus, labels, table scrolling, long names/notes, empty/error/loading states and zero/large money values. Reuse native form controls/simple tables before adding UI libraries.
-- [ ] Run overview/role-workspace E2E and affected tests, lint/typecheck/build; commit `feat: connect hospital overview and staff alerts`.
+- [x] Write tests where overdue observations/MAR, low stock, insurer-limit/deposit thresholds, missing paperwork, pending seals and partial receipts produce the correct counts/action owner; resolved items stop appearing and retries do not duplicate tasks.
+- [x] Show bed occupancy/turnover, active admissions, discharge blockers, staff handover work and financial summaries using live authorized queries. Do not replace unknown/failed data with misleading zeros or hard-coded prototype statistics.
+- [x] Check every approved role view at desktop and a usable narrower width, keyboard operation, focus, labels, table scrolling, long names/notes, empty/error/loading states and zero/large money values. Reuse native form controls/simple tables before adding UI libraries.
+- [x] Run overview/role-workspace E2E and affected tests, lint/typecheck/build; commit `feat: connect hospital overview and staff alerts`.
+
+**Accepted interface adjustment:** Existing beds have categories, not a ward entity. `bedCategory` scopes episodes/beds/money; shared stock stays hospital-wide. `asOf` evaluates current rows, not historical reconstruction. See [Overview](../../OVERVIEW.md) and the acceptance ledger.
 
 ## Task 16: Whole-flow verification, backup/restore and local pilot handoff
 

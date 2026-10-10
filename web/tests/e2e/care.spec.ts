@@ -59,7 +59,7 @@ test("doctor signs rounds, addenda and prescription versions through actual form
   await round.getByLabel("Duration (days)").fill("2");
   await round.getByLabel("Medicine purpose").selectOption("TAKE_HOME");
   await expect(
-    round.getByLabel("First scheduled occurrence (UTC)"),
+    round.getByLabel("First scheduled occurrence (Asia/Kolkata)"),
   ).toHaveCount(0);
   await round.getByLabel("Prescribed dispensing quantity").fill("6");
   await round.getByLabel("Prescribed dispensing unit").fill("tablet");
@@ -126,7 +126,7 @@ test("assigned nurse records explicit occurrences and handover without duplicate
     .locator(`a[href="/nursing?admissionId=${await currentCareAdmission()}"]`)
     .click();
   const shift = page.getByTestId("shift-start");
-  await fillUtcDateTime(shift.getByLabel("Shift start (UTC)"), new Date());
+  await fillUtcDateTime(shift.getByLabel("Shift start (Asia/Kolkata)"), new Date());
   await shift
     .getByLabel("Incoming handover")
     .fill("Synthetic browser incoming handover");
@@ -137,7 +137,7 @@ test("assigned nurse records explicit occurrences and handover without duplicate
     .first()
     .click();
   const mar = page.getByTestId("mar-form").first();
-  await fillUtcDateTime(mar.getByLabel("Actual time (UTC)"), new Date());
+  await fillUtcDateTime(mar.getByLabel("Actual time (Asia/Kolkata)"), new Date());
   await mar.getByLabel("Actual dose", { exact: true }).fill("0");
   await mar.getByLabel("Outcome").selectOption("REFUSED");
   await mar
@@ -150,12 +150,12 @@ test("assigned nurse records explicit occurrences and handover without duplicate
     .first()
     .click();
   const vitals = page.getByTestId("observation-form").first();
-  await fillUtcDateTime(vitals.getByLabel("Observed at (UTC)"), new Date());
+  await fillUtcDateTime(vitals.getByLabel("Observed at (Asia/Kolkata)"), new Date());
   await vitals.getByLabel("Pulse").fill("78");
   await vitals.getByRole("button", { name: "Sign actual readings" }).click();
   await expect(page.getByTestId("observation-history")).toContainText("78");
   const handover = page.getByTestId("shift-end");
-  await fillUtcDateTime(handover.getByLabel("Shift end (UTC)"), new Date());
+  await fillUtcDateTime(handover.getByLabel("Shift end (Asia/Kolkata)"), new Date());
   await handover
     .getByLabel("Outgoing handover")
     .fill("Synthetic unfinished work handed over");

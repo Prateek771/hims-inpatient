@@ -1,4 +1,6 @@
 "use client";
+import { CareField } from "./care-forms";
+import { HospitalTimestamp } from "./hospital-timestamp";
 import { useActionState, type ReactNode } from "react";
 import { saveAllocation, saveManualReceipt, saveReversal, startAdmission, postRoomThroughNow, type BillingActionState } from "@/app/(staff)/billing/actions";
 const initial: BillingActionState = { message: "" };
@@ -11,8 +13,7 @@ function Field({ label, name, type = "text", required = true }: {
     type?: string;
     required?: boolean;
 }) {
-    return <label>{label}<input name={name} type={type} required={required} min={type === "number" ? "0.01" : undefined} step={type === "number" ? "0.01" : type === "datetime-local" ? "0.001" : undefined}/>
-    </label>;
+    return type === "datetime-local" ? <CareField label={label} name={name} type={type} required={required} /> : <label>{label}<input name={name} type={type} required={required} min={type === "number" ? "0.01" : undefined} step={type === "number" ? "0.01" : undefined}/></label>;
 }
 function Choice({ label, name, values }: {
     label: string;
@@ -87,7 +88,7 @@ export function ReconcileRoomForm({ admissionId, cutoff, requestId }: {
     const [state, action, pending] = useActionState(postRoomThroughNow.bind(null, admissionId, cutoff, requestId), initial);
     return <form className="fields" action={action}>
     <Result state={state}/>
-    <p className="caption">Posting cutoff: {cutoff} (UTC). Refresh for a later cutoff.</p>
+    <p className="caption">Posting cutoff: <HospitalTimestamp value={cutoff} />. Refresh for a later cutoff.</p>
     <button className="button secondary" disabled={pending}>Post room charges through captured cutoff</button>
     </form>;
 }

@@ -7,15 +7,18 @@ import { formatINR } from "@/server/billing/money";
 import { CareField, CareForm } from "@/components/care-forms";
 import { ReceiptForm, AllocationForm } from "@/components/billing-forms";
 import { dischargeAction } from "./actions";
+import { hospitalTimeConfiguration } from "@/server/hospital-time";
+import { formatHospitalTime } from "@/lib/hospital-time";
 const labels={DOCTOR:"Doctor",PHARMACY:"Pharmacy",NURSING:"Nursing",BILLING:"Billing / admin"};
 const money=(v:unknown)=>formatINR(BigInt(String(v??0)));
 const records=(v:unknown)=>Array.isArray(v)?v as Record<string,unknown>[]:[];
-const signedTime=(value:Date)=>new Intl.DateTimeFormat("en-IN",{dateStyle:"medium",timeStyle:"short",timeZone:"UTC"}).format(value)+" UTC";
 const attendance=(start:unknown,end:unknown,through:Date)=>{
   const minutes=Math.max(0,Math.floor((Math.min(end?Date.parse(String(end)):through.getTime(),through.getTime())-Date.parse(String(start)))/60000));
   return `${Math.floor(minutes/60)} h ${minutes%60} min`;
 };
 export default async function DischargePage({searchParams}:{searchParams:Promise<{admissionId?:string}>}){
+  const {timezone}=await hospitalTimeConfiguration();
+  const signedTime=(value:Date)=>formatHospitalTime(value,timezone);
   const staff=await requireStaff();if(!["ADMIN","BILLING","DOCTOR","NURSE","PHARMACY"].includes(staff.role))notFound();
   const ctx=staffContext(staff,"discharge-view"),workspace=await dischargeWorkspace(ctx),{admissionId}=await searchParams;
   let review:Awaited<ReturnType<typeof getClearanceReview>>|undefined;
@@ -51,7 +54,7 @@ export default async function DischargePage({searchParams}:{searchParams:Promise
           {review.current&&<div className="notice clearance-success"><strong>Your current clearance is recorded.</strong><p>A changed item reopens only the approvals that depend on it.</p></div>}
           {open&&workspace.selectedGate==="NURSING"&&firstThree&&!review.physicalBedUse&&<details><summary>Record actual end of bed use</summary><CareForm action={action("vacate")} button="Record physical bed vacancy" testId="room-vacate"><label>Your care shift<select name="shiftId" required>{records(source.shifts).filter(s=>s.nurse_id===staff.id).map(s=><option value={String(s.id)} key={String(s.id)}>{String(s.started_at)} · {s.ended_at?"Ended shift":"Open shift"}</option>)}</select></label><CareField name="vacatedAt" label="Actual bed vacancy (UTC)" type="datetime-local"/><CareField name="waitingLocation" label="Actual waiting location outside the bed"/><CareField name="handover" label="Nursing handover and ongoing monitoring"/><p className="caption">Record only real bed vacancy. Admission and the bed hold remain until hospital departure. Returning to a bed needs a new attributable stay and clinical authority.</p></CareForm></details>}
           {open&&financial&&review.gates.every(g=>g.current)&&<CareForm action={action("depart")} button="Record hospital departure" testId="hospital-departure"><CareField name="departedAt" label="Actual hospital departure (UTC)" type="datetime-local"/><p className="caption">Final clearance alone keeps the bed held. Actual hospital departure releases it for housekeeping.</p></CareForm>}
-          <p className="caption">{review.physicalBedUse?`Physical bed use ended ${review.physicalBedUse.vacatedAt.toISOString()}; waiting at ${review.physicalBedUse.waitingLocation}. Actual care continues.`:""}</p><p className="caption">Premature or unsettled hospital exit requires a named administrator exception. <Link href={`/exceptions?admissionId=${review.admissionId}`}>Review exceptions and retained obligations</Link>.</p>
+          <p className="caption">{review.physicalBedUse?`Physical bed use ended ${signedTime(review.physicalBedUse.vacatedAt)}; waiting at ${review.physicalBedUse.waitingLocation}. Actual care continues.`:""}</p><p className="caption">Premature or unsettled hospital exit requires a named administrator exception. <Link href={`/exceptions?admissionId=${review.admissionId}`}>Review exceptions and retained obligations</Link>.</p>
         </section>
       </div>
       {open&&bill&&<section className="card"><h2>Staff settlement actions</h2><details><summary>Record actual money received</summary><ReceiptForm admissionId={review.admissionId} requestId={crypto.randomUUID()}/></details>
@@ -59,7 +62,7 @@ export default async function DischargePage({searchParams}:{searchParams:Promise
         {firstThree&&<><details><summary>Record an actual refund</summary><CareForm action={action("refund")} button="Record actual refund" testId="discharge-refund"><label>Original receipt<select name="receiptId" required>{bill.receipts.map(r=><option key={r.id} value={r.id}>{r.party} · {r.reference} · {money(r.amountPaise)}</option>)}</select></label><CareField label="Refund amount (INR)" name="amount" type="number"/><label>Refund mode<select name="mode">{["CASH","BANK","UPI","CARD"].map(m=><option key={m}>{m}</option>)}</select></label><CareField label="Refund book / channel account" name="channel"/><CareField label="Refund receipt number / transaction ID" name="sourceReference"/><CareField label="Actual refund evidence" name="evidence"/><CareField label="Refund reason" name="reason"/><CareField label="Actual refund time (UTC)" name="refundedAt" type="datetime-local"/></CareForm></details>{bill.activeAllocations.length>0&&<details><summary>Cancel an existing deposit allocation</summary><CareForm action={action("cancel-allocation")} button="Record allocation cancellation"><label>Original allocation<select name="allocationId">{bill.activeAllocations.map(a=><option key={a.id} value={a.id}>{money(a.amountPaise)} · {a.reason}</option>)}</select></label><CareField label="Cancellation reason" name="reason"/><p>Cancellation restores held deposit cash; it does not issue a refund.</p></CareForm></details>}</>}
         {bill.paymentRoute==="SELF_PAY"&&!!finance.conversionId&&<details><summary>Review current self-pay responsibility after conversion</summary><CareForm action={action("self-pay")} button="Save current self-pay review"><CareField label="Financial review reason" name="reason"/><p>Retain the insurer share resolved at conversion, capped by insurer cash still held and the current net bill. New self-pay charges belong to the patient; receipts and excess remain visible.</p></CareForm></details>}
       </section>}
-      <details><summary>Clearance history</summary>{review.history.map(s=><p className="caption" key={s.id}>{labels[s.gate]} · {s.signerName??s.signedBy} · {s.signedAt.toISOString()} · {s.invalidation?`Reopened: ${s.invalidation}`:"Retained signed record"}</p>)}</details>
+      <details><summary>Clearance history</summary>{review.history.map(s=><p className="caption" key={s.id}>{labels[s.gate]} · {s.signerName??s.signedBy} · {signedTime(s.signedAt)} · {s.invalidation?`Reopened: ${s.invalidation}`:"Retained signed record"}</p>)}</details>
     </>}
     {workspace.turnovers.length>0&&<section className="card"><h2>Housekeeping before bed reuse</h2>{workspace.turnovers.map(t=><details key={t.id}><summary>{t.bedLabel} · cleaning pending</summary><CareForm action={action("turnover")} button="Record cleaning completion"><input type="hidden" name="turnoverId" value={t.id}/><CareField name="completedAt" label="Actual cleaning completed (UTC)" type="datetime-local"/><CareField name="evidence" label="Housekeeping confirmation / evidence"/></CareForm></details>)}</section>}
   </>;

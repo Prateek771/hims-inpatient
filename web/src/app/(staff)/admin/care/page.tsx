@@ -1,3 +1,4 @@
+import { HospitalTimestamp } from "@/components/hospital-timestamp";
 import { requireStaff, staffContext } from "@/server/access";
 import { assignmentWorkspace } from "@/server/nursing/commands";
 import { CareField, CareForm } from "@/components/care-forms";
@@ -86,7 +87,7 @@ export default async function CareAssignments() {
                         <p className="status">REVOKED</p>
                         <p>
                           {a.revocationReason} · {a.revokedBy} ·{" "}
-                          {a.revokedAt.toISOString()} UTC
+                          <HospitalTimestamp value={a.revokedAt.toISOString()}/>
                         </p>
                       </>
                     ) : (
@@ -119,7 +120,7 @@ export default async function CareAssignments() {
                   </td>
                   <td>
                     {a.assignedBy}
-                    <p>{a.assignedAt.toISOString()} UTC</p>
+                    <p><HospitalTimestamp value={a.assignedAt.toISOString()}/></p>
                   </td>
                 </tr>
               ))}

@@ -17,11 +17,11 @@ export default async function StaffLayout({
     throw e;
   }
   const [hospital] = await db
-    .select({ name: hospitalSettings.name })
+    .select({ name: hospitalSettings.name, timezone: hospitalSettings.timezone })
     .from(hospitalSettings)
     .limit(1);
   return (
-    <AppShell role={staff.role} hospitalName={hospital?.name}>
+    <AppShell role={staff.role} hospitalName={hospital?.name} timezone={hospital?.timezone}>
       {children}
     </AppShell>
   );

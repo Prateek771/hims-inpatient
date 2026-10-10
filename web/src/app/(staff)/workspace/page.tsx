@@ -1,114 +1,23 @@
 import Link from "next/link";
 import { requireStaff, staffContext } from "@/server/access";
-import { admissionWorkspace } from "@/server/admissions/commands";
+import { getStaffWorklist } from "@/server/overview";
+import { StaffAlerts, StaffWorklist, WorkTimestamp } from "@/components/staff-dashboard";
 import { AccountControls } from "@/components/account-controls";
-const areas = {
-  ADMIN: ["Hospital overview", "Beds, discharge blockers and exceptions"],
-  ADMISSION: [
-    "Admission desk",
-    "Patient identity, clinician-entered intake, bed allocation and initial deposit requirements",
-  ],
-  DOCTOR: [
-    "Doctor workspace",
-    "Assigned patients, rounds, orders, prescriptions and clinical discharge review",
-  ],
-  NURSE: [
-    "Nursing workspace",
-    "Assigned ward patients, shifts, vitals, medication administration and handover",
-  ],
-  PHARMACY: [
-    "Pharmacy workspace",
-    "Department prescriptions, medicine issues, returns and pharmacy clearance",
-  ],
-  LAB: [
-    "Lab worklist",
-    "Linked department orders, samples, results and report status",
-  ],
-  INSURANCE: [
-    "Insurance paperwork",
-    "Assigned cases, externally verified payer decisions and reviewed paperwork",
-  ],
-  BILLING: [
-    "Charges and receipts",
-    "Charges, manual receipts, reconciliation and final administrative clearance",
-  ],
+import type { StaffRole } from "@/server/contracts";
+const areas: Record<StaffRole, { title: string; purpose: string; links: [string, string][] }> = {
+  ADMIN: { title: "Hospital administration", purpose: "Beds, discharge blockers, money and accountable exceptions", links: [["Open hospital overview", "/overview"], ["Manage staff", "/admin/staff"], ["Hospital settings", "/admin/settings"], ["Bed inventory", "/admin/beds"]] },
+  ADMISSION: { title: "Admission desk", purpose: "Patient identity, bed allocation, pending admission and initial deposits", links: [["Admissions & beds", "/admissions"]] },
+  DOCTOR: { title: "Doctor workspace", purpose: "Assigned patients, rounds, orders and clinical discharge review", links: [["Open doctor workspace", "/clinical"]] },
+  NURSE: { title: "Nursing workspace", purpose: "Assigned patients, prescribed care, shifts and handover", links: [["Open nursing workspace", "/nursing"]] },
+  PHARMACY: { title: "Pharmacy workspace", purpose: "Actual stock, medicine issues and returns, signed prescription preparation", links: [["Open pharmacy workspace", "/pharmacy"]] },
+  LAB: { title: "Lab worklist", purpose: "Department orders, samples, processing and signed human reports", links: [["Open lab worklist", "/lab"]] },
+  INSURANCE: { title: "Insurance paperwork", purpose: "Assigned cases, externally verified decisions and current manual-paperwork reviews", links: [["Open insurance paperwork", "/insurance"]] },
+  BILLING: { title: "Charges and receipts", purpose: "Posted charges, real receipts, held deposits, refunds and final human clearance", links: [["Open charges and receipts", "/billing"]] },
 };
 export default async function Workspace() {
-  const staff = await requireStaff();
-  const [title, work] = areas[staff.role];
-  const doctorWorklist =
-    staff.role === "DOCTOR"
-      ? (await admissionWorkspace(staffContext(staff, "doctor-worklist")))
-          .worklist
-      : [];
-  return (
-    <>
-      <p className="eyebrow">
-        {title} · {staff.role}
-      </p>
-      <h1>Welcome, {staff.name}</h1>
-      <section className="notice">
-        <h2>{title}</h2>
-        <p>
-          {work}.{!["DOCTOR", "NURSE"].includes(staff.role) && " Later department capabilities become available as the build progresses."}
-        </p>
-      </section>
-      {staff.role === "ADMIN" && (
-        <section className="card">
-          <h2>Hospital administration</h2>
-          <div className="actions">
-            <Link className="button" href="/admin/staff">
-              Manage staff
-            </Link>
-            <Link className="button" href="/admin/settings">
-              Hospital settings
-            </Link>
-            <Link className="button" href="/admin/beds">
-              Bed inventory
-            </Link>
-          </div>
-        </section>
-      )}
-      {staff.role === "ADMISSION" && (
-        <section className="card">
-          <h2>Patient intake</h2>
-          <p>
-            Find permanent patient identities, reserve an available bed and
-            register a pending admission.
-          </p>
-          <Link className="button" href="/admissions">
-            Admissions &amp; beds
-          </Link>
-        </section>
-      )}
-      {staff.role === "DOCTOR" && (
-        <section className="card">
-          <h2>Patients admitted under you</h2>
-          <p>
-            All your pending and admitted episodes, followed by your latest 50
-            closed episodes.
-          </p>
-          {doctorWorklist.length ? (
-            <ul className="patient-results">
-              {doctorWorklist.map((a) => (
-                <li key={a.id}>
-                  <Link href={`/patients/${a.id}`}>
-                    {a.name} · {a.ipCode} · {a.status}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>No admission episodes recorded under you.</p>
-          )}
-        </section>
-      )}
-      {["ADMIN", "BILLING"].includes(staff.role) && <section className="card"><h2>Charges and manual receipts</h2><p>Review real ledger entries, held deposits, allocations and patient/insurer cash recorded by staff.</p><Link className="button" href="/billing">Open charges and receipts</Link></section>}
-      {["ADMIN","PHARMACY"].includes(staff.role) && <section className="card"><h2>Medicine stock and reconciliation</h2><p>Receive tracked stock, issue against Doctor orders, retain returns and prepare current signed take-home prescriptions. Collection and the later pharmacy seal are separate.</p><Link className="button" href="/pharmacy">Open pharmacy workspace</Link></section>}
-      {staff.role==="LAB"&&<section className="card"><h2>Samples and human reports</h2><p>Match patient/order labels, record actual processing and sign diagnostic reports for the ordering doctor.</p><Link className="button" href="/lab">Open lab worklist</Link></section>}
-      {["ADMIN","BILLING","ADMISSION","INSURANCE"].includes(staff.role)&&<section className="card"><h2>Insurance cases and paperwork</h2><p>Assign cases, record externally verified decisions and retain protected documents. Authorization and money received remain separate.</p><Link className="button" href="/insurance">Open insurance paperwork</Link></section>}
-      <AccountControls />
-      {["DOCTOR", "NURSE"].includes(staff.role) && <section className="card"><h2>Assigned inpatient care</h2><Link className="button" href={staff.role === "DOCTOR" ? "/clinical" : "/nursing"}>Open {staff.role === "DOCTOR" ? "doctor" : "nursing"} workspace</Link></section>}
-    </>
-  );
+  const staff = await requireStaff(), area = areas[staff.role];
+  const work = await getStaffWorklist(staffContext(staff, "staff-dashboard"));
+  return <><p className="eyebrow">{area.title} · {staff.role}</p><h1>Welcome, {staff.name}</h1><p className="page-description">{area.purpose}.</p>
+    <div className="actions">{area.links.map(([label, href]) => <Link key={href} className="button" href={href}>{label}</Link>)}</div><WorkTimestamp work={work} />
+    <div className="overview-columns"><StaffWorklist work={work} /><StaffAlerts work={work} /></div><AccountControls /></>;
 }

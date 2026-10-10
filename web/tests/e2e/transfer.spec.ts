@@ -23,13 +23,13 @@ test("doctor authority and nurse handover move an independent episode with visib
   await page.goto(`/nursing?admissionId=${fixture.admissionId}`);
   await expect(page.getByText("Start your assigned shift before signing an actual transfer handover.")).toBeVisible();
   const shift = page.getByTestId("shift-start");
-  await fillUtcDateTime(shift.getByLabel("Shift start (UTC)"), new Date());
+  await fillUtcDateTime(shift.getByLabel("Shift start (Asia/Kolkata)"), new Date());
   await shift.getByLabel("Incoming handover").fill("Synthetic transfer case received");
   await shift.getByRole("button", { name: "Start assigned shift" }).click();
   const transfer = page.getByTestId("transfer-form");
   await expect(transfer).toBeVisible();
   await transfer.getByLabel("Available target bed").selectOption(fixture.targetBedId);
-  await fillUtcDateTime(transfer.getByLabel("Actual transfer time (UTC)"), new Date());
+  await fillUtcDateTime(transfer.getByLabel("Actual transfer time (Asia/Kolkata)"), new Date());
   await transfer.getByLabel("Actual transfer handover").fill("Actual ICU handover; pending medicines and observations passed to ICU nurse");
   await transfer.getByRole("button", { name: "Sign handover and transfer" }).click();
   const history = page.getByTestId("transfer-history");

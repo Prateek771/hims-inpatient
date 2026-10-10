@@ -1,4 +1,5 @@
 "use server";
+import { hospitalFormInstant } from "@/server/hospital-time";
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import { requireStaff, staffContext } from "@/server/access";
@@ -21,7 +22,7 @@ import type { CareState } from "@/components/care-forms";
 import { transferAdmission } from "@/server/admissions/commands";
 const field = (form: FormData, name: string) => String(form.get(name) ?? "");
 const timestamp = (form: FormData, name: string) =>
-  new Date(`${field(form, name)}Z`).toISOString();
+  hospitalFormInstant(field(form, name), field(form, "hospitalTimezone"));
 export async function saveNursing(
   admissionId: string,
   requestId: string,
@@ -51,7 +52,7 @@ export async function saveNursing(
     let message = "";
     const recordingShiftId = field(form, "recordingShiftId") || shiftId;
     if (operation === "transfer") {
-      await transferAdmission(ctx, { admissionId, transferOrderId: targetId, targetBedId: field(form, "targetBedId"), transferredAt: timestamp(form, "transferredAt"), handover: { shiftId, notes: field(form, "handover") }, requestId });
+      await transferAdmission(ctx, { admissionId, transferOrderId: targetId, targetBedId: field(form, "targetBedId"), transferredAt: await timestamp(form, "transferredAt"), handover: { shiftId, notes: field(form, "handover") }, requestId });
       message = "Transfer and actual handover signed. Exact room stays and charges retained; monitoring continues.";
     } else if (operation === "revoke") {
       await revokeNurseAssignment(ctx, {
@@ -73,7 +74,7 @@ export async function saveNursing(
     } else if (operation === "start") {
       await recordShift(ctx, {
         admissionId,
-        startedAt: timestamp(form, "startedAt"),
+        startedAt: await timestamp(form, "startedAt"),
         handover: field(form, "handover"),
         requestId,
       });
@@ -81,7 +82,7 @@ export async function saveNursing(
     } else if (operation === "end") {
       await endShift(ctx, {
         shiftId,
-        endedAt: timestamp(form, "endedAt"),
+        endedAt: await timestamp(form, "endedAt"),
         handover: field(form, "handover"),
       });
       message = "Handover signed. Unfinished prescribed work remains visible.";
@@ -90,7 +91,7 @@ export async function saveNursing(
         orderId: targetId,
         shiftId: recordingShiftId,
         scheduledAt,
-        actualAt: timestamp(form, "actualAt"),
+        actualAt: await timestamp(form, "actualAt"),
         actualDose: field(form, "actualDose"),
         doseUnit: field(form, "doseUnit"),
         outcome: field(form, "outcome"),
@@ -116,7 +117,7 @@ export async function saveNursing(
         shiftId: recordingShiftId,
         orderId: targetId,
         scheduledFor: scheduledAt,
-        observedAt: timestamp(form, "observedAt"),
+        observedAt: await timestamp(form, "observedAt"),
         values,
         requestId,
       });
@@ -125,7 +126,7 @@ export async function saveNursing(
       await recordConsumable(ctx, {
         admissionId,
         shiftId,
-        usedAt: timestamp(form, "usedAt"),
+        usedAt: await timestamp(form, "usedAt"),
         itemId: field(form, "itemId"),
         quantity: field(form, "quantity"),
         unit: field(form, "unit"),

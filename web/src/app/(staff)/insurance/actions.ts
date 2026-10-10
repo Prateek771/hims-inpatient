@@ -1,4 +1,5 @@
 "use server";
+import { hospitalFormInstant } from "@/server/hospital-time";
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import { requireStaff, staffContext } from "@/server/access";
@@ -9,7 +10,7 @@ import type { CareState } from "@/components/care-forms";
 export async function saveInsurance(caseId:string,version:number,requestId:string,operation:"create"|"assign"|"policy"|"decision"|"followup"|"transfer"|"convert",_prior:CareState,form:FormData):Promise<CareState>{
   const field=(name:string)=>String(form.get(name)??"");const amount=(name:string)=>parseINR(field(name)).toString();
   try{
-    const ctx={...staffContext(await requireStaff(),"insurance-staff-form"),requestId},base={caseId,expectedCaseVersion:version,requestId},provenance={verifiedBy:field("verifiedBy"),verifiedAt:field("verifiedAt")?new Date(`${field("verifiedAt")}Z`).toISOString():"",reference:field("reference")};
+    const ctx={...staffContext(await requireStaff(),"insurance-staff-form"),requestId},base={caseId,expectedCaseVersion:version,requestId},provenance={verifiedBy:field("verifiedBy"),verifiedAt:field("verifiedAt")?await hospitalFormInstant(field("verifiedAt"),field("hospitalTimezone")):"",reference:field("reference")};
     if(operation==="create")await createInsuranceCase(ctx,{admissionId:field("admissionId"),assignedStaffId:field("assignedStaffId")||null,reason:field("reason"),requestId});
     else if(operation==="assign")await assignInsuranceCase(ctx,{...base,assignedStaffId:field("assignedStaffId")||null,reason:field("reason")});
     else if(operation==="policy")await recordPolicyVerification(ctx,{...base,...provenance,insurer:field("insurer"),tpa:field("tpa"),policyNumber:field("policyNumber"),memberNumber:field("memberNumber"),validFrom:field("validFrom"),validTo:field("validTo"),documentIds:form.getAll("documentIds").map(String)});

@@ -18,8 +18,8 @@ test.describe.serial("accountable exceptional exit and retained collection", () 
     await page.getByText("Record my professional evidence", { exact: true }).click();
     const evidence = page.getByTestId("exception-evidence"); T = new Date();
     await evidence.getByLabel("My actual witnessing shift").selectOption({ index: 1 });
-    await fillUtcDateTime(evidence.getByLabel("Actual hospital exit (UTC)"), T);
-    await fillUtcDateTime(evidence.getByLabel("Actual bed vacancy (UTC)"), T);
+    await fillUtcDateTime(evidence.getByLabel("Actual hospital exit (Asia/Kolkata)"), T);
+    await fillUtcDateTime(evidence.getByLabel("Actual bed vacancy (Asia/Kolkata)"), T);
     await evidence.getByLabel("Actual professional findings / witnessed facts").fill("Patient left before Doctor advice was available; actual Nurse witnessed exit");
     await evidence.getByRole("button").click();
     await expect(evidence.getByRole("status")).toContainText("Recorded with its authority");
@@ -84,7 +84,7 @@ test.describe.serial("accountable exceptional exit and retained collection", () 
     await page.getByText("Close my original actual attendance", { exact: true }).click();
     const attendance = page.getByTestId("exception-nurse-attendance");
     await attendance.getByLabel("My original shift").selectOption({ index: 1 });
-    await fillUtcDateTime(attendance.getByLabel("Actual attendance ended (UTC)"), T);
+    await fillUtcDateTime(attendance.getByLabel("Actual attendance ended (Asia/Kolkata)"), T);
     await attendance.getByLabel("My actual handover").fill("Original Nurse signs actual attendance ending at witnessed hospital exit");
     await attendance.getByRole("button").click();
     await expect(attendance.getByRole("status")).toContainText("Recorded with its authority");
@@ -103,7 +103,7 @@ test("Doctor explicitly reconsiders the original return instruction before renew
   const form = page.getByTestId("exception-evidence");
   await form.getByLabel("Professional record").selectOption("RETURN_CANCELLED");
   await form.getByLabel("Original professional source").selectOption({ index: 1 });
-  await fillUtcDateTime(form.getByLabel("Actual event time (UTC)"), new Date());
+  await fillUtcDateTime(form.getByLabel("Actual event time (Asia/Kolkata)"), new Date());
   await form.getByLabel("Actual professional findings / witnessed facts").fill("Doctor reassessed the patient: bed care is no longer required; proceed to ordinary discharge reviews");
   await form.getByRole("button").click();
   await expect(form.getByRole("status")).toContainText("Recorded with its authority");

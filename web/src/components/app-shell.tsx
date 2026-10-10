@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { StaffRole } from "@/server/contracts";
+import { HospitalTimeProvider } from "./hospital-time-context";
 
 const sections = [
   "Admissions & beds",
@@ -21,10 +22,12 @@ export function AppShell({
   children,
   role,
   hospitalName,
+  timezone = "Asia/Kolkata",
 }: {
   children: ReactNode;
   role?: StaffRole;
   hospitalName?: string;
+  timezone?: string;
 }) {
   const path = usePathname();
   const available =
@@ -32,6 +35,7 @@ export function AppShell({
       ? [{ label: "Admissions & beds", href: "/admissions" }, { label: "Insurance paperwork", href: "/insurance" }]
       : role === "ADMIN"
         ? [
+            { label: "Hospital overview", href: "/overview" },
             { label: "Charges & payments", href: "/billing" },
             { label: "Bed inventory", href: "/admin/beds" },
             { label: "Hospital settings", href: "/admin/settings" },
@@ -45,7 +49,7 @@ export function AppShell({
   if(role && ["ADMIN","BILLING"].includes(role)) available.push({label:"Final documents",href:"/documents"});
   if(role) available.push({label:role==="ADMIN"?"Admin exceptions":"Exception follow-up",href:"/exceptions"});
   return (
-    <>
+    <HospitalTimeProvider timezone={timezone}>
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
@@ -91,7 +95,7 @@ export function AppShell({
             ))}
           </nav>
           <p className="sidebar-note">
-            Sections become available as the build progresses.
+            Need help? Contact your hospital administrator.
           </p>
         </aside>
         <div className="application">
@@ -108,6 +112,6 @@ export function AppShell({
           </main>
         </div>
       </div>
-    </>
+    </HospitalTimeProvider>
   );
 }

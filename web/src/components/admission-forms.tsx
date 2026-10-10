@@ -1,6 +1,7 @@
 "use client";
 import { useActionState, useState } from "react";
 import Link from "next/link";
+import { useHospitalTimezone } from "./hospital-time-context";
 import {
   addBed,
   cancelPendingAdmission,
@@ -71,10 +72,7 @@ export function AdmissionForm({
       rule.category === category &&
       rule.route === (paymentRoute === "SELF_PAY" ? "self-pay" : "insured"),
   );
-  const assessmentDate = new Date(assessmentTime);
-  const assessmentIso = Number.isFinite(assessmentDate.getTime())
-    ? assessmentDate.toISOString()
-    : "";
+  const timezone = useHospitalTimezone();
   const available = beds.filter(
     (b) =>
       b.active &&
@@ -178,15 +176,17 @@ export function AdmissionForm({
               </select>
             </label>
             <label>
-              Assessment time (your local time)
+                Assessment time ({timezone})
               <input
                 name="assessmentLocalTime"
                 type="datetime-local"
+                  step="0.001"
+                  data-hospital-timezone={timezone}
                 required
                 value={assessmentTime}
                 onChange={(event) => setAssessmentTime(event.target.value)}
               />
-              <input type="hidden" name="assessedAt" value={assessmentIso} />
+                <input type="hidden" name="hospitalTimezone" value={timezone} />
             </label>
             <div className="intake-time">
               <span>Registration time</span>

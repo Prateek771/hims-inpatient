@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { CareField, CareForm, type CareAction } from "./care-forms";
+import { HospitalTimestamp } from "./hospital-timestamp";
 
 type Source = { id: string; kind: string; label: string };
 type Evidence = { id: string; kind: string; sourceId: string | null; actualAt: Date };
@@ -26,7 +27,7 @@ export function AuthorityForm({ action, sources, evidence, staff, status }: { ac
     <label>Permitted action<select name="disposition" value={disposition} onChange={e => setDisposition(e.target.value)}>{dispositions(type).map(v => <option key={v} value={v}>{label(v)}</option>)}</select></label>
     {type === "POST_DISCHARGE_CORRECTION" && <label>Specific later correction<select name="correctionKind" value={correction} onChange={e => setCorrection(e.target.value)}>{Object.keys(corrections).map(v => <option key={v} value={v}>{label(v)}</option>)}</select></label>}
     {sourceKinds.length > 0 && <SourceSelect name="sourceId" title="Original source" options={sources.filter(s => sourceKinds.includes(s.kind))} />}
-    <fieldset className="exception-evidence"><legend>Signed professional evidence</legend>{evidence.length ? evidence.map(p => <label key={p.id}><input type="checkbox" name="evidenceIds" value={p.id} />{label(p.kind)} · {p.actualAt.toISOString()}</label>) : <p className="caption">No professional evidence recorded. The responsible Doctor or assigned Nurse records it from their own account.</p>}</fieldset>
+    <fieldset className="exception-evidence"><legend>Signed professional evidence</legend>{evidence.length ? evidence.map(p => <label key={p.id}><input type="checkbox" name="evidenceIds" value={p.id} />{label(p.kind)} · <HospitalTimestamp value={p.actualAt.toISOString()} /></label>) : <p className="caption">No professional evidence recorded. The responsible Doctor or assigned Nurse records it from their own account.</p>}</fieldset>
     <CareField label="Decision authority / responsible position" name="authority" />
     <label>Reason<textarea name="reason" required minLength={3} maxLength={1000} /></label>
     <label>Operational evidence and reference<textarea name="evidence" required minLength={3} maxLength={1000} /></label>

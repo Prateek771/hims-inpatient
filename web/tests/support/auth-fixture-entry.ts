@@ -1,5 +1,5 @@
 import { db } from "../../src/server/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { createStaffAuth } from "../../src/server/auth";
 import { user } from "../../src/server/schema/auth";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -46,9 +46,9 @@ async function prepare() {
       .join("; "),
   });
   let state = await listSettings(h);
-  if (!state.hospital)
+  if (!state.hospital || state.hospital.timezone !== "Asia/Kolkata")
     await saveSetting(h, {
-      expectedVersion: 0,
+      expectedVersion: Math.max(0, ...state.versions.filter(v => v.kind === "rule").map(v => v.version)),
       reason: "Synthetic browser identity",
       value: {
         type: "hospital",
@@ -102,6 +102,7 @@ async function prepare() {
   await prepareExceptionFixture(h);
   const { prepareDocumentsBrowserFixture } = await import("./documents-browser-fixture");
   await prepareDocumentsBrowserFixture(h);
+  await prepareOverviewFixture(h);
   // Workflow browser contexts reuse real synthetic sessions, avoiding unrelated login-limiter traffic.
   // These signed cookies are credentials and stay exclusively inside the ignored test output folder.
   for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB", "INSURANCE"] as const) {
@@ -124,6 +125,42 @@ async function prepare() {
     mkdirSync(directory, { recursive: true });
     writeFileSync(resolve(directory, `${role.toLowerCase()}.json`), JSON.stringify({ cookies, origins: [] }));
   }
+}
+
+async function prepareOverviewFixture(adminHeaders: Headers) {
+  const { listSettings, saveSetting } = await import("../../src/server/settings");
+  const { requireStaff, staffContext } = await import("../../src/server/access");
+  const { createBed, createAdmission, activateAdmission } = await import("../../src/server/admissions/commands");
+  const { withTransaction } = await import("../../src/server/db");
+  const { postChargeInTransaction } = await import("../../src/server/billing/commands");
+  const { charges } = await import("../../src/server/billing/schema");
+  const { admissions, beds } = await import("../../src/server/admissions/schema");
+  async function setting(value: Record<string, unknown>) {
+    const state = await listSettings(adminHeaders), kind = ["billable-item", "tariff"].includes(String(value.type)) ? "tariff" : "rule";
+    return saveSetting(adminHeaders, { value, expectedVersion: Math.max(0, ...state.versions.filter(v => v.kind === kind).map(v => v.version)), reason: "Synthetic overview UI boundary" });
+  }
+  await setting({ type: "bed-category", code: "OV_EMPTY", name: "Synthetic empty overview", active: true });
+  await setting({ type: "bed-category", code: "OV_LARGE", name: "Synthetic large overview", active: true });
+  await setting({ type: "deposit", category: "OV_LARGE", route: "self-pay", requirement: "not-required", amount: "0" });
+  await setting({ type: "tariff", category: "OV_LARGE", amount: "0", basis: "hour", rounding: "exact", graceMinutes: 0 });
+  const item = await setting({ type: "billable-item", code: "OV_LARGE_ITEM", name: "Synthetic large recorded charge", category: "consultation", department: "DOCTOR", unit: "session", quantityScale: 0, amount: "999999999.99", active: true });
+  const [existing] = await db.select({ admissionId: admissions.id, status: admissions.status, version: admissions.version }).from(admissions).innerJoin(beds, eq(beds.id, admissions.bedId)).where(eq(beds.category, "OV_LARGE")).limit(1);
+  const staff = await db.select({ id: user.id, email: user.email }).from(user);
+  const id = (role: string) => staff.find(s => s.email === `${role.toLowerCase()}@e2e.fixture.invalid`)!.id;
+  const ctx = (role: string) => ({ actor: { type: "staff" as const, staffId: id(role) }, source: "synthetic-overview-boundary", requestId: crypto.randomUUID() });
+  const bed = existing ? null : await createBed(staffContext(await requireStaff(adminHeaders), "synthetic-overview-boundary"), { label: "Synthetic long bed label for current overview wrapping", category: "OV_LARGE", reason: "Synthetic overview UI boundary" });
+  const desk = ctx("ADMISSION");
+  const a = existing ?? await createAdmission(desk, { patientDetails: { name: "Synthetic José सावधानी क्षेत्र - Long recorded patient name for wrapping and international text verification", ageYearsAtRegistration: 44, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: new Date().toISOString(), chiefComplaint: "Private synthetic overview assessment", vitals: "Synthetic vitals", triage: "Synthetic destination", destinationCategory: "OV_LARGE" }, bedId: bed!.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: desk.requestId });
+  if (!existing || existing.status === "PENDING") {
+    const arrival = ctx("ADMISSION");
+    await activateAdmission(arrival, { admissionId: a.admissionId, expectedVersion: existing?.version ?? 1, arrivedAt: new Date().toISOString(), requestId: arrival.requestId });
+  }
+  const [posted] = await db.select({ id: charges.id }).from(charges).where(and(eq(charges.admissionId, a.admissionId), eq(charges.sourceEventId, a.admissionId))).limit(1);
+  if (posted) return;
+  await withTransaction(async tx => {
+    await tx.select().from(admissions).where(eq(admissions.id, a.admissionId)).for("update");
+    await postChargeInTransaction(tx, ctx("BILLING"), { admissionId: a.admissionId, sourceEventId: a.admissionId, itemId: "OV_LARGE_ITEM", category: "consultation", quantity: "1", unit: "session", tariffVersionId: item.id, status: "FINAL" });
+  });
 }
 
 async function prepareBillingFixtures(adminHeaders: Headers) {
@@ -376,6 +413,7 @@ prepare()
       JSON.stringify({
         fixtureError: error.name,
         code: error.code ?? error.cause?.code ?? null,
+        message: error.name === "DomainError" ? error.message : undefined,
       }),
     );
     process.exit(1);

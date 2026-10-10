@@ -1,3 +1,4 @@
+import { HospitalTimestamp } from "@/components/hospital-timestamp";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireStaff, staffContext } from "@/server/access";
@@ -6,6 +7,8 @@ import { DomainError } from "@/server/contracts";
 import { CareField, CareForm } from "@/components/care-forms";
 import { saveNursing } from "./actions";
 import { TransferTimeline } from "@/components/transfer-timeline";
+import { hospitalTimeConfiguration } from "@/server/hospital-time";
+import { formatHospitalTime } from "@/lib/hospital-time";
 
 export default async function NursingPage({
   searchParams,
@@ -14,6 +17,7 @@ export default async function NursingPage({
 }) {
   const staff = await requireStaff();
   if (!["NURSE", "DOCTOR"].includes(staff.role)) notFound();
+  const { timezone } = await hospitalTimeConfiguration();
   const ctx = staffContext(staff, "nursing-view");
   const workspace = await careWorkspace(ctx);
   const { admissionId } = await searchParams;
@@ -61,8 +65,8 @@ export default async function NursingPage({
               .filter((s) => s.nurseId === staff.id)
               .map((s) => (
                 <option value={s.id} key={s.id}>
-                  {s.startedAt.toISOString()} →{" "}
-                  {s.endedAt?.toISOString() ?? "in progress"} UTC
+                  <HospitalTimestamp value={s.startedAt.toISOString()}/> →{" "}
+                  {s.endedAt ? <HospitalTimestamp value={s.endedAt.toISOString()} /> : "in progress"}
                 </option>
               ))}
           </select>
@@ -102,7 +106,7 @@ export default async function NursingPage({
               return (
                 <tr key={o.id}>
                   <td>
-                    {o.scheduledAt.toISOString()} UTC
+                    <HospitalTimestamp value={o.scheduledAt.toISOString()}/>
                     <p>{order.requestedItem}</p>
                     {kind === "MEDICINE" && (
                       <p>
@@ -117,19 +121,19 @@ export default async function NursingPage({
                       <div data-testid="mar-history">
                         <span className="status">{mar.outcome}</span>
                         <p>
-                          {mar.actualAt.toISOString()} UTC · {mar.actualDose}{" "}
+                          <HospitalTimestamp value={mar.actualAt.toISOString()}/> · {mar.actualDose}{" "}
                           {mar.doseUnit}
                         </p>
                         <p>{mar.reason}</p>
                         <p className="caption">
                           Nurse signature ·{" "}
                           {c.actors[mar.signedBy] ?? mar.signedBy} ·{" "}
-                          {mar.signedAt.toISOString()} UTC
+                          <HospitalTimestamp value={mar.signedAt.toISOString()}/>
                         </p>
                       </div>
                     ) : reading ? (
                       <div data-testid="observation-history">
-                        <p>{reading.observedAt.toISOString()} UTC</p>
+                        <p><HospitalTimestamp value={reading.observedAt.toISOString()}/></p>
                         {Object.entries(reading.values).map(([name, value]) => (
                           <p key={name}>
                             {name}: {value}
@@ -138,7 +142,7 @@ export default async function NursingPage({
                         <p className="caption">
                           Nurse signature ·{" "}
                           {c.actors[reading.signedBy] ?? reading.signedBy} ·{" "}
-                          {reading.signedAt.toISOString()} UTC
+                          <HospitalTimestamp value={reading.signedAt.toISOString()}/>
                         </p>
                       </div>
                     ) : (
@@ -292,7 +296,7 @@ export default async function NursingPage({
               <span className="status">{chart.episode.status}</span>
             </p>
             <p className="caption">
-              Admitted {chart.episode.admittedAt?.toISOString()} UTC ·{" "}
+              Admitted <HospitalTimestamp value={chart.episode.admittedAt?.toISOString()}/> ·{" "}
               {chart.identity.doctor}
             </p>
           </section>
@@ -301,7 +305,7 @@ export default async function NursingPage({
               [
                 "Current shift",
                 currentShift
-                  ? currentShift.startedAt.toISOString()
+                  ? formatHospitalTime(currentShift.startedAt, timezone)
                   : "No current shift",
               ],
               ["Signed readings", chart.observations.length],
@@ -366,7 +370,7 @@ export default async function NursingPage({
                   const targets = chart.transferBeds.filter(b => b.available && b.category === o.destinationCategory);
                   return <article className="care-entry" key={o.id}>
                     <p>Decision {o.version} · {o.destinationCategory} · {o.reason}</p>
-                    <p className="caption">Doctor signature · {chart.actors[o.signedBy]} · {o.signedAt.toISOString()} UTC</p>
+                    <p className="caption">Doctor signature · {chart.actors[o.signedBy]} · <HospitalTimestamp value={o.signedAt.toISOString()}/></p>
                     {!currentShift && <p>Start your assigned shift before signing an actual transfer handover.</p>}
                     {!targets.length && <p>No available target bed in the clinician-selected category. Availability is checked again when saving.</p>}
                     {writable && currentShift && targets.length > 0 && <CareForm action={action("transfer", o.id)} button="Sign handover and transfer" testId="transfer-form">
@@ -406,7 +410,7 @@ export default async function NursingPage({
                   >
                     <p>
                       Current attendance starts{" "}
-                      {currentShift.startedAt.toISOString()} UTC.
+                      <HospitalTimestamp value={currentShift.startedAt.toISOString()}/>.
                     </p>
                     <CareField
                       label="Shift end (UTC)"
@@ -422,15 +426,15 @@ export default async function NursingPage({
                 {chart.shifts.map((s) => (
                   <article className="care-entry" key={s.id}>
                     <p>
-                      {s.startedAt.toISOString()} →{" "}
-                      {s.endedAt?.toISOString() ?? "In progress"} UTC
+                      <HospitalTimestamp value={s.startedAt.toISOString()}/> →{" "}
+                      {s.endedAt ? <HospitalTimestamp value={s.endedAt.toISOString()} /> : "In progress"}
                     </p>
                     <p>{s.handover}</p>
                     {s.attendanceEndKind==="ADMIN"&&<p className="notice">Administrator recorded actual attendance end: {s.operationalEndEvidence}. No Nurse handover signature was supplied.</p>}
                     <p>{s.outgoingHandover}</p>
                     <p className="caption">
                       Nurse signature · {chart.actors[s.signedBy] ?? s.signedBy}{" "}
-                      · {s.signedAt.toISOString()} UTC
+                      · <HospitalTimestamp value={s.signedAt.toISOString()}/>
                     </p>
                     {s.hours !== undefined && (
                       <p>
@@ -463,7 +467,7 @@ export default async function NursingPage({
                   <article className="care-entry" key={c.id}>
                     <p>
                       {c.itemId} · {c.quantity} {c.unit} ·{" "}
-                      {c.usedAt.toISOString()} UTC
+                      <HospitalTimestamp value={c.usedAt.toISOString()}/>
                     </p>
                     <p className="caption">
                       Source bed {c.bedId} · stay {c.stayId} ·{" "}
@@ -517,18 +521,18 @@ export default async function NursingPage({
                       <select name="record">
                         {chart.administrations.map((m) => (
                           <option value={`MAR|${m.id}`} key={m.id}>
-                            Medicine outcome · {m.actualAt.toISOString()} ·{" "}
+                            Medicine outcome · <HospitalTimestamp value={m.actualAt.toISOString()}/> ·{" "}
                             {m.outcome}
                           </option>
                         ))}
                         {chart.observations.map((v) => (
                           <option value={`OBSERVATION|${v.id}`} key={v.id}>
-                            Reading · {v.observedAt.toISOString()}
+                            Reading · <HospitalTimestamp value={v.observedAt.toISOString()}/>
                           </option>
                         ))}
                         {chart.shifts.map((s) => (
                           <option value={`SHIFT|${s.id}`} key={s.id}>
-                            Shift and handover · {s.startedAt.toISOString()}
+                            Shift and handover · <HospitalTimestamp value={s.startedAt.toISOString()}/>
                           </option>
                         ))}
                         {chart.consumables.map((c) => (
@@ -554,7 +558,7 @@ export default async function NursingPage({
                 <p>{a.text}</p>
                 <p className="caption">
                   {a.reason} · {chart.actors[a.signedBy] ?? a.signedBy} ·{" "}
-                  {a.signedAt.toISOString()} UTC
+                  <HospitalTimestamp value={a.signedAt.toISOString()}/>
                 </p>
               </article>
             ))}

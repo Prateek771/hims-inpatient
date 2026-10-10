@@ -1,3 +1,4 @@
+import { HospitalTimestamp } from "@/components/hospital-timestamp";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireStaff, staffContext } from "@/server/access";
@@ -98,7 +99,7 @@ export default async function ClinicalPage({
               <span className="status">{chart.episode.status}</span>
             </p>
             <p className="caption">
-              Admitted {chart.episode.admittedAt?.toISOString()} UTC ·{" "}
+              Admitted <HospitalTimestamp value={chart.episode.admittedAt?.toISOString()}/> ·{" "}
               {chart.identity.doctor}
             </p>
           </section>
@@ -125,7 +126,7 @@ export default async function ClinicalPage({
                     <p className="caption">
                       Clinical signature ·{" "}
                       {chart.actors[r.signedBy] ?? r.signedBy} ·{" "}
-                      {r.signedAt.toISOString()} UTC
+                      <HospitalTimestamp value={r.signedAt.toISOString()}/>
                     </p>
                     <p>{r.notes}</p>
                     {chart.addenda
@@ -136,7 +137,7 @@ export default async function ClinicalPage({
                           <p className="caption">
                             {a.reason} ·{" "}
                             {chart.actors[a.signedBy] ?? a.signedBy} ·{" "}
-                            {a.signedAt.toISOString()} UTC
+                            <HospitalTimestamp value={a.signedAt.toISOString()}/>
                           </p>
                         </div>
                       ))}
@@ -178,9 +179,8 @@ export default async function ClinicalPage({
                           <tr key={o.id}>
                             <td>
                               {o.requestedItem}
-                              <p className="caption">
-                                {o.kind} · {o.id}
-                              </p>
+                              <p className="caption">{o.kind}</p>
+                              <details><summary>Order reference</summary><p className="caption">{o.id}</p></details>
                               {o.kind === "MEDICINE" && (
                                 <p>
                                   {o.details.dose} {o.details.doseUnit} ·{" "}
@@ -262,14 +262,14 @@ export default async function ClinicalPage({
                 </CareForm>}
                 {chart.transferOrders.map(o => <article className="care-entry" key={o.id}>
                   <p>Decision {o.version} · {o.destinationCategory} · <span className="status">{o.status}</span></p><p>{o.reason}</p>
-                  <p className="caption">Doctor signature · {chart.actors[o.signedBy]} · {o.signedAt.toISOString()} UTC</p>
+                  <p className="caption">Doctor signature · {chart.actors[o.signedBy]} · <HospitalTimestamp value={o.signedAt.toISOString()}/></p>
                 </article>)}
               </section>
               <TransferTimeline chart={chart} />
               <section className="card">
                 <h2>Diagnostic reports for doctor review</h2>
                 <p className="caption">Human lab/radiology results. The doctor decides the care plan; a stop does not erase completed evidence.</p>
-                {chart.diagnosticReports.map(r=><article className="care-entry" data-testid="doctor-diagnostic-report" key={r.id}><h3>{chart.orders.find(o=>o.id===r.orderId)?.requestedItem}</h3><p>{r.result}</p><p className="caption">Lab signer {chart.actors[r.signedBy]??r.signedBy} · {r.signedAt.toISOString()} UTC</p>{chart.diagnosticAddenda.filter(a=>a.reportId===r.id).map(a=><div key={a.id} className="care-entry"><strong>Addendum · {a.reason}</strong><p>{a.text}</p><p className="caption">{chart.actors[a.signedBy]??a.signedBy} · {a.signedAt.toISOString()} UTC</p></div>)}</article>)}
+                {chart.diagnosticReports.map(r=><article className="care-entry" data-testid="doctor-diagnostic-report" key={r.id}><h3>{chart.orders.find(o=>o.id===r.orderId)?.requestedItem}</h3><p>{r.result}</p><p className="caption">Lab signer {chart.actors[r.signedBy]??r.signedBy} · <HospitalTimestamp value={r.signedAt.toISOString()}/></p>{chart.diagnosticAddenda.filter(a=>a.reportId===r.id).map(a=><div key={a.id} className="care-entry"><strong>Addendum · {a.reason}</strong><p>{a.text}</p><p className="caption">{chart.actors[a.signedBy]??a.signedBy} · <HospitalTimestamp value={a.signedAt.toISOString()}/></p></div>)}</article>)}
                 {!chart.diagnosticReports.length&&<p>No diagnostic reports have been signed for this admission.</p>}
                 <h2 className="billing-subheading">Clinical summary &amp; prescription</h2>
                 <p>
@@ -329,7 +329,7 @@ export default async function ClinicalPage({
                       <p className="caption">
                         Clinical signature ·{" "}
                         {chart.actors[s.signedBy] ?? s.signedBy} ·{" "}
-                        {s.signedAt.toISOString()} UTC
+                        <HospitalTimestamp value={s.signedAt.toISOString()}/>
                       </p>
                       <p>{s.diagnosis}</p>
                       <p>{s.course}</p>

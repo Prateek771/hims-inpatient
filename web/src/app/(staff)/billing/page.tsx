@@ -1,3 +1,4 @@
+import { HospitalTimestamp } from "@/components/hospital-timestamp";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireStaff, staffContext } from "@/server/access";
@@ -42,7 +43,7 @@ export default async function BillingPage({ searchParams }: {
       <section className="card billing-identity">
         <h2>{selected?.name ?? bill.ipCode}</h2>
         <p>{bill.ipCode} · {selected?.bedLabel} · <span className="status">{bill.status}</span> · {bill.paymentRoute}</p>
-        <p className="caption">Financial revision {bill.revision} · captured {bill.asOf.toISOString()} (UTC)</p>
+        <p className="caption">Financial revision {bill.revision} · captured <HospitalTimestamp value={bill.asOf.toISOString()}/></p>
         </section>
       <div className="billing-metrics">{[["Posted net bill", bill.netPaise, "Gross charges minus linked reversals"], ["Patient cash retained", bill.patientCashPaise, "After actual refunds; allocations add no cash"], ["Unallocated deposit", bill.unallocatedDepositPaise, "Held liability pending allocation"], ["Insurer received", bill.insurerCashPaise, "Actual staff-recorded receipts"]].map(([label, amount, detail]) => <section className="card metric" key={String(label)}>
             <p>{String(label)}</p>
@@ -127,14 +128,14 @@ export default async function BillingPage({ searchParams }: {
                 const allocated = bill.activeAllocations.filter((a) => a.receiptId === receipt.id).reduce((n, a) => n + a.amountPaise, 0n);
                 const refunded = bill.refunds.filter(r=>r.receiptId===receipt.id).reduce((n,r)=>n+r.amountPaise,0n);
                 return <tr key={receipt.id}>
-                <td>{receipt.reference}<p className="caption">{receipt.party} · {receipt.kind} · {receipt.mode}<br />{receipt.channel} / {receipt.sourceReference}<br />Cashier {receipt.actorId} · {receipt.createdAt.toISOString()}<br />Evidence: {receipt.evidenceId ?? "Not supplied"}</p>
+                <td>{receipt.reference}<p className="caption">{receipt.party} · {receipt.kind} · {receipt.mode}<br />{receipt.channel} / {receipt.sourceReference}<br />Cashier {receipt.actorId} · <HospitalTimestamp value={receipt.createdAt.toISOString()}/><br />Evidence: {receipt.evidenceId ?? "Not supplied"}</p>
                 </td>
                 <td>{formatINR(receipt.amountPaise)}<p className="caption">Returned {formatINR(refunded)} · retained {formatINR(receipt.amountPaise-refunded)}</p></td>
                 <td>{formatINR(allocated)}{receipt.kind !== "PAYMENT" && bill.status === "ADMITTED" && allocated + refunded < receipt.amountPaise && <AllocationForm admissionId={bill.admissionId} receiptId={receipt.id} requestId={crypto.randomUUID()}/>}</td>
                 </tr>;
             })}</tbody>
         </table>
-        </div>{!bill.receipts.length && <p>No manual receipts recorded.</p>}{bill.allocations.map((a) => <p className="caption" key={a.id}>Allocation {a.id} · {formatINR(a.amountPaise)} · receipt {a.receiptId} · {a.reason} · {a.createdAt.toISOString()} · {bill.cancellations.some(c=>c.allocationId===a.id)?"Cancelled by linked correction":"Active"}</p>)}{bill.refunds.map(r=><p className="caption" key={r.id}>Refund {formatINR(r.amountPaise)} · original receipt {r.receiptId} · {r.channel} / {r.sourceReference} · {r.refundedAt.toISOString()} · {r.evidence} · {r.reason}</p>)}</section>
+        </div>{!bill.receipts.length && <p>No manual receipts recorded.</p>}{bill.allocations.map((a) => <p className="caption" key={a.id}>Allocation {a.id} · {formatINR(a.amountPaise)} · receipt {a.receiptId} · {a.reason} · <HospitalTimestamp value={a.createdAt.toISOString()}/> · {bill.cancellations.some(c=>c.allocationId===a.id)?"Cancelled by linked correction":"Active"}</p>)}{bill.refunds.map(r=><p className="caption" key={r.id}>Refund {formatINR(r.amountPaise)} · original receipt {r.receiptId} · {r.channel} / {r.sourceReference} · <HospitalTimestamp value={r.refundedAt.toISOString()}/> · {r.evidence} · {r.reason}</p>)}</section>
     </>}
   </>;
 }

@@ -1,0 +1,1 @@
+export default function StaffLoading() { return <section className="notice" role="status"><h1>Loading current hospital work</h1><p>Checking current records and access. Counts are not available yet.</p></section>; }

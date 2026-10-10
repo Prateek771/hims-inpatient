@@ -88,6 +88,20 @@ nav { display: grid; gap: 8px; }
 .nav-item { display: flex; align-items: center; min-height: 44px; padding: 8px 12px; border-radius: var(--radius); font-size: 14px; font-weight: 500; color: var(--muted); text-decoration: none; }
 .nav-item.active { color: var(--teal); background: var(--teal-tint); }
 .sidebar-note { margin-top: auto; color: var(--muted); font-size: 12px; }
+.overview-columns { display:grid; grid-template-columns:minmax(0,1.8fr) minmax(280px,1fr); gap:24px; align-items:start; }
+.overview-columns > * { min-width:0; }
+.staff-table { width:100%; min-width:620px; border-collapse:collapse; table-layout:fixed; }
+.staff-table th,.staff-table td { padding:12px; vertical-align:top; text-align:left; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
+.staff-table th { background:var(--canvas); color:var(--muted); font-size:12px; font-weight:400; }
+.staff-table th:first-child { width:30%; }
+.staff-table tbody tr:nth-child(even) { background:var(--canvas); }
+.alert-list { list-style:none; margin:16px 0 0; padding:0; display:grid; gap:12px; }
+.alert-list > li { background:var(--blue-tint); border-radius:var(--radius); padding:16px; overflow-wrap:anywhere; }
+.alert-list h3,.alert-list p,.alert-list a,.alert-list strong { display:block; margin-top:8px; }
+.overview-filter { display:flex; gap:16px; align-items:end; flex-wrap:wrap; }
+.overview-filter label { display:grid; gap:6px; }
+.overview-filter button { margin-top:0; }
+@media(max-width:1000px) { .overview-columns { grid-template-columns:minmax(0,1fr); } }
 .topbar { min-height: 72px; padding: 16px 32px; background: var(--surface); display: flex; align-items: center; justify-content: space-between; gap: 16px; color: var(--muted); }
 .status { font-size: 12px; background: var(--blue-tint); color: var(--blue); padding: 6px 12px; border-radius: var(--radius); }
 main { padding: 32px; max-width: 1280px; }

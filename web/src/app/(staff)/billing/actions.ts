@@ -1,4 +1,5 @@
 "use server";
+import { hospitalFormInstant } from "@/server/hospital-time";
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import { requireStaff, staffContext } from "@/server/access";
@@ -55,7 +56,7 @@ export async function saveReversal(admissionId: string, chargeId: string, reques
 export async function startAdmission(admissionId: string, expectedVersion: number, requestId: string, _previous: BillingActionState, form: FormData): Promise<BillingActionState> {
   try {
     await activateAdmission({ ...staffContext(await requireStaff(), "activation-form"), requestId }, {
-      admissionId, expectedVersion, requestId, arrivedAt: new Date(`${field(form, "arrivedAt")}Z`).toISOString()
+      admissionId, expectedVersion, requestId, arrivedAt: await hospitalFormInstant(field(form,"arrivedAt"),field(form,"hospitalTimezone"))
     });
     refresh(admissionId);
     return { message: "Admission activated. The occupied room stay has started." };
