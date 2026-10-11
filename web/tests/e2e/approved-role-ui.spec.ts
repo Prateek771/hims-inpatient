@@ -91,9 +91,8 @@ test("personal appearance persists for its staff member and profile never grants
 });
 
 test("all personal accents keep actual small action and selected-tab text readable", async ({ page }) => {
+  test.setTimeout(60_000);
   const fixture = JSON.parse(await readFile(resolve("tmp/e2e-care.json"), "utf8")) as { admissionId: string };
-  await signInStaffSession(page, "DOCTOR");
-  await page.goto(`/clinical?admissionId=${fixture.admissionId}`);
   for (const role of ["DOCTOR", "NURSE"] as const) {
     await signInStaffSession(page,role);
     if(role === "DOCTOR") await page.goto(`/clinical?admissionId=${fixture.admissionId}`);

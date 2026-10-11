@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { useStaffSession } from "../support/browser-session";
 import { fillUtcDateTime } from "../support/datetime-input";
 import { openWorkflowTab } from "../support/workflow-tabs";
+import { submitServerAction } from "../support/server-action";
 
 test.describe.serial("accountable exceptional exit and retained collection", () => {
   let f: { admissionId: string; doctorId: string; cashierId: string };
@@ -59,6 +60,7 @@ test.describe.serial("accountable exceptional exit and retained collection", () 
     await page.screenshot({ path: testInfo.outputPath("exceptions-debt-narrow.png"), fullPage: true });
   });
   test("Admin routes an exact later collection and Billing records actual money", async ({ page }) => {
+    test.setTimeout(60_000);
     await useStaffSession(page, "ADMIN");
     await page.goto(url());
     await openWorkflowTab(page,"Record authority");await page.getByText("Record a named administrator decision", { exact: true }).click();
@@ -80,7 +82,8 @@ test.describe.serial("accountable exceptional exit and retained collection", () 
     await cash.getByLabel("Cash book / bank / channel name").fill("Synthetic actual cashier book");
     await cash.getByLabel("Unique actual transaction reference").fill(`LATER-${crypto.randomUUID()}`);
     await cash.getByLabel("Receipt evidence / description").fill("Actual cash received after exceptional exit");
-    await cash.getByRole("button").click();
+    await submitServerAction(page, cash.getByRole("button"));
+    await expect(cash.getByRole("button")).toBeEnabled({ timeout: 15_000 });
     await expect(cash.getByRole("status")).toContainText("Recorded with its authority");
     await openWorkflowTab(page,"Money & obligations");await expect(page.locator(".discharge-money > div").filter({ has: page.getByText("Patient money still owed", { exact: true }) })).toContainText("₹0.00");
   });

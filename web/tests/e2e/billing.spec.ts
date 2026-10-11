@@ -10,6 +10,7 @@ test("billing shows real ledger history and records/allocates manual top-ups", a
   await page.getByRole("link", { name: "Billing", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
   await page.getByRole("link", { name: /Synthetic E2E billing patient/ }).first().click();
+  await page.waitForURL(/\/billing\?admissionId=/, { waitUntil: "load" });
   await expect(page).toHaveURL(/\/billing\?admissionId=/);
   const admissionId=new URL(page.url()).searchParams.get("admissionId");
   await expect(page.getByRole("heading", { name: "Itemised charges" })).toBeVisible();

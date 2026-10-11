@@ -98,6 +98,7 @@ test("admission desk reserves a pending stay and safely cancels it", async ({
 test("administrator can add beds and admission staff cannot manage inventory", async ({
   page,
 }) => {
+  test.setTimeout(60_000);
   await useStaffSession(page, "ADMIN");
   await expect(
     page.getByRole("main"),

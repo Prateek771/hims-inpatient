@@ -82,7 +82,11 @@ it("uses real stop signing after admission contention so factual pre-stop late c
     let blocked=false;
     for(let i=0;i<100&&!blocked;i++){blocked=(await runtime.query("select $1::int=any(pg_blocking_pids($2::int)) blocked",[bpid,spid])).rows[0].blocked;if(!blocked)await new Promise(r=>setTimeout(r,10));}
     expect(blocked).toBe(true);
-    const actual=new Date().toISOString(); await blocker.query("commit"); await stopping;
+    const actual=new Date().toISOString();
+    // Keep the real lock held until Date's millisecond clock distinguishes the
+    // factual pre-stop instant from signing after release; retain strict ordering.
+    await vi.waitFor(()=>expect(Date.now()).toBeGreaterThan(Date.parse(actual)),{timeout:1000,interval:1});
+    await blocker.query("commit"); await stopping;
     const stop=(await runtime.query("select signed_at from hims.clinical_task_events where order_id=$1 and status='STOPPED'",[order.id])).rows[0].signed_at as Date;
     console.info("Final review real stop barrier",{bpid,spid,blockingObserved:blocked,actual,stop:stop.toISOString()});
     expect(stop.getTime()).toBeGreaterThan(Date.parse(actual));

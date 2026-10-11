@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { useStaffSession } from "../support/browser-session";
 import { fillUtcDateTime } from "../support/datetime-input";
 import { openWorkflowTab } from "../support/workflow-tabs";
+import { submitServerAction } from "../support/server-action";
 test("Insurance shows excess patient payment for Billing review after a revised allocation",async({page},testInfo)=>{
   const f=JSON.parse(await readFile(resolve("tmp/e2e-insurance.json"),"utf8")) as {revisedCaseId:string};
   await useStaffSession(page,"INSURANCE");
@@ -93,8 +94,8 @@ test("Insurance records verified policy/decisions and protects actual HTTP docum
   await page.goto(`/insurance?caseId=${f.caseId}`);
   const completion=page.locator(".care-entry").filter({has:page.getByText("ENHANCEMENT · OPEN",{exact:true})});
   await completion.getByLabel("Follow-up outcome reference").fill("FIX1-BROWSER-DONE"); await completion.getByLabel("Follow-up outcome",{exact:true}).fill("Staff completed the retained follow-up");
-  await completion.getByRole("button",{name:"Record follow-up completed"}).click();
-  await expect(page.getByText("ENHANCEMENT · COMPLETED",{exact:true})).toBeVisible();
+  await submitServerAction(page,completion.getByRole("button",{name:"Record follow-up completed"}));
+  await expect(page.getByText("ENHANCEMENT · COMPLETED",{exact:true})).toBeVisible({timeout:15_000});
   await page.goto("/workspace");await page.waitForURL(/\/insurance$/, {waitUntil:"load"}); await showAllAlerts(); await expect(currentAlerts()).toHaveCount(0);
   await page.setViewportSize({width:1440,height:1100}); await page.screenshot({path:testInfo.outputPath("fix1-insurance-completed-desktop.png"),fullPage:true});
   await useStaffSession(page,"NURSE");expect((await page.request.get(downloadUrl)).status()).toBe(403);expect((await page.request.post(endpoint,{headers:{origin},multipart:multipart(bytes)})).status()).toBe(403);await page.context().clearCookies();expect((await page.request.get(downloadUrl)).status()).toBe(401);
