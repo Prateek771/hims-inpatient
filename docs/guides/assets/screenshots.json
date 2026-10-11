@@ -1,0 +1,95 @@
+{
+  "reconciled_with_implemented_ui": true,
+  "reconciled_at": "2026-10-11T11:35:39.101Z",
+  "app_source": {
+    "appSourceSha256": "021d46011ef00b58d6ef5a625052c89344c528fd82b61005d1db365ce65f36c0",
+    "files": 140,
+    "normalization": "CRLF to LF for text sources; exact binary public assets",
+    "buildId": "hLrd-akC3hUxBtgEdxX8K",
+    "baselineCommit": "dfd0a618f2a74c87b6ec2174433cc6295603d5c3"
+  },
+  "capture_verification": "All22 targeted browser checks passed, including all8 role home/menu/denial/keyboard/narrow tests. Controller inspected every complete-surface excerpt and its caption. Fresh whole-run gates are recorded separately in UI progress/release evidence.",
+  "screens": {
+    "admission": {
+      "file": "admission.png",
+      "kind": "implemented synthetic UI",
+      "caption": "Admission workspace excerpt from the tested synthetic application. Its counts and screen records are separate from Kavita’s fictional story.",
+      "role": "ADMISSION",
+      "route_or_tab": "/admissions · Current admission work",
+      "synthetic_fixture": "Guarded hims_test fixtures, synthetic role identities and actual authorized work; no ordinary records",
+      "source_identity": "app SHA256 021d46011ef00b58d6ef5a625052c89344c528fd82b61005d1db365ce65f36c0; capture BUILD_ID hLrd-akC3hUxBtgEdxX8K; test:e2e targeted-final-browser:22 passed",
+      "sha256": "2d19c78c012f6f0802ed5868dfa757d0867272ea9939f947d13e100317a3c21f"
+    },
+    "doctor": {
+      "file": "doctor.png",
+      "kind": "implemented synthetic UI",
+      "caption": "Doctor Patients workspace excerpt from the tested synthetic application. Its work counts are separate from Kavita’s fictional story.",
+      "role": "DOCTOR",
+      "route_or_tab": "/clinical · Patients",
+      "synthetic_fixture": "Guarded hims_test fixtures, synthetic role identities and actual authorized work; no ordinary records",
+      "source_identity": "app SHA256 021d46011ef00b58d6ef5a625052c89344c528fd82b61005d1db365ce65f36c0; capture BUILD_ID hLrd-akC3hUxBtgEdxX8K; test:e2e targeted-final-browser:22 passed",
+      "sha256": "9aa138473c1e5a7292b973a2d1be18bf460f24367f35c62433b93ce5167e4650"
+    },
+    "nursing": {
+      "file": "nursing.png",
+      "kind": "implemented synthetic UI",
+      "caption": "Nursing workspace excerpt showing actual synthetic attendance records. These test patients are separate from Kavita’s fictional story.",
+      "role": "NURSE",
+      "route_or_tab": "/nursing · My shift",
+      "synthetic_fixture": "Guarded hims_test fixtures, synthetic role identities and actual authorized work; no ordinary records",
+      "source_identity": "app SHA256 021d46011ef00b58d6ef5a625052c89344c528fd82b61005d1db365ce65f36c0; capture BUILD_ID hLrd-akC3hUxBtgEdxX8K; test:e2e targeted-final-browser:22 passed",
+      "sha256": "b86cc4bb02e2767747d504e21b9a9f570be465815440d958ea6f6f43361bc42b"
+    },
+    "pharmacy": {
+      "file": "pharmacy.png",
+      "kind": "implemented synthetic UI",
+      "caption": "Pharmacy Stock tab from the tested synthetic application. Its batches and work counts are separate from Kavita’s fictional story.",
+      "role": "PHARMACY",
+      "route_or_tab": "/pharmacy · Stock",
+      "synthetic_fixture": "Guarded hims_test fixtures, synthetic role identities and actual authorized work; no ordinary records",
+      "source_identity": "app SHA256 021d46011ef00b58d6ef5a625052c89344c528fd82b61005d1db365ce65f36c0; capture BUILD_ID hLrd-akC3hUxBtgEdxX8K; test:e2e targeted-final-browser:22 passed",
+      "sha256": "fc80ed9668d3bb9d564ed5ecac3ae0fc506c54a648f161c5adfc328e75218734"
+    },
+    "lab": {
+      "file": "lab.png",
+      "kind": "implemented synthetic UI",
+      "caption": "Lab Worklist tab from the tested synthetic application. Its test counts are separate from Kavita’s fictional story.",
+      "role": "LAB",
+      "route_or_tab": "/lab · Worklist",
+      "synthetic_fixture": "Guarded hims_test fixtures, synthetic role identities and actual authorized work; no ordinary records",
+      "source_identity": "app SHA256 021d46011ef00b58d6ef5a625052c89344c528fd82b61005d1db365ce65f36c0; capture BUILD_ID hLrd-akC3hUxBtgEdxX8K; test:e2e targeted-final-browser:22 passed",
+      "sha256": "35c479cde318c416908eb73c008dde66838691d1100d3bb342823dc430bd441f"
+    },
+    "insurance": {
+      "file": "insurance.png",
+      "kind": "implemented synthetic UI",
+      "caption": "Insurance assigned-case worklist from the tested synthetic application. The visible test patient is separate from Kavita’s fictional story.",
+      "role": "INSURANCE",
+      "route_or_tab": "/insurance · My assigned cases",
+      "synthetic_fixture": "Guarded hims_test fixtures, synthetic role identities and actual authorized work; no ordinary records",
+      "source_identity": "app SHA256 021d46011ef00b58d6ef5a625052c89344c528fd82b61005d1db365ce65f36c0; capture BUILD_ID hLrd-akC3hUxBtgEdxX8K; test:e2e targeted-final-browser:22 passed",
+      "sha256": "70a898a8758f0c03160c6706eb84850aca61e4d43eb7d39aef006ef1be7fafe0"
+    },
+    "billing": {
+      "file": "billing.png",
+      "kind": "implemented synthetic UI",
+      "caption": "Billing workspace excerpt from the tested synthetic application. Its work counts are separate from Kavita’s fictional bill calculation.",
+      "role": "BILLING",
+      "route_or_tab": "/billing · current worklist",
+      "synthetic_fixture": "Guarded hims_test fixtures, synthetic role identities and actual authorized work; no ordinary records",
+      "source_identity": "app SHA256 021d46011ef00b58d6ef5a625052c89344c528fd82b61005d1db365ce65f36c0; capture BUILD_ID hLrd-akC3hUxBtgEdxX8K; test:e2e targeted-final-browser:22 passed",
+      "sha256": "796d2c4e7c506365e8f0273ef6b42ac43c732e0ca8c98b946b617b3b7c468702"
+    },
+    "admin": {
+      "file": "admin.png",
+      "kind": "implemented synthetic UI",
+      "caption": "Admin Home excerpt showing actual synthetic physical bed counts. These test beds and counters are separate from Kavita’s fictional story.",
+      "role": "ADMIN",
+      "route_or_tab": "/overview · Home",
+      "synthetic_fixture": "Guarded hims_test fixtures, synthetic role identities and actual authorized work; no ordinary records",
+      "source_identity": "app SHA256 021d46011ef00b58d6ef5a625052c89344c528fd82b61005d1db365ce65f36c0; capture BUILD_ID hLrd-akC3hUxBtgEdxX8K; test:e2e targeted-final-browser:22 passed",
+      "sha256": "c902640e4342893de190127074071b9a18ca491357030d0ddded5c1600a11757"
+    }
+  },
+  "notes": "Real implemented application pixels from synthetic fixtures. Work-surface excerpts end at complete cards/rows. Different fixture people, counts and money do not depict Kavita’s story. No Figma bitmap is used."
+}

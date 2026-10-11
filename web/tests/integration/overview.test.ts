@@ -113,6 +113,9 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     const pending = await f.episode();
     let overview = await getOverview(context(f.admin), { asOf: new Date() });
     expect(overview.metrics).toMatchObject({ activeAdmissions: 0, pendingAdmissions: 1, reservedBeds: 1, occupiedBeds: 0 });
+    expect(overview.metrics).toMatchObject({ totalBeds: 1 });
+    expect(overview.bedOccupancy).toEqual([{ code: "GENERAL", name: "Synthetic General", total: 1, occupied: 0, reserved: 1, cleaning: 0, ready: 0, disabled: 0 }]);
+    expect(overview.physicalBeds).toEqual([{ id: expect.any(String), category: "GENERAL", occupied: false, reserved: true, cleaning: false, ready: false, disabled: false }]);
     expect(overview.configuration.stockThresholds).toBe("NO_STOCK");
     await expect(getOverview(context(f.doctor), { asOf: new Date() })).rejects.toMatchObject({ code: "FORBIDDEN" });
     const unsupported = { asOf: new Date(), wardId: "invented" };
@@ -123,6 +126,8 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     await (await import("../../src/server/admissions/commands")).activateAdmission(a, { admissionId: pending.admissionId, arrivedAt: new Date().toISOString(), expectedVersion: 1, requestId: a.requestId });
     overview = await getOverview(context(f.admin), { asOf: new Date(), bedCategory: "GENERAL" });
     expect(overview.metrics).toMatchObject({ activeAdmissions: 1, pendingAdmissions: 0, occupiedBeds: 1, reservedBeds: 0 });
+    expect(overview.bedOccupancy).toEqual([{ code: "GENERAL", name: "Synthetic General", total: 1, occupied: 1, reserved: 0, cleaning: 0, ready: 0, disabled: 0 }]);
+    expect(overview.physicalBeds).toEqual([{ id: expect.any(String), category: "GENERAL", occupied: true, reserved: false, cleaning: false, ready: false, disabled: false }]);
     const before = (await runtime.query("select (select count(*) from hims.audit_events) audit,(select count(*) from hims.clearance_invalidations) invalidations,(select count(*) from hims.care_tasks) tasks,(select count(*) from hims.charges) charges")).rows;
     const first = await getStaffWorklist(context(f.admin));
     const second = await getStaffWorklist(context(f.admin));

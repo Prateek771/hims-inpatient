@@ -50,6 +50,9 @@ describe("human discharge gates", () => {
     }
     const vacancy = f.nc(), vacatedAt = new Date();
     await discharge.recordRoomVacated(vacancy, { admissionId: f.admissionId, shiftId: f.shift.id, vacatedAt: vacatedAt.toISOString(), waitingLocation: "Actual off-bed waiting chairs", handover: "Continued care remains assigned", requestId: vacancy.requestId });
+    const overview = await (await import("../../src/server/overview")).getOverview(staffContext(f.admin, "synthetic-vacancy-occupancy"), { asOf: new Date() });
+    expect(overview.metrics).toMatchObject({ activeAdmissions: 1, totalBeds: 1, occupiedBeds: 0, reservedBeds: 1, availableBeds: 0 });
+    expect(overview.bedOccupancy).toEqual([{ code: "GENERAL", name: "Synthetic General", total: 1, occupied: 0, reserved: 1, cleaning: 0, ready: 0, disabled: 0 }]);
     const earlier = new Date(vacatedAt.getTime() - 1);
     expect(earlier.getTime()).toBeGreaterThan((await runtime.query("select started_at from hims.nursing_shifts where id=$1", [f.shift.id])).rows[0].started_at.getTime());
     async function effects() {

@@ -86,7 +86,7 @@ export function AdmissionForm({
     <form action={action}>
       <div className="admission-columns">
         <section className="card admission-details">
-          <h2>Patient &amp; admission details</h2>
+          <h2>Patient identity</h2>
           <p className="caption">
             Permanent patient identity stays the same; a new admission code is
             created for each stay.
@@ -101,7 +101,7 @@ export function AdmissionForm({
                 · {patient.sex}
               </p>
               <input type="hidden" name="patientId" value={patient.id} />
-              <Link href="/admissions">Register a different patient</Link>
+              <Link href="/admissions?view=intake">Register a different patient</Link>
             </div>
           ) : (
             <div className="fields admission-fields">
@@ -148,6 +148,7 @@ export function AdmissionForm({
               </label>
             </div>
           )}
+          <h3>Clinician-provided intake</h3>
           <div className="fields admission-fields">
             <label>
               Admitting doctor
@@ -251,7 +252,7 @@ export function AdmissionForm({
           </button>
         </section>
         <section className="card admission-payment">
-          <h2>Bed &amp; payment route</h2>
+          <h2>Pending bed reservation</h2>
           <div className="fields">
             <label>
               Payment route
@@ -331,7 +332,7 @@ export function AdmissionForm({
           <Link className="button" href={`/patients/${state.admissionId}`}>
             Open admission record
           </Link>
-          <a className="button secondary" href="/admissions">
+          <a className="button secondary" href="/admissions?view=intake">
             Start another admission
           </a>
         </div>

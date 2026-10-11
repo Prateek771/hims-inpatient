@@ -1,115 +1,54 @@
 "use client";
-import type { ReactNode } from "react";
+
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { StaffRole } from "@/server/contracts";
+import type { Staff } from "@/server/access";
+import { AccountControls } from "./account-controls";
 import { HospitalTimeProvider } from "./hospital-time-context";
+import { roleHome, roleNavigation } from "./role-navigation";
 
-const sections = [
-  "Admissions & beds",
-  "Doctor workspace",
-  "Nursing workspace",
-  "Pharmacy",
-  "Lab worklist",
-  "Charges & payments",
-  "Insurance paperwork",
-  "Discharge clearance",
-  "Final documents",
-  "Admin exceptions",
-];
-
-export function AppShell({
-  children,
-  role,
-  hospitalName,
-  timezone = "Asia/Kolkata",
-}: {
+export function AppShell({ children, role, staff, hospitalName, timezone = "Asia/Kolkata", asOf }: {
   children: ReactNode;
-  role?: StaffRole;
+  role: StaffRole;
+  staff: Staff;
   hospitalName?: string;
   timezone?: string;
+  asOf: string;
 }) {
   const path = usePathname();
-  const available =
-    role === "ADMISSION"
-      ? [{ label: "Admissions & beds", href: "/admissions" }, { label: "Insurance paperwork", href: "/insurance" }]
-      : role === "ADMIN"
-        ? [
-            { label: "Hospital overview", href: "/overview" },
-            { label: "Charges & payments", href: "/billing" },
-            { label: "Bed inventory", href: "/admin/beds" },
-            { label: "Hospital settings", href: "/admin/settings" },
-            { label: "Manage staff", href: "/admin/staff" },
-            { label: "Nursing assignments", href: "/admin/care" },
-            { label: "Pharmacy", href: "/pharmacy" },
-            { label: "Insurance paperwork", href: "/insurance" },
-          ]
-        : role === "BILLING" ? [{ label: "Charges & payments", href: "/billing" }, { label: "Insurance paperwork", href: "/insurance" }] : role === "DOCTOR" ? [{ label: "Doctor workspace", href: "/clinical" }, { label: "Nursing records", href: "/nursing" }] : role === "NURSE" ? [{ label: "Nursing workspace", href: "/nursing" }] : role === "PHARMACY" ? [{label:"Pharmacy",href:"/pharmacy"}] : role === "LAB" ? [{label:"Lab worklist",href:"/lab"}] : role === "INSURANCE" ? [{label:"Insurance paperwork",href:"/insurance"}] : [];
-  if(role && ["ADMIN","BILLING","DOCTOR","NURSE","PHARMACY"].includes(role)) available.push({label:"Discharge clearance",href:"/discharge"});
-  if(role && ["ADMIN","BILLING"].includes(role)) available.push({label:"Final documents",href:"/documents"});
-  if(role) available.push({label:role==="ADMIN"?"Admin exceptions":"Exception follow-up",href:"/exceptions"});
+  const [menuOpen, setMenuOpen] = useState(false);
+  const navigation = roleNavigation(role);
+  function isActive(href: string) {
+    return path === href || path.startsWith(`${href}/`)
+      || (role === "DOCTOR" && href === "/clinical" && path === "/nursing")
+      || (role === "ADMISSION" && href === "/admissions" && path.startsWith("/patients/"))
+      || (role === "ADMIN" && href === "/admin/beds" && path.startsWith("/patients/"));
+  }
+
   return (
     <HospitalTimeProvider timezone={timezone}>
-      <a className="skip-link" href="#main-content">
-        Skip to main content
-      </a>
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <div className="workspace">
         <aside className="sidebar">
-          <div className="brand">
-            <span className="monogram" aria-hidden="true">
-              H
-            </span>
-            <div>
-              <strong>HIMS</strong>
-              <span>{hospitalName ?? "Hospital workspace"}</span>
-            </div>
-          </div>
-          <p className="sidebar-label">Inpatient workspace</p>
-          <nav aria-label="Hospital sections">
-            <Link
-              className={`nav-item ${path === (role ? "/workspace" : "/") ? "active" : ""}`}
-              href={role ? "/workspace" : "/"}
-              aria-current={
-                path === (role ? "/workspace" : "/") ? "page" : undefined
-              }
-            >
-              {role ? "My workspace" : "Hospital overview"}
-            </Link>
-            {available.map((item) => (
-              <Link
-                className={`nav-item ${path === item.href ? "active" : ""}`}
-                aria-current={path === item.href ? "page" : undefined}
-                href={item.href}
-                key={item.href}
-              >
-                {item.label}
-              </Link>
-            ))}
-            {(role
-              ? []
-              : sections
-            ).map((section) => (
-              <span className="nav-item" aria-disabled="true" key={section}>
-                {section}
-              </span>
+          <div className="brand"><strong>HIMS</strong><span>{hospitalName ?? "Hospital workspace"}</span></div>
+          <p className="sidebar-label">{role}</p>
+          <button className="navigation-toggle button" type="button" aria-expanded={menuOpen} aria-controls="role-navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? "Close menu" : "Open menu"}</button>
+          <nav id="role-navigation" aria-label="Hospital sections" data-open={menuOpen}>
+            {navigation.map((item) => (
+              <Link className={`nav-item ${isActive(item.href) ? "active" : ""}`} aria-current={isActive(item.href) ? "page" : undefined} href={item.href} key={item.href} onClick={() => setMenuOpen(false)}>{item.label}</Link>
             ))}
           </nav>
-          <p className="sidebar-note">
-            Need help? Contact your hospital administrator.
-          </p>
+          <div className="sidebar-footer"><p>{staff.name}</p><p className="sidebar-note">Need help? Contact your hospital administrator.</p></div>
         </aside>
         <div className="application">
           <header className="topbar">
-            <span>Inpatient care workspace</span>
-            <span className="status">
-              {role === "ADMISSION"
-                ? "Admission desk"
-                : (role ?? "Development preview")}
-            </span>
+            <Link className="topbar-context" href={roleHome(role)}>{role === "ADMIN" ? "Hospital operations" : `${navigation[0].label} · authorized worklist`}</Link>
+            <time className="topbar-time" dateTime={asOf} title="Time this workspace was opened">{new Intl.DateTimeFormat("en-IN", { timeZone: timezone, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }).format(new Date(asOf))}</time>
+            <AccountControls key={staff.id} staff={staff} />
           </header>
-          <main id="main-content" tabIndex={-1}>
-            {children}
-          </main>
+          <main id="main-content" tabIndex={-1}>{children}</main>
         </div>
       </div>
     </HospitalTimeProvider>

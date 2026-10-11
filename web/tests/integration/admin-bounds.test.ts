@@ -6,6 +6,8 @@ import { billingFixture } from "../support/billing-fixture";
 import { POST as staffPost, PATCH as staffPatch } from "../../src/app/api/admin/staff/route";
 import { POST as settingPost } from "../../src/app/api/admin/settings/route";
 import { POST as authPost } from "../../src/app/api/auth/[...all]/route";
+import { getAuth } from "../../src/server/auth";
+import { requireStaff } from "../../src/server/access";
 loadLocalEnvironment();
 const ordinary = process.env.DATABASE_URL;
 afterEach(() => { process.env.DATABASE_URL = ordinary; });
@@ -37,4 +39,28 @@ it("authenticates Admin before consuming JSON and bounds declared and streamed b
   headers.set("content-length", "16385");
   const change = await authPost(new Request("http://127.0.0.1:3100/api/auth/change-password", { method: "POST", headers, body: JSON.stringify({ currentPassword: "SyntheticBillingOnly123!", newPassword: "SyntheticReplacementOnly123!" }) }));
   expect(change.status).toBe(400);
+}));
+
+it("changes a password through a Next-style proxied bounded request and revokes other sessions", async () => withTestDatabase(async () => {
+  process.env.DATABASE_URL = getTestDatabaseConfig().runtimeUrl;
+  const f = await billingFixture();
+  const current = await getAuth().api.signInEmail({ asResponse: true, body: { email: "admin@billing.invalid", password: "SyntheticBillingOnly123!" } });
+  expect(current.status).toBe(200);
+  const headers = new Headers({ cookie: current.headers.getSetCookie().map(cookie => cookie.split(";")[0]).join("; "), origin: process.env.BETTER_AUTH_URL!, "content-type": "application/json" });
+  const body = JSON.stringify({ currentPassword: "SyntheticBillingOnly123!", newPassword: "SyntheticProxiedReplacement123!", revokeOtherSessions: false });
+  headers.set("content-length", String(Buffer.byteLength(body)));
+  const original = new Request("http://127.0.0.1:3100/api/auth/change-password", { method: "POST", headers, body });
+  // Next's route wrapper proxies Request. Its getters work, but Node's private Request state is not on the Proxy.
+  const wrapped = new Proxy(original, { get: (target, key) => Reflect.get(target, key, target) });
+  const response = await authPost(wrapped);
+  expect(response.status).toBe(200);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  await expect(requireStaff(f.ah)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  const replacement = new Headers(headers);
+  replacement.set("cookie", response.headers.getSetCookie().map(cookie => cookie.split(";")[0]).join("; "));
+  expect((await requireStaff(replacement)).id).toBe(f.admin.id);
+  const oldPassword = await getAuth().api.signInEmail({ asResponse: true, body: { email: "admin@billing.invalid", password: "SyntheticBillingOnly123!" } });
+  expect(oldPassword.ok).toBe(false);
+  const updatedPassword = await getAuth().api.signInEmail({ asResponse: true, body: { email: "admin@billing.invalid", password: "SyntheticProxiedReplacement123!" } });
+  expect(updatedPassword.status).toBe(200);
 }));

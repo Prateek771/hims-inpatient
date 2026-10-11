@@ -27,7 +27,13 @@ async function handle(request: Request) {
     try {
       await requireStaff(request.headers);
       const body = passwordChange.parse(await boundedJsonBody(request, 16384));
-      request = new Request(request, {
+      const forwardedHeaders = new Headers(request.headers);
+      forwardedHeaders.delete("content-length");
+      // Next wraps route requests in a Proxy; Node cannot clone its private Request state.
+      request = new Request(request.url, {
+        method: request.method,
+        headers: forwardedHeaders,
+        signal: request.signal,
         body: JSON.stringify({
           currentPassword: body.currentPassword,
           newPassword: body.newPassword,

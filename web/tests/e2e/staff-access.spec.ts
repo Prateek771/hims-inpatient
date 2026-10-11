@@ -59,12 +59,11 @@ test("actual login, admin staff creation, settings history and wrong-role direct
     .getByLabel("Password", { exact: true })
     .fill("SyntheticE2EOnly123!");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Welcome, Synthetic E2E ADMIN" }),
-  ).toBeVisible();
+  await expect(page).toHaveURL(/\/overview$/);
+  await expect(page.getByRole("heading", { name: "Home", level: 1 })).toBeVisible();
   await page
-    .getByRole("main")
-    .getByRole("link", { name: "Manage staff" })
+    .getByRole("navigation", { name: "Hospital sections" })
+    .getByRole("link", { name: "Staff", exact: true })
     .click();
   const create = page
     .getByRole("heading", { name: "Create staff account" })
@@ -153,17 +152,17 @@ test("actual login, admin staff creation, settings history and wrong-role direct
   });
   expect(csrf.status()).toBe(403);
   await page.goto("/workspace");
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  await page.getByRole("button", { name: "Profile for Synthetic E2E ADMIN" }).click();
+  await page.getByRole("button", { name: "Logout", exact: true }).click();
   await expect(page).toHaveURL(/login/);
   await page.getByLabel("Email").fill("doctor@e2e.fixture.invalid");
   await page
     .getByLabel("Password", { exact: true })
     .fill("SyntheticE2EOnly123!");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(
-    page.getByRole("heading", { name: "Welcome, Synthetic E2E DOCTOR" }),
-  ).toBeVisible();
-  await expect(page.getByRole("link", { name: "Manage staff" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/clinical$/);
+  await expect(page.getByRole("heading", { name: "Patients", level: 1 })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Staff", exact: true })).toHaveCount(0);
   const wrong = await page.request.post("/api/admin/settings", {
     headers: { Origin: "http://127.0.0.1:3100" },
     data: {
@@ -174,7 +173,7 @@ test("actual login, admin staff creation, settings history and wrong-role direct
   });
   expect(wrong.status()).toBe(403);
   await page.goto("/admin/staff");
-  await expect(page).toHaveURL(/workspace/);
+  await expect(page).toHaveURL(/clinical/);
   expect((await request.get("/api/admin/staff")).status()).toBe(401);
   let throttled = false;
   for (let attempt = 0; attempt < 8; attempt++) {

@@ -1,5 +1,17 @@
 # HIMS build handoff
 
+## Owner-approved UI redesign successor · 11 October 2026
+
+The owner approved the final Figma file `SHtJNa3gp1oqOpNm8VzcmQ` and asked for actual codebase implementation in one next chat in this same project folder, using parallel subagents and a dedicated illustrated simple-language patient-journey guide agent. The [UI redesign handoff](UI_REDESIGN_HANDOFF.md) and updated [design reference](../DESIGN_REFERENCE.md) control this next work. No repeated approval is needed for this UI implementation. Existing Tasks 1–16 contracts, data preservation and exact-commit CI-before-main gates remain controlling. One successor chat owns app edits and serializes shared files/tests/builds/Git; non-overlapping subagent work inside it is explicitly authorized. This source chat ends its edits before dispatch. Use GPT-6.1 Sol / Extra High and the sole INS folder; do not resume old build chats.
+
+## Redesign implementation and guide · 11 October 2026
+
+The authorized successor implemented all eight approved role homes/menus and real task surfaces, shared Profile/Customize controls, draft-preserving keyboard tabs and responsive layouts. Six implementation tasks, role/job/permission coverage and the whole branch received independent specification/quality acceptance. The narrow read-only occupancy projection and bounded password Request transport repair preserve existing authority, validation and money rules; no schema, migration, business-command, dependency or provider changed. All source/review/guide writers released ownership. The controller alone completes shared checks, fixtures, Git and preview.
+
+The reviewed [editable patient journey](../guides/patient-journey.docx) and [15-page PDF](../guides/patient-journey.pdf) cover all eight roles, insured/self-pay cash and retained evidence with eight tested synthetic workspace excerpts. Guide source, exact file/image hashes and visual QA instructions are in [guide README](../guides/README.md). No real patient record or credential is included.
+
+Actual local/recovery/preservation/audit results and qualified failed intermediate runs are maintained in [redesign progress](UI_REDESIGN_PROGRESS.md). Exact release SHA, development/main CI and copied ordinary-preview identities are recorded after observation in ignored `tmp/ui-redesign/release-evidence.json`; GitHub Checks and live Git/process state remain authoritative. Keep this checkout on development. Preserve all77 original ordinary tables/30 rows, four native tables/five rows, ten private files and56 applied SQL/source bytes. This UI work needs no database restart/reset/reseed, account bootstrap or deployment. All older checkpoint/preview identities below are historical.
+
 ## Final whole-branch review and restart, 10 October 2026
 
 The owner explicitly authorized the final whole-branch review, fixing findings, fresh checks and main integration only after complete CI passes at the exact reviewed development commit. This supersedes the preceding Task 16 pause/main approval gate. Use GPT-6.1 Sol / Extra High only, this sole INS folder and `codex/hims-development`; retain that checkout after integration. No deployment, ordinary reset/reseed, provider replacement or real-data use is authorized.

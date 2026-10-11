@@ -1,16 +1,20 @@
 import { test, expect } from "@playwright/test";
 import { useStaffSession } from "../support/browser-session";
+import { submitServerAction } from "../support/server-action";
 import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { createHash } from "node:crypto";
 test("Admin/Billing can open the final-copy delivery workspace", async ({ page }) => {
   await useStaffSession(page, "BILLING"); await page.goto("/documents");
-  await expect(page.getByRole("heading", { name: "A complete discharge handover" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Final documents", level: 1 })).toBeVisible();
 });
 test("downloads the actual authenticated server PDF and separately uses native HTML printing", async ({ page, browser }, info) => {
+  // Real PDF generation/download, native print and protected access across contexts.
+  test.setTimeout(60_000);
   const f = JSON.parse(await readFile(resolve("tmp/e2e-documents.json"), "utf8")) as { admissionId: string };
   await useStaffSession(page, "BILLING"); await page.goto(`/documents?admissionId=${f.admissionId}`);
-  await page.getByRole("button", { name: "Generate current discharge copy" }).click();
+  await submitServerAction(page, page.getByRole("button", { name: "Generate current discharge copy" }));
+  await page.waitForURL(/\/documents\/[0-9a-f-]{36}$/, { waitUntil: "load" });
   await expect(page).toHaveURL(/\/documents\/[0-9a-f-]{36}$/);
   const id = page.url().split("/").at(-1)!;
   await expect(page.getByTestId("final-copy")).toContainText("Pneumonia José - सावधानी");

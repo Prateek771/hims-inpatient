@@ -15,14 +15,13 @@ export default async function StaffPage() {
   }
   return (
     <>
-      <Link href="/workspace">Back to workspace</Link>
-      <p className="eyebrow">Hospital administration</p>
-      <h1>Staff accounts</h1>
+      <Link href="/overview">Back to Home</Link>
+      <h1>Staff</h1>
       <p className="page-description">
-        Create hospital accounts and keep access current. Roles do not grant
-        another profession’s clearance authority.
+        Managed identities, professional roles and current access.
       </p>
-      <StaffForms staff={staff} />
+      <div className="admin-staff-forms"><StaffForms staff={staff} /></div>
+      <section className="notice"><h2>Current access and sessions</h2><p>Disabling an account, changing its role or resetting its password revokes existing sessions. The last active Administrator remains protected. Roles do not grant another profession’s clearance authority.</p></section>
     </>
   );
 }

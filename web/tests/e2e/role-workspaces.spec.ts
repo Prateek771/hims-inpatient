@@ -8,13 +8,20 @@ test.use({ timezoneId: "America/Los_Angeles" });
 for (const role of ["ADMIN", "ADMISSION", "DOCTOR", "NURSE", "PHARMACY", "LAB", "INSURANCE", "BILLING"] as const) {
   test(`${role} current work, role access, keyboard and desktop/narrow pixels`, async ({ page }) => {
     await useStaffSession(page, role);
-    await expect(page.getByRole("heading", { name: `Welcome, Synthetic E2E ${role}` })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Current work" })).toBeVisible();
+    const homeHeading = { ADMIN: "Home", ADMISSION: "Admissions", DOCTOR: "Patients", NURSE: "My shift", PHARMACY: "Medicine stock", LAB: "Lab", INSURANCE: "Insurance cases", BILLING: "Billing" }[role];
+    await expect(page.getByRole("heading", { name: homeHeading, level: 1, exact: true })).toBeVisible();
     await expect(page.getByText(/Asia\/Kolkata/).first()).toBeVisible();
     await expect(page.getByText(/build progresses|Task 11|Task11/)).toHaveCount(0);
-    await expect(page.getByTestId("staff-worklist").getByRole("columnheader", { name: "Patient / admission" })).toBeVisible();
+    // Role pages retain the exact authorized alert projection behind native disclosures.
+    const alertDisclosure = page.locator("details.staff-alerts-compact > summary").filter({ hasText: /^Attention needed/ });
+    if (await alertDisclosure.count()) await alertDisclosure.click();
     await expect(page.getByRole("heading", { name: "Attention needed" })).toBeVisible();
-    if (role === "PHARMACY") await expect(page.getByTestId("staff-worklist").getByText("DISCHARGED", { exact: true })).toHaveCount(0);
+    if (role === "PHARMACY") {
+      await page.getByRole("tab", { name: "Ward issues", exact: true }).click();
+      await expect(page.getByRole("tabpanel", { name: "Ward issues", exact: true }).getByText("DISCHARGED", { exact: true })).toHaveCount(0);
+      await expect(page.locator(".work-history").getByText("DISCHARGED", { exact: true })).toHaveCount(0);
+    }
+    await page.reload();
     await page.keyboard.press("Tab");
     await expect(page.getByRole("link", { name: "Skip to main content" })).toBeFocused();
     await page.keyboard.press("Enter");
@@ -25,24 +32,24 @@ for (const role of ["ADMIN", "ADMISSION", "DOCTOR", "NURSE", "PHARMACY", "LAB", 
       await expect(page.getByRole("heading", { name: "404", exact: true })).toBeVisible();
       await expect(page.getByTestId("overview-metrics")).toHaveCount(0);
       await page.goto("/workspace");
-      await expect(page.getByRole("heading", { name: `Welcome, Synthetic E2E ${role}` })).toBeVisible();
-      await expect(page.getByTestId("staff-worklist")).toBeVisible();
+      const homePath = { ADMISSION: "/admissions", DOCTOR: "/clinical", NURSE: "/nursing", PHARMACY: "/pharmacy", LAB: "/lab", INSURANCE: "/insurance", BILLING: "/billing" }[role];
+      await page.waitForURL(new RegExp(`${homePath}$`), { waitUntil: "load" });
+      await expect(page.getByRole("heading", { name: homeHeading, level: 1, exact: true })).toBeVisible();
     } else {
-      await page.getByRole("main").getByRole("link", { name: "Open hospital overview" }).click();
-      await expect(page.getByRole("heading", { name: "A clear view of today" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Home", level: 1 })).toBeVisible();
       await expect(page.getByTestId("overview-metrics")).toBeVisible();
       await expect(page.getByLabel("Bed category")).toBeVisible();
       await expect(page.getByRole("heading", { name: "Current posted money" })).toBeVisible();
     }
     await page.evaluate(() => document.fonts.ready);
-    const directory = resolve("../tmp/task15/author-final/screenshots");
+    const directory = resolve("../tmp/ui-redesign/browser");
     await mkdir(directory, { recursive: true });
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.screenshot({ path: resolve(directory, `${role.toLowerCase()}-desktop.png`), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.screenshot({ path: resolve(directory, `${role.toLowerCase()}-narrow.png`), fullPage: true });
-    const scroll = page.locator(".table-scroll").first();
+    const scroll = page.locator(".table-scroll:visible").first();
     if (await scroll.count()) {
       await scroll.scrollIntoViewIfNeeded();
       await expect(async () => { await scroll.focus(); await expect(scroll).toBeFocused(); }).toPass();
@@ -57,15 +64,17 @@ test("overview uses real empty/large values and a safe error state", async ({ pa
   await page.goto("/overview?bedCategory=OV_EMPTY");
   const emptyMetrics = page.getByTestId("overview-metrics").locator("strong");
   await expect(emptyMetrics.nth(0)).toHaveText("0");
-  await expect(emptyMetrics.nth(1)).toHaveText("0");
+  await expect(emptyMetrics.nth(1)).toHaveText("0%");
   await expect(emptyMetrics.nth(2)).toHaveText("0");
+  await expect(emptyMetrics.nth(3)).toHaveText("0");
   await expect(page.getByText("No current signed discharge summaries awaiting review.")).toBeVisible();
   const sharedStockAlerts = page.locator(".staff-alerts .alert-list > li");
-  expect(Number(await emptyMetrics.nth(3).innerText())).toBe(await sharedStockAlerts.count());
+  expect(Number(await emptyMetrics.nth(4).innerText())).toBe(await sharedStockAlerts.count());
   for (const heading of await sharedStockAlerts.getByRole("heading").allTextContents()) expect(["Review medicine stock", "Review expired retained stock"]).toContain(heading);
   if (!(await sharedStockAlerts.count())) await expect(page.getByText("No current actionable alerts in your authorized work.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Current posted money" }).locator("..").getByText("₹0.00", { exact: true })).toHaveCount(4);
-  const directory = resolve("../tmp/task15/author-final/screenshots");
+  const directory = resolve("../tmp/ui-redesign/browser");
+  await mkdir(directory, { recursive: true });
   await page.screenshot({ path: resolve(directory, "overview-empty-zero.png"), fullPage: true });
   await page.getByLabel("Bed category").selectOption("OV_LARGE");
   await page.getByRole("button", { name: "Apply filter" }).click();
@@ -83,7 +92,7 @@ test("overview uses real empty/large values and a safe error state", async ({ pa
 
 test("workspace navigation exposes a loading state without placeholder counts", async ({ page }) => {
   await useStaffSession(page, "ADMIN");
-  await expect(page.getByRole("heading", { name: "Welcome, Synthetic E2E ADMIN" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Home", level: 1 })).toBeVisible();
   const { ownerUrl, databaseName } = getTestDatabaseConfig();
   const client = new Client({ connectionString: ownerUrl });
   await client.connect();
@@ -102,6 +111,6 @@ test("workspace navigation exposes a loading state without placeholder counts", 
     const heldMilliseconds = Date.now() - lockedAt;
     await loadingPixels;
     await writeFile(resolve("../tmp/task15/author-final/loading-lock.json"), JSON.stringify({ target: "guarded synthetic hims.care_occurrences", observedLoading: true, placeholderCounts: false, releasedBeforeAwaitingPixels: true, lockHeldMilliseconds: heldMilliseconds, maximumIdleTransactionMilliseconds: 5000 }, null, 2));
-    await expect(page.getByRole("heading", { name: "A clear view of today" })).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("heading", { name: "Home", level: 1 })).toBeVisible({ timeout: 15000 });
   } finally { await client.query("rollback"); await client.end(); }
 });

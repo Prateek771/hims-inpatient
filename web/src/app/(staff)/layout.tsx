@@ -21,7 +21,7 @@ export default async function StaffLayout({
     .from(hospitalSettings)
     .limit(1);
   return (
-    <AppShell role={staff.role} hospitalName={hospital?.name} timezone={hospital?.timezone}>
+    <AppShell role={staff.role} staff={staff} hospitalName={hospital?.name} timezone={hospital?.timezone} asOf={new Date().toISOString()}>
       {children}
     </AppShell>
   );

@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatINR } from "@/server/billing/money";
+import { WorkflowTabs } from "@/components/workflow-tabs";
 type Version = {
   id: string;
   kind: string;
@@ -157,7 +158,9 @@ export function SettingsForms({
           inpatient charging can begin.
         </p>
       )}
-      {section(
+      <div className="settings-workspace">
+      <WorkflowTabs id="hospital-settings" items={[
+      { id: "hospital", label: "Hospital", children: section(
         "Hospital details",
         "hospital",
         <>
@@ -173,8 +176,8 @@ export function SettingsForms({
             value={hospital?.timezone ?? "Asia/Kolkata"}
           />
         </>,
-      )}
-      {section(
+      ) },
+      { id: "bed-category", label: "Bed categories", children: section(
         "Bed categories",
         "bed-category",
         <>
@@ -185,8 +188,8 @@ export function SettingsForms({
             Category active
           </label>
         </>,
-      )}
-      {section(
+      ) },
+      { id: "tariff", label: "Room tariffs", children: section(
         "Room tariff",
         "tariff",
         <>
@@ -216,8 +219,8 @@ export function SettingsForms({
           <p>Grace is subtracted once per half-open stay. Remaining elapsed time uses the selected exact or started-unit rounding; no recurring daily grace is assumed.</p>
           <p>An explicitly saved zero room tariff is supported; an absent tariff never implies free accommodation.</p>
         </>,
-      )}
-      {section(
+      ) },
+      { id: "billable-item", label: "Billable items", children: section(
         "Billable items and prices",
         "billable-item",
         <>
@@ -233,8 +236,8 @@ export function SettingsForms({
           <p>Zero unit price is an explicit administrator policy version. Missing or inactive configuration still blocks posting.</p>
           <p>Doctor consultation/procedure → DOCTOR; medicine → PHARMACY; consumable → NURSE; lab/radiology → LAB. Missing/inactive prices block posting. Tax, bundled packages and doctor-specific fee mappings are not configured here.</p>
         </>,
-      )}
-      {section(
+      ) },
+      { id: "deposit", label: "Deposits", children: section(
         "Initial deposit rule",
         "deposit",
         <>
@@ -259,8 +262,8 @@ export function SettingsForms({
             reference rate before they can be configured.
           </p>
         </>,
-      )}
-      {section(
+      ) },
+      { id: "alert", label: "Alerts", children: section(
         "Staff follow-up alerts",
         "alert",
         <>
@@ -275,7 +278,8 @@ export function SettingsForms({
             record payment.
           </p>
         </>,
-      )}
+      ) },
+      ]} />
       <section className="card">
         <h2>Settings version history</h2>
         {!versions.length ? (
@@ -343,6 +347,7 @@ export function SettingsForms({
           ))
         )}
       </section>
+      </div>
     </>
   );
 }

@@ -1,0 +1,42 @@
+# Approved final-product UI implementation handoff
+
+Owner authorization: **11 October 2026**, after reviewing the final Figma prototype: “ok, i am good with it … start working … actual code base in the next chat inside the same project folder … use multiple sub agents … one agent … document including the images … patient admits till discharge … real world example … simple language.”
+
+## Goal and ownership
+
+Implement the approved eight-role design in the existing Next.js app, connected to every relevant Tasks 1–16 job, and deliver an illustrated plain-language patient-journey guide. Exactly one successor chat owns the build. Parallel subagents are explicitly authorized inside it with non-overlapping file ownership. Shared shell/styles/contracts, Git, fixtures/builds/tests and preview have serialized owners. The source chat stops editing before dispatch; do not resume old authors/chats.
+
+Only folder: `C:\Users\prate\OneDrive\Desktop\INS`. Branch: `codex/hims-development`; leave checkout on it after authorized integration. Use **GPT-6.1 Sol / Extra High** for controller and agents. No worktree/extra checkout, deployment, provider change, ordinary reset/reseed, account bootstrap or migration rewrite.
+
+Source observed during handoff: `dfd0a618f2a74c87b6ec2174433cc6295603d5c3`; working tree was clean before approval/handoff documentation edits. This is a source observation, not fresh CI evidence. Recheck current Git/CI/processes. Tasks 1–16 and runtime findings are already accepted; redesign the UI instead of redispatching the original tasks.
+
+## Inputs and implementation
+
+Read root/web AGENTS, [project context](project-context.md), [design reference](../DESIGN_REFERENCE.md), [scope](../PROJECT_SCOPE.md), [build handoff](BUILD_HANDOFF.md) and the latest ignored `.superpowers/sdd/2026-10-09-hims-inpatient/final-review-progress.md`. Load Figma design-to-code before design-context calls. Inspect live role/component screens, `tmp/final-product/final-state-current.json`, its README, actual role pages/forms/server projections and relevant feature contracts.
+
+- Preserve server roles/record scope, every existing action, URLs where practical, actor attribution, immutable versions/addenda/source corrections, exact transfer/charge boundaries, sequential clearances and specific exceptions. Doctor starts with Patients; Nurse with My shift; other staff with their actual job worklist. Group related work into purposeful patient/task tabs; never drop jobs by hiding old pages. Admin uses all approved jobs without a cap.
+- Match native composition, typography, spacing, colours and occupancy bars through minimal reusable existing patterns. Counts/queues/forms must use actual authorized records, not prototype people or statistics. Show honest empty/loading/error/unconfigured/blocked/pending states.
+- Working Profile/password/Logout and adjacent Customize; self-profile does not grant role/name administration. Personal accent/density/motion preferences may use the simplest suitable native persistence, separate from hospital policy/access. Respect reduced motion, keyboard/focus, status labels/contrast and responsive narrow layouts. This approval includes implementing the visual controls; it does not authorize new business modules or external integrations.
+- Actual command authority overrides stale docs: create admission Admission-only, activate Admission/Admin, Admission patient deposits/top-ups only, Billing settlement without activation, no Admin clinical impersonation, human Lab reports, manual insurance paperwork, fixed deposit rules. Money remains deterministic; insurer authorization is separate from received cash. All existing form validation/history and negative role tests remain effective.
+- Prefer UI-only changes without schema/dependency changes. Narrow adapters must preserve existing server contracts. Keep real records/credentials/private files out of screenshots and Git.
+
+## Parallel work plan
+
+Map exact files/routes and write a task-sized implementation plan before app edits. Entrypoints include `web/src/components/app-shell.tsx`, `web/src/app/globals.css`, `web/src/app/(staff)/workspace/page.tsx`, overview/admissions/patients/pharmacy/lab/insurance/billing/discharge/exceptions/admin pages, their existing form components, and `web/tests/e2e/` role/flow tests. Establish one shared-shell/style owner first, then dispatch bounded non-overlapping care and operational/financial tasks consuming that interface. Use available slots for multiple agents, including a dedicated guide agent, and reuse slots as tasks finish until all eight roles are complete. Read-only reviewers must not become extra writers. Agents never run concurrent whole checks, manipulate Git, reset fixtures or restart services; the controller serializes those operations. All outputs stay inside INS.
+
+## Dedicated guide agent
+
+Deliver an editable **DOCX plus PDF** and synthetic image/source assets under `docs/guides/`, titled “A patient’s journey through HIMS — from first admission to discharge.” Load Documents/PDF skills; embed readable approved Figma screenshots or synthetic implemented-app screenshots with captions, plus simple labelled process illustrations. Explain one realistic **fictional first-time inpatient** story in simple language: who acts, what they record, what the next staff member sees and when work passes between them. Do not use real patient data or medical treatment recommendations.
+
+Cover all eight roles; permanent UHID versus episode IP code; clinician-provided destination, pending reservation versus actual arrival; deposits/actual receipts; rounds/orders/observations/MAR/shift handover; Pharmacy issue versus Nurse administration; Lab sample/barcode/human reports; exact transfers where used; externally verified insurance/manual paperwork; summary/prescription; Doctor → Pharmacy → Nursing → Billing/Admin gates; actual settlement/allocation/refund, bed vacancy/departure/cleaning and retained final documents. Include self-pay differences, what happens when evidence/money is missing, actor table, chronological illustrated story and small glossary.
+
+Use one consistent illustrative calculation: net bill ₹1,15,000, verified insurer share ₹90,000, patient share ₹25,000, patient deposit ₹30,000; allocate ₹25,000 and actually refund ₹5,000. Insurer authorization alone does not settle ₹90,000. These are examples, not hospital tariff policy. Distinguish general hospital practice from this HIMS’s configured rules; verify any external process/medical claims with current primary hospital/public-health sources. Never call this product’s payer-cash gate a universal hospital/legal rule or imply live AI/payer/payment connections.
+
+Guide agent owns only document/source/assets. The controller reconciles final screenshots/captions against implemented UI. Render and inspect every page, fix image/text clipping/readability, extract meaningful PDF text, and deliver clickable DOCX/PDF links. Draft screenshots must be replaced or labelled truthfully.
+
+## Completion and integration
+
+1. Independent role/job/permission coverage review and final whole-branch review; fix established findings. Meaningful synthetic browser journeys, keyboard/narrow-layout checks and role/form denials must cover the redesigned paths.
+2. Fresh `npm --prefix web run check`: unit, actual PostgreSQL integration, lint/types, build, Chromium/HTTP and isolated recovery. Runtime `npm --prefix web audit --omit=dev`; report full audit separately. Preserve meaningful checks, ordinary/native rows/accounts/settings/credentials/private files and applied SQL bytes. No ordinary seed/reset; port3100/synthetic fixtures independent of localhost3000. Record exact commands/results, source identity and preservation evidence.
+3. Reviewed verified commit/push to development; integrate nonforce into main **only after complete CI passes at that exact development commit**; confirm exact main CI. Leave checkout on development. No deployment. If a gate fails, fix and reverify before integration.
+4. After gates refresh the ordinary localhost preview from the accepted build using freshly verified process identities; retain old artifacts. UI work needs no new PostgreSQL restart. Update context/progress/design implementation state and document locations. Report actual checks, commits/CI, working preview, changed role flows and guide links. Work continuously under this approval; ask only for an essential missing owner-only decision.

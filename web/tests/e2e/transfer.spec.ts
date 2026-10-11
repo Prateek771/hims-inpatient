@@ -3,11 +3,13 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { useStaffSession } from "../support/browser-session";
 import { fillUtcDateTime } from "../support/datetime-input";
+import { openWorkflowTab } from "../support/workflow-tabs";
 
 test("doctor authority and nurse handover move an independent episode with visible exact stay history", async ({ page }, testInfo) => {
   const fixture = JSON.parse(await readFile(resolve("tmp/e2e-transfer.json"), "utf8")) as { admissionId: string; sourceBedLabel: string; targetBedId: string; targetBedLabel: string };
   await useStaffSession(page, "DOCTOR");
   await page.goto(`/clinical?admissionId=${fixture.admissionId}`);
+  await openWorkflowTab(page, "Transfer");
   const order = page.getByTestId("transfer-order-form");
   await order.getByLabel("Clinical destination").selectOption("ICU");
   await order.getByLabel("Transfer reason / clinical instructions").fill("Synthetic clinician escalation; prescribed monitoring continues");
@@ -21,11 +23,14 @@ test("doctor authority and nurse handover move an independent episode with visib
   await page.setViewportSize({ width: 1280, height: 720 });
   await useStaffSession(page, "NURSE");
   await page.goto(`/nursing?admissionId=${fixture.admissionId}`);
+  await openWorkflowTab(page, "Transfer");
   await expect(page.getByText("Start your assigned shift before signing an actual transfer handover.")).toBeVisible();
+  await openWorkflowTab(page, "Handover");
   const shift = page.getByTestId("shift-start");
   await fillUtcDateTime(shift.getByLabel("Shift start (Asia/Kolkata)"), new Date());
   await shift.getByLabel("Incoming handover").fill("Synthetic transfer case received");
   await shift.getByRole("button", { name: "Start assigned shift" }).click();
+  await openWorkflowTab(page, "Transfer");
   const transfer = page.getByTestId("transfer-form");
   await expect(transfer).toBeVisible();
   await transfer.getByLabel("Available target bed").selectOption(fixture.targetBedId);
@@ -38,6 +43,7 @@ test("doctor authority and nurse handover move an independent episode with visib
   await expect(history).toContainText("Doctor authority");
   await expect(page.getByTestId("transfer-form")).toHaveCount(0);
   await expect(page.getByText("No current doctor transfer order. Clinical authority is required before a bed move.")).toBeVisible();
+  await openWorkflowTab(page, "Observations");
   await expect(page.getByRole("cell").filter({ hasText: "Synthetic unresolved monitoring for handover" }).first()).toBeVisible();
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: testInfo.outputPath("transfer-nurse-desktop.png"), fullPage: true });
@@ -46,6 +52,8 @@ test("doctor authority and nurse handover move an independent episode with visib
   await page.screenshot({ path: testInfo.outputPath("transfer-nurse-narrow.png"), fullPage: true });
   await useStaffSession(page, "ADMIN");
   await page.goto("/admin/beds");
-  await expect(page.getByRole("row").filter({ hasText: fixture.sourceBedLabel })).toContainText("Available");
-  await expect(page.getByRole("row").filter({ hasText: fixture.targetBedLabel })).toContainText("Reserved / occupied");
+  await page.getByText("Physical bed inventory and disable controls", { exact: true }).click();
+  const inventory = page.getByRole("region", { name: "Physical bed inventory table" });
+  await expect(inventory.getByRole("row").filter({ hasText: fixture.sourceBedLabel })).toContainText("Cleaning");
+  await expect(inventory.getByRole("row").filter({ hasText: fixture.targetBedLabel })).toContainText("Occupied");
 });

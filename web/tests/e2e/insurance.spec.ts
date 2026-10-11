@@ -3,11 +3,12 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { useStaffSession } from "../support/browser-session";
 import { fillUtcDateTime } from "../support/datetime-input";
+import { openWorkflowTab } from "../support/workflow-tabs";
 test("Insurance shows excess patient payment for Billing review after a revised allocation",async({page},testInfo)=>{
   const f=JSON.parse(await readFile(resolve("tmp/e2e-insurance.json"),"utf8")) as {revisedCaseId:string};
   await useStaffSession(page,"INSURANCE");
-  await page.goto(`/insurance?caseId=${f.revisedCaseId}`);
-  const amount=(label:string)=>page.locator(".insurance-money dt").filter({hasText:new RegExp(`^${label}$`)}).locator("+ dd");
+  await page.goto(`/insurance?caseId=${f.revisedCaseId}`);await openWorkflowTab(page,"Decision");
+  const amount=(label:string)=>page.getByRole("tabpanel",{name:"Decision",exact:true}).locator(".insurance-money dt").filter({hasText:new RegExp(`^${label}$`)}).locator("+ dd");
   await expect(amount("Posted bill")).toHaveText("₹1,000.00");
   await expect(amount("Patient responsibility")).toHaveText("₹700.00");
   await expect(page.getByTestId("insurer-outstanding")).toHaveText("₹0.00");
@@ -19,7 +20,7 @@ test("Insurance shows excess patient payment for Billing review after a revised 
   await fillUtcDateTime(decision.getByLabel("Verified at (Asia/Kolkata)",{exact:true}),new Date(Date.now()-60000));
   await decision.getByRole("button",{name:"Save external decision"}).click();
   await expect(decision.getByRole("status")).toContainText("Staff record saved");
-  await page.reload(); // Assert persisted rendering, not optimistic form state.
+  await page.reload();await openWorkflowTab(page,"Decision"); // Assert persisted rendering, not optimistic form state.
   await expect(amount("Patient responsibility")).toHaveText("₹100.00");
   await expect(amount("Actual insurer receipt")).toHaveText("₹300.00");
   await expect(page.getByTestId("insurer-outstanding")).toHaveText("₹600.00");
@@ -28,7 +29,7 @@ test("Insurance shows excess patient payment for Billing review after a revised 
   await expect(page.getByText("Staff allocation recorded against this posted bill.",{exact:false})).toBeVisible();
   await expect(amount("Excess patient payment — Billing refund review required")).toHaveText("₹600.00");
   await expect(page.getByRole("link",{name:"Open billing record"})).toHaveCount(0);
-  await page.getByRole("heading",{name:"Paperwork ready. Decisions recorded."}).click();
+  await page.getByRole("heading",{name:"Insurance cases",exact:true}).click();
   await page.evaluate(()=>document.fonts.ready);
   await page.screenshot({path:testInfo.outputPath("insurance-excess-desktop.png"),fullPage:true});
   await page.setViewportSize({width:390,height:844});
@@ -36,10 +37,12 @@ test("Insurance shows excess patient payment for Billing review after a revised 
   await page.screenshot({path:testInfo.outputPath("insurance-excess-narrow.png"),fullPage:true});
 });
 test("Insurance records verified policy/decisions and protects actual HTTP document uploads and downloads",async({page},testInfo)=>{
+  // This real multi-role upload/decision/conversion journey also renders nine proofs.
+  test.setTimeout(60_000);
   const f=JSON.parse(await readFile(resolve("tmp/e2e-insurance.json"),"utf8")) as {caseId:string;wrongCaseId:string};
-  await useStaffSession(page,"INSURANCE");await page.getByRole("navigation",{name:"Hospital sections"}).getByRole("link",{name:"Insurance paperwork",exact:true}).click();await page.goto(`/insurance?caseId=${f.caseId}`);
-  await expect(page.getByRole("heading",{name:"Paperwork ready. Decisions recorded."})).toBeVisible();await expect(page.getByText("Private clinical assessment excluded from Insurance")).toHaveCount(0);await expect(page.getByText("Synthetic unassigned private case")).toHaveCount(0);
-  await page.getByText("Attach or replace a protected document",{exact:true}).click();const upload=page.getByTestId("insurance-upload");const bytes=Buffer.from("%PDF-1.4\nSynthetic case material only\n%%EOF");
+  await useStaffSession(page,"INSURANCE");await page.getByRole("navigation",{name:"Hospital sections"}).getByRole("link",{name:"Cases",exact:true}).click();await page.goto(`/insurance?caseId=${f.caseId}`);
+  await expect(page.getByRole("heading",{name:"Insurance cases",exact:true})).toBeVisible();await expect(page.getByText("Private clinical assessment excluded from Insurance")).toHaveCount(0);await expect(page.getByText("Synthetic unassigned private case")).toHaveCount(0);
+  await openWorkflowTab(page,"Documents");const upload=page.getByTestId("insurance-upload");const bytes=Buffer.from("%PDF-1.4\nSynthetic case material only\n%%EOF");
   await upload.getByLabel("Case document",{exact:true}).setInputFiles({name:"synthetic-policy.pdf",mimeType:"application/pdf",buffer:bytes});await upload.getByRole("button",{name:"Attach protected document",exact:true}).click();const link=page.getByRole("link",{name:"synthetic-policy.pdf",exact:true});await expect(link).toBeVisible();const downloadUrl=(await link.getAttribute("href"))!;
   const downloaded=await page.request.get(downloadUrl);expect(downloaded.status()).toBe(200);expect(downloaded.headers()["content-disposition"]).toContain("attachment");expect(downloaded.headers()["cache-control"]).toContain("no-store");expect(downloaded.headers()["x-content-type-options"]).toBe("nosniff");expect(await downloaded.body()).toEqual(bytes);
   const endpoint=`/api/insurance/cases/${f.caseId}/documents`,origin="http://127.0.0.1:3100";
@@ -50,17 +53,17 @@ test("Insurance records verified policy/decisions and protects actual HTTP docum
   expect((await page.request.post(endpoint,{headers:{origin},multipart:multipart(Buffer.alloc(10485761))})).status()).toBe(400);
   expect((await page.request.get(downloadUrl.replace(f.caseId,f.wrongCaseId))).status()).toBe(403);
   expect((await page.request.post(`/api/insurance/cases/${f.wrongCaseId}/documents`,{headers:{origin},multipart:multipart(bytes)})).status()).toBe(403);
-  await page.getByText("Record externally verified policy",{exact:true}).click();const policy=page.getByTestId("insurance-policy");
+  await openWorkflowTab(page,"Decision");await page.getByText("Record externally verified policy",{exact:true}).click();const policy=page.getByTestId("insurance-policy");
   for(const [label,value] of [["Insurer","Synthetic external insurer"],["Policy number","SYN-POL-1"],["Member number","SYN-MEM-1"],["Valid from","2026-01-01"],["Valid to","2027-12-31"],["External verifier / hospital staff","External human verifier"],["External reference","VERIFY-SYN-1"]])await policy.getByLabel(label,{exact:true}).fill(value);
   await fillUtcDateTime(policy.getByLabel("Verified at (Asia/Kolkata)",{exact:true}),new Date(Date.now()-60000));await policy.getByLabel("synthetic-policy.pdf",{exact:true}).check();await policy.getByRole("button").click();await expect(policy.getByRole("status")).toContainText("Staff record saved");
   await page.getByText("Record payer decision and allocation",{exact:true}).click();const decision=page.getByTestId("insurance-decision");await decision.getByLabel("External status").selectOption("APPROVED");
   for(const [label,value] of [["External verifier / hospital staff","External payer human"],["External reference","AUTH-SYN-1"],["Decision reason / exclusions","Synthetic external approval; zero posted bill"],["Authorized amount (INR)","1000"],["Staff-verified eligible bill (INR)","0"],["Staff-verified non-payables (INR)","0"],["Allocation verification reference","Current zero posted bill reviewed"]])await decision.getByLabel(label,{exact:true}).fill(value);
-  await fillUtcDateTime(decision.getByLabel("Verified at (Asia/Kolkata)",{exact:true}),new Date(Date.now()-60000));await decision.getByRole("button").click();await expect(decision.getByRole("status")).toContainText("Staff record saved");await expect(page.getByText("APPROVED",{exact:true})).toBeVisible();
-  await page.getByText("Record manual pre-auth, enhancement or appeal work",{exact:true}).click();const followup=page.getByTestId("insurance-followup");await followup.getByLabel("Request type").selectOption("ENHANCEMENT");await followup.getByLabel("Follow-up reference").fill("PORTAL-SYN-1");await followup.getByLabel("Staff next action").fill("Staff to review payer portal through existing hospital process");await followup.getByRole("button").click();await expect(page.getByText("ENHANCEMENT · OPEN",{exact:true})).toBeVisible();
-  await page.locator("details[open] > summary").evaluateAll(elements=>elements.forEach(e=>(e.parentElement as HTMLDetailsElement).open=false));await page.getByRole("heading",{name:"Paperwork ready. Decisions recorded."}).click();await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:testInfo.outputPath("insurance-desktop.png"),fullPage:true});await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:testInfo.outputPath("insurance-narrow.png"),fullPage:true});
+  await fillUtcDateTime(decision.getByLabel("Verified at (Asia/Kolkata)",{exact:true}),new Date(Date.now()-60000));await decision.getByRole("button").click();await expect(decision.getByRole("status")).toContainText("Staff record saved");await expect(page.getByRole("tabpanel",{name:"Decision",exact:true}).locator(".status").first()).toContainText("APPROVED");
+  await openWorkflowTab(page,"Case");await page.getByText("Record manual pre-auth, enhancement or appeal work",{exact:true}).click();const followup=page.getByTestId("insurance-followup");await followup.getByLabel("Request type").selectOption("ENHANCEMENT");await followup.getByLabel("Follow-up reference").fill("PORTAL-SYN-1");await followup.getByLabel("Staff next action").fill("Staff to review payer portal through existing hospital process");await followup.getByRole("button").click();await expect(page.getByText("ENHANCEMENT · OPEN",{exact:true})).toBeVisible();
+  await page.locator("details[open] > summary").evaluateAll(elements=>elements.forEach(e=>(e.parentElement as HTMLDetailsElement).open=false));await page.getByRole("heading",{name:"Insurance cases",exact:true}).click();await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:testInfo.outputPath("insurance-desktop.png"),fullPage:true});await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:testInfo.outputPath("insurance-narrow.png"),fullPage:true});
   const currentAlerts = () => page.locator(".staff-alerts li").filter({has:page.locator(`a[href="/insurance?caseId=${f.caseId}"]`)});
-  const showAllAlerts = async () => { await expect(page.getByRole("heading",{name:"Attention needed"})).toBeVisible(); const more=page.locator(".staff-alerts > details > summary"); if(await more.count()) await more.click(); };
-  await page.setViewportSize({width:1440,height:1100}); await page.goto("/workspace");
+  const showAllAlerts = async () => { const outer=page.locator("details.staff-alerts-compact > summary").filter({hasText:/^Attention needed/}); if(await outer.count()) await outer.click(); await expect(page.getByRole("heading",{name:"Attention needed"})).toBeVisible(); const more=page.locator(".staff-alerts > details > summary"); if(await more.count()) await more.click(); };
+  await page.setViewportSize({width:1440,height:1100}); await page.goto("/workspace");await page.waitForURL(/\/insurance$/, {waitUntil:"load"});
   await showAllAlerts();
   await expect(currentAlerts()).toHaveCount(1);
   await expect(currentAlerts().getByRole("heading",{name:"Review enhancement follow-up"})).toBeVisible();
@@ -74,13 +77,13 @@ test("Insurance records verified policy/decisions and protects actual HTTP docum
   await expect(currentAlerts()).toContainText("Insurance desk");
   await page.setViewportSize({width:1440,height:1100}); await page.screenshot({path:testInfo.outputPath("fix1-admin-open-desktop.png"),fullPage:true});
   await useStaffSession(page,"BILLING"); await page.goto(`/insurance?caseId=${f.caseId}`);
-  await page.getByText("Convert to self-pay after verified responsibility review",{exact:true}).click();
+  await openWorkflowTab(page,"Decision");await page.getByText("Convert to self-pay after verified responsibility review",{exact:true}).click();
   const conversion=page.getByTestId("insurance-convert");
   for(const [label,value] of [["External verifier / hospital staff","External human"],["External reference","FIX1-BROWSER-CONVERSION"],["Conversion reason","Verified self-pay route with zero current posted bill"],["Verified patient responsibility (INR)","0"],["Retained paid insurer responsibility (INR)","0"],["Complete responsibility resolution reference","Every current posted paise resolved"]]) await conversion.getByLabel(label,{exact:true}).fill(value);
   await fillUtcDateTime(conversion.getByLabel("Verified at (Asia/Kolkata)",{exact:true}),new Date(Date.now()-60000));
   await conversion.getByRole("button",{name:"Record self-pay conversion"}).click();
-  await expect(page.getByText("Converted to self-pay",{exact:true})).toBeVisible();
-  await useStaffSession(page,"INSURANCE"); await page.goto("/workspace");
+  await expect(page.getByRole("region",{name:"Selected insurance case"})).toContainText("Converted to self-pay");
+  await useStaffSession(page,"INSURANCE"); await page.goto("/workspace");await page.waitForURL(/\/insurance$/, {waitUntil:"load"});
   await showAllAlerts();
   await expect(currentAlerts()).toHaveCount(1);
   await expect(currentAlerts().getByRole("heading",{name:"Review enhancement follow-up"})).toBeVisible();
@@ -92,7 +95,7 @@ test("Insurance records verified policy/decisions and protects actual HTTP docum
   await completion.getByLabel("Follow-up outcome reference").fill("FIX1-BROWSER-DONE"); await completion.getByLabel("Follow-up outcome",{exact:true}).fill("Staff completed the retained follow-up");
   await completion.getByRole("button",{name:"Record follow-up completed"}).click();
   await expect(page.getByText("ENHANCEMENT · COMPLETED",{exact:true})).toBeVisible();
-  await page.goto("/workspace"); await expect(page.getByRole("heading",{name:"Attention needed"})).toBeVisible(); await expect(currentAlerts()).toHaveCount(0);
+  await page.goto("/workspace");await page.waitForURL(/\/insurance$/, {waitUntil:"load"}); await showAllAlerts(); await expect(currentAlerts()).toHaveCount(0);
   await page.setViewportSize({width:1440,height:1100}); await page.screenshot({path:testInfo.outputPath("fix1-insurance-completed-desktop.png"),fullPage:true});
   await useStaffSession(page,"NURSE");expect((await page.request.get(downloadUrl)).status()).toBe(403);expect((await page.request.post(endpoint,{headers:{origin},multipart:multipart(bytes)})).status()).toBe(403);await page.context().clearCookies();expect((await page.request.get(downloadUrl)).status()).toBe(401);
 });

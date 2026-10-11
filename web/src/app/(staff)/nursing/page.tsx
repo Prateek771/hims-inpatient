@@ -2,25 +2,32 @@ import { HospitalTimestamp } from "@/components/hospital-timestamp";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireStaff, staffContext } from "@/server/access";
-import { careWorkspace, getCare } from "@/server/clinical/commands";
+import { getCare } from "@/server/clinical/commands";
 import { DomainError } from "@/server/contracts";
 import { CareField, CareForm } from "@/components/care-forms";
 import { saveNursing } from "./actions";
 import { TransferTimeline } from "@/components/transfer-timeline";
 import { hospitalTimeConfiguration } from "@/server/hospital-time";
 import { formatHospitalTime } from "@/lib/hospital-time";
+import { WorkflowTabs } from "@/components/workflow-tabs";
+import { StaffAlerts, StaffWorklist, WorkTimestamp } from "@/components/staff-dashboard";
+import { getStaffWorklist } from "@/server/overview";
+
+type CareChart = Awaited<ReturnType<typeof getCare>>;
 
 export default async function NursingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ admissionId?: string }>;
+  searchParams: Promise<{ admissionId?: string; tab?: string }>;
 }) {
   const staff = await requireStaff();
   if (!["NURSE", "DOCTOR"].includes(staff.role)) notFound();
   const { timezone } = await hospitalTimeConfiguration();
   const ctx = staffContext(staff, "nursing-view");
-  const workspace = await careWorkspace(ctx);
-  const { admissionId } = await searchParams;
+  const work = await getStaffWorklist(ctx);
+  const currentWork = { ...work, episodes: work.episodes.filter(e => ["PENDING", "ADMITTED"].includes(e.status)) };
+  const historyWork = { ...work, episodes: work.episodes.filter(e => !["PENDING", "ADMITTED"].includes(e.status)) };
+  const { admissionId, tab } = await searchParams;
   let chart: Awaited<ReturnType<typeof getCare>> | undefined;
   if (admissionId)
     try {
@@ -30,6 +37,30 @@ export default async function NursingPage({
         notFound();
       throw error;
     }
+  const shiftCharts = !chart && staff.role === "NURSE"
+    ? (await Promise.all(currentWork.episodes.filter(e => e.status === "ADMITTED").map(async episode => {
+        try { return await getCare(ctx, episode.id); }
+        catch (error) {
+          // A revoked assignment must remove the chart from this current queue.
+          if (error instanceof DomainError && error.code === "FORBIDDEN") return undefined;
+          throw error;
+        }
+      }))).filter((c): c is CareChart => !!c && c.episode.status === "ADMITTED")
+    : [];
+  const openShifts = shiftCharts.flatMap(c => c.shifts.filter(s => s.nurseId === staff.id && !s.endedAt).map(s => ({ chart: c, shift: s })));
+  const prescribedWork = shiftCharts.flatMap(c => c.occurrences
+    .filter(o => !["RECORDED", "STOPPED"].includes(o.status))
+    .map(o => ({ chart: c, occurrence: o, order: c.orders.find(order => order.id === o.orderId)! })))
+    .filter(task => ["MEDICINE", "VITALS"].includes(task.order.kind))
+    .sort((a, b) => a.occurrence.scheduledAt.getTime() - b.occurrence.scheduledAt.getTime() || a.occurrence.id.localeCompare(b.occurrence.id));
+  const asOf = new Date(work.asOf).getTime();
+  const dueWork = prescribedWork.filter(task => task.occurrence.scheduledAt.getTime() <= asOf);
+  const nextWork = prescribedWork.filter(task => task.occurrence.scheduledAt.getTime() > asOf);
+  const dietWork = shiftCharts.flatMap(c => c.orders.filter(o => o.kind === "DIET" && c.tasks.some(t => t.orderId === o.id && t.status === "PENDING")).map(order => ({ chart: c, order })))
+    .sort((a, b) => a.order.signedAt.getTime() - b.order.signedAt.getTime() || a.order.id.localeCompare(b.order.id));
+  const transferWork = shiftCharts.flatMap(c => c.transferOrders.filter(o => ["PENDING", "WITNESSED"].includes(o.status) || o.pendingFactualMove).map(order => ({ chart: c, order })))
+    .sort((a, b) => a.order.signedAt.getTime() - b.order.signedAt.getTime() || a.order.id.localeCompare(b.order.id));
+  const handoverWork = shiftCharts.filter(c => !c.shifts.some(s => s.nurseId === staff.id && !s.endedAt));
   const writable =
     staff.role === "NURSE" && chart?.episode.status === "ADMITTED";
   const currentShift = chart?.shifts.find(
@@ -82,11 +113,13 @@ export default async function NursingPage({
   function outcomes(kind: string) {
     if (!chart) return null;
     const c = chart;
+    const hasOwnShift = c.shifts.some(s => s.nurseId === staff.id);
     const occurrences = c.occurrences.filter(
       (o) => c.orders.find((order) => order.id === o.orderId)?.kind === kind,
     );
     return (
-      <div className="table-scroll">
+      <div className="table-scroll" tabIndex={0} role="region" aria-label={kind === "MEDICINE" ? "Prescribed medicine occurrences" : "Prescribed observation occurrences"}>
+        {writable && !hasOwnShift && <p className="notice">Start your assigned attendance in Handover before recording actual care. Late entries require your own recorded shift covering the actual time.</p>}
         <table>
           <thead>
             <tr>
@@ -104,7 +137,7 @@ export default async function NursingPage({
                 (a) => a.occurrenceId === o.id,
               );
               return (
-                <tr key={o.id}>
+                <tr key={o.id} id={`occurrence-${o.id}`}>
                   <td>
                     <HospitalTimestamp value={o.scheduledAt.toISOString()}/>
                     <p>{order.requestedItem}</p>
@@ -256,86 +289,69 @@ export default async function NursingPage({
       </div>
     );
   }
+  function taskCards(tasks: typeof prescribedWork) {
+    return tasks.map(({ chart: patient, occurrence, order }) => <article className="nursing-task-card" key={occurrence.id} data-testid="shift-prescribed-task" data-scheduled-at={occurrence.scheduledAt.toISOString()}>
+      <h3>{patient.identity.name} · {patient.identity.bedLabel}</h3>
+      <p>{order.kind === "MEDICINE" ? "Medicine" : "Observation"} · {order.requestedItem}</p>
+      <p className="caption">Scheduled <HospitalTimestamp value={occurrence.scheduledAt.toISOString()} /></p>
+      <Link className="button quiet" href={`/nursing?admissionId=${patient.episode.id}&tab=${order.kind === "MEDICINE" ? "medicines" : "observations"}#occurrence-${occurrence.id}`}>Open care task</Link>
+    </article>);
+  }
   return (
     <>
-      <p className="eyebrow">02 · Clinical tracking / Nursing</p>
-      <h1>A dependable shift handover</h1>
-      <p className="page-description">
-        Keep medicines, readings and unfinished tasks visible for the next
-        nurse.
-      </p>
-      <section className="card">
-        <h2>Assigned care worklist</h2>
-        <details open={!chart}>
-          <summary>Choose an admission</summary>
-          {workspace.length ? (
-            <ul className="patient-results">
-              {workspace.map((a) => (
-                <li key={a.id}>
-                  <Link href={`/nursing?admissionId=${a.id}`}>
-                    {a.name} · {a.ipCode} · {a.bedLabel}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>
-              No active patients assigned. Hospital administration records
-              nursing responsibility before chart access.
-            </p>
-          )}
-        </details>
-      </section>
-      {chart && (
+      <p className="eyebrow">{staff.role === "NURSE" ? "Nurse · assigned care" : "Doctor · read-only nursing evidence"}</p>
+      <h1>{chart ? "Nursing record" : staff.role === "NURSE" ? "My shift" : "Nursing records"}</h1>
+      <p className="page-description">{staff.role === "NURSE" ? "Your assigned care, ordered by the time it needs attention." : "Read the recorded care. Nursing entries remain signed by the nurse."}</p>
+      <WorkTimestamp work={work} />
+      {!chart ? (
         <>
-          <section className="card">
-            <h2>{chart.identity.name}</h2>
-            <p>
-              {chart.identity.uhid} · {chart.episode.ipCode} ·{" "}
-              {chart.identity.bedLabel} ·{" "}
-              <span className="status">{chart.episode.status}</span>
-            </p>
-            <p className="caption">
-              Admitted <HospitalTimestamp value={chart.episode.admittedAt?.toISOString()}/> ·{" "}
-              {chart.identity.doctor}
-            </p>
+          {staff.role === "NURSE" && <>
+            <section className="nursing-shift-summary">
+              <h2>{staff.name} · {openShifts.length ? `${openShifts.length} active patient attendance records` : "No current attendance recorded"}</h2>
+              <p>{shiftCharts.length} current assigned patients. Start or review attendance in each patient’s Handover tab.</p>
+              {openShifts.map(({ chart: patient, shift }) => <p className="caption" key={shift.id}>{patient.identity.name} · since <HospitalTimestamp value={shift.startedAt.toISOString()} /> · <Link href={`/nursing?admissionId=${patient.episode.id}&tab=handover`}>Attendance &amp; handover</Link></p>)}
+            </section>
+            <div className="nursing-task-board">
+              <section className="nursing-task-lane nursing-task-due"><h2>Due now</h2>{taskCards(dueWork)}{!dueWork.length && <p>No prescribed occurrences due at this evaluation.</p>}</section>
+              <section className="nursing-task-lane nursing-task-next"><h2>Next care</h2>{taskCards(nextWork)}
+                {dietWork.map(({ chart: patient, order }) => <article className="nursing-task-card" key={order.id}><h3>{patient.identity.name} · {patient.identity.bedLabel}</h3><p>Diet · {order.requestedItem}</p><p className="caption">No prescribed time. Review the recorded clinician instruction.</p><Link className="button quiet" href={`/nursing?admissionId=${patient.episode.id}&tab=observations`}>Open diet task</Link></article>)}
+                {!nextWork.length && !dietWork.length && <p>No later prescribed occurrences or pending diet tasks.</p>}
+              </section>
+              <section className="nursing-task-lane nursing-task-handover"><h2>Handover &amp; move</h2>
+                {handoverWork.map(patient => <article className="nursing-task-card" key={patient.episode.id}><h3>{patient.identity.name} · {patient.identity.bedLabel}</h3><p>Start actual assigned attendance and incoming handover.</p><Link className="button quiet" href={`/nursing?admissionId=${patient.episode.id}&tab=handover`}>Open handover</Link></article>)}
+                {transferWork.map(({ chart: patient, order }) => <article className="nursing-task-card" key={order.id}><h3>{patient.identity.name} · {patient.identity.bedLabel}</h3><p>Doctor transfer decision {order.version} · {order.destinationCategory} · <span className="status">{order.status}</span></p><p className="caption">Signed <HospitalTimestamp value={order.signedAt.toISOString()} /></p><Link className="button quiet" href={`/nursing?admissionId=${patient.episode.id}&tab=transfer`}>Open transfer work</Link></article>)}
+                {!handoverWork.length && !transferWork.length && <p>No outstanding attendance start or Doctor transfer decision.</p>}
+              </section>
+            </div>
+          </>}
+          <div className="care-columns">
+            <StaffWorklist work={currentWork} title="Assigned patients" />
+            <aside className="staff-alerts-compact"><StaffAlerts work={work} /><section className="card"><h2>{staff.role === "NURSE" ? "Discharge nursing review" : "Doctor clinical work"}</h2><p>{staff.role === "NURSE" ? "The Nursing gate follows current Doctor and Pharmacy clearances. Monitoring continues until clinical instructions or actual departure." : "Clinical signatures belong in the Doctor patient chart."}</p><Link className="button secondary" href={staff.role === "NURSE" ? "/discharge" : "/clinical"}>{staff.role === "NURSE" ? "Review my nursing gate" : "Open my patients"}</Link><Link href="/exceptions">Open authorized exception follow-up</Link></section></aside>
+          </div>
+          {historyWork.episodes.length > 0 && <details className="card work-history"><summary>Retained patient history · {historyWork.episodes.length} episodes</summary><StaffWorklist work={historyWork} title="Retained patient history" /></details>}
+        </>
+      ) : (
+        <>
+          <Link className="button secondary" href={staff.role === "NURSE" ? "/nursing" : `/clinical?admissionId=${chart.episode.id}`}>{staff.role === "NURSE" ? "All my shift work" : "Open doctor notes"}</Link>
+          <section className="care-patient-context">
+            <div><h2>{chart.identity.name} · {chart.identity.uhid}</h2><p>{chart.episode.ipCode} · {chart.identity.bedLabel} · <span className="status">{chart.episode.status}</span></p></div>
+            <div><p>{chart.identity.doctor} · Admitting doctor</p><p className="caption">Admitted <HospitalTimestamp value={chart.episode.admittedAt?.toISOString()} /></p></div>
           </section>
+          {staff.role === "DOCTOR" && <p className="notice">Read only. Nursing actions and signatures belong to the assigned nurse.</p>}
+          {chart.episode.status !== "ADMITTED" && <p className="notice">Retained care history. After actual departure, original attendance closure and source amendments belong to the authorized Exceptions workflow.</p>}
           <div className="billing-metrics">
             {[
-              [
-                "Current shift",
-                currentShift
-                  ? formatHospitalTime(currentShift.startedAt, timezone)
-                  : "No current shift",
-              ],
+              ["Current shift", currentShift ? formatHospitalTime(currentShift.startedAt, timezone) : "No current shift"],
               ["Signed readings", chart.observations.length],
               ["Medication outcomes", chart.administrations.length],
-              [
-                "Overdue work",
-                chart.occurrences.filter((o) => o.status === "OVERDUE").length,
-              ],
-            ].map(([label, value]) => (
-              <section className="card metric" key={label}>
-                <p>{label}</p>
-                <strong className="care-metric">{value}</strong>
-              </section>
-            ))}
+              ["Overdue work", chart.occurrences.filter(o => o.status === "OVERDUE").length],
+            ].map(([label, value]) => <section className="card metric" key={label}><p>{label}</p><strong className="care-metric">{value}</strong></section>)}
           </div>
-          <div className="care-columns">
-            <div>
-              <section className="card">
-                <h2>Medication administration record</h2>
-                <p>
-                  Record given, held or refused against the doctor’s exact
-                  occurrence. Medicine issue is billed by pharmacy.
-                </p>
-                {outcomes("MEDICINE")}
-              </section>
-              <section className="card">
+          <WorkflowTabs key={chart.episode.id} id="nursing-chart" initialTab={tab} items={[
+            { id: "observations", label: "Observations", children: <div className="care-columns"><div><section className="card">
                 <h2>Prescribed observations</h2>
                 {outcomes("VITALS")}
-              </section>
-              <section className="card">
+              </section></div><aside><section className="card">
                 <h2>Diet instructions</h2>
                 {chart.orders
                   .filter((o) => o.kind === "DIET")
@@ -360,30 +376,17 @@ export default async function NursingPage({
                         )}
                     </article>
                   ))}
-              </section>
-            </div>
-            <aside>
-              <section className="card">
-                <h2>Transfer &amp; actual handover</h2>
-                {!chart.transferOrders.some(o => o.status === "PENDING") && <p>No current doctor transfer order. Clinical authority is required before a bed move.</p>}
-                {chart.transferOrders.filter(o => o.status === "PENDING").map(o => {
-                  const targets = chart.transferBeds.filter(b => b.available && b.category === o.destinationCategory);
-                  return <article className="care-entry" key={o.id}>
-                    <p>Decision {o.version} · {o.destinationCategory} · {o.reason}</p>
-                    <p className="caption">Doctor signature · {chart.actors[o.signedBy]} · <HospitalTimestamp value={o.signedAt.toISOString()}/></p>
-                    {!currentShift && <p>Start your assigned shift before signing an actual transfer handover.</p>}
-                    {!targets.length && <p>No available target bed in the clinician-selected category. Availability is checked again when saving.</p>}
-                    {writable && currentShift && targets.length > 0 && <CareForm action={action("transfer", o.id)} button="Sign handover and transfer" testId="transfer-form">
-                      <label>Available target bed<select name="targetBedId" required>{targets.map(b => <option value={b.id} key={b.id}>{b.label} · {b.category}</option>)}</select></label>
-                      <CareField label="Actual transfer time (UTC)" name="transferredAt" type="datetime-local" />
-                      <label>Actual transfer handover<textarea name="handover" required /></label>
-                      <p className="caption">Enter the actual move time after the doctor order, inside your shift and no later than now. Earlier committed room charges or recorded care require the correction workflow.</p>
-                    </CareForm>}
-                  </article>;
-                })}
-              </section>
-              <TransferTimeline chart={chart} />
-              <section className="card">
+                {!chart.orders.some(o => o.kind === "DIET") && <p>No recorded diet instruction for this admission.</p>}
+              </section></aside></div> },
+            { id: "medicines", label: "Medicines", children: <section className="card">
+                <h2>Medication administration record</h2>
+                <p>
+                  Record given, held or refused against the doctor’s exact
+                  occurrence. Medicine issue is billed by pharmacy.
+                </p>
+                {outcomes("MEDICINE")}
+              </section> },
+            { id: "handover", label: "Handover", children: <section className="card">
                 <h2>Attendance &amp; handover</h2>
                 {writable && !currentShift && (
                   <CareForm
@@ -444,9 +447,9 @@ export default async function NursingPage({
                     )}
                   </article>
                 ))}
-              </section>
-              <section className="card">
-                <h2>Consumable use</h2>
+              </section> },
+            { id: "consumables", label: "Consumables", children: <section className="card">
+                <h2>Actual consumable use &amp; original fee review</h2>
                 {writable && currentShift && (
                   <CareForm
                     action={action("consumable")}
@@ -470,8 +473,8 @@ export default async function NursingPage({
                       <HospitalTimestamp value={c.usedAt.toISOString()}/>
                     </p>
                     <p className="caption">
-                      Source bed {c.bedId} · stay {c.stayId} ·{" "}
-                      {chart.actors[c.signedBy] ?? c.signedBy}
+                      Source bed {chart.stays.find(s => s.id === c.stayId)?.bedLabel ?? c.bedId} · stay {c.stayId} ·{" "}
+                      {chart.actors[c.signedBy] ?? c.signedBy} · signed <HospitalTimestamp value={c.signedAt.toISOString()} />
                     </p>
                   </article>
                 ))}
@@ -481,6 +484,8 @@ export default async function NursingPage({
                       {b.itemId} · {b.state}
                     </p>
                     <p>{b.resolutionReason}</p>
+                    <p className="caption">Original source {b.id} · {b.quantity} {b.unit} · recorded <HospitalTimestamp value={b.createdAt.toISOString()} /></p>
+                    {b.tariffVersionId && <p className="caption">Pinned price version {b.tariffVersionId}</p>}
                     {writable && b.state === "UNRESOLVED" && (
                       <CareForm
                         action={action("billing", b.id)}
@@ -491,18 +496,29 @@ export default async function NursingPage({
                     )}
                   </article>
                 ))}
-              </section>
-              {staff.role === "DOCTOR" && (
-                <Link
-                  className="button secondary"
-                  href={`/clinical?admissionId=${chart.episode.id}`}
-                >
-                  Open doctor notes
-                </Link>
-              )}
-            </aside>
-          </div>
-          <section className="card">
+                {!chart.consumables.length && <p>No recorded consumable use yet.</p>}
+                {!chart.billing.length && <p>No consumable billing sources recorded.</p>}
+              </section> },
+            { id: "transfer", label: "Transfer", children: <div className="care-columns"><div><section className="card">
+                <h2>Transfer &amp; actual handover</h2>
+                {!chart.transferOrders.some(o => o.status === "PENDING") && <p>No current doctor transfer order. Clinical authority is required before a bed move.</p>}
+                {chart.transferOrders.filter(o => o.status === "PENDING").map(o => {
+                  const targets = chart.transferBeds.filter(b => b.available && b.category === o.destinationCategory);
+                  return <article className="care-entry" key={o.id}>
+                    <p>Decision {o.version} · {o.destinationCategory} · {o.reason}</p>
+                    <p className="caption">Doctor signature · {chart.actors[o.signedBy]} · <HospitalTimestamp value={o.signedAt.toISOString()}/></p>
+                    {!currentShift && <p>Start your assigned shift before signing an actual transfer handover.</p>}
+                    {!targets.length && <p>No available target bed in the clinician-selected category. Availability is checked again when saving.</p>}
+                    {writable && currentShift && targets.length > 0 && <CareForm action={action("transfer", o.id)} button="Sign handover and transfer" testId="transfer-form">
+                      <label>Available target bed<select name="targetBedId" required>{targets.map(b => <option value={b.id} key={b.id}>{b.label} · {b.category}</option>)}</select></label>
+                      <CareField label="Actual transfer time (UTC)" name="transferredAt" type="datetime-local" />
+                      <label>Actual transfer handover<textarea name="handover" required /></label>
+                      <p className="caption">Enter the actual move time after the doctor order, inside your shift and no later than now. Earlier committed room charges or recorded care require the correction workflow.</p>
+                    </CareForm>}
+                  </article>;
+                })}
+              </section></div><aside><TransferTimeline chart={chart} /><p className="notice">Witnessed or earlier factual moves need their authorized correction route.</p><Link href={`/exceptions?admissionId=${chart.episode.id}`}>Open factual transfer exception</Link></aside></div> },
+            { id: "corrections", label: "Corrections", children: <section className="card">
             <h2>Nursing corrections</h2>
             {writable &&
               chart.shifts.length +
@@ -550,6 +566,7 @@ export default async function NursingPage({
                   </CareForm>
                 </details>
               )}
+            {!chart.nursingAddenda.length && <p>No signed nursing corrections yet. An addendum retains the original record and its signing history.</p>}
             {chart.nursingAddenda.map((a) => (
               <article key={a.id} className="care-entry">
                 <p>
@@ -562,7 +579,8 @@ export default async function NursingPage({
                 </p>
               </article>
             ))}
-          </section>
+          </section> },
+          ]} />
           <section className="notice">
             <h2>Missed tasks stay visible</h2>
             <p>
@@ -572,6 +590,8 @@ export default async function NursingPage({
               ongoing care.
             </p>
           </section>
+          <section className="card"><h2>Next human review</h2><p>Financial Nursing clearance does not stop monitoring.</p><Link className="button secondary" href={`/discharge?admissionId=${chart.episode.id}`}>Review discharge clearance</Link><Link href={`/exceptions?admissionId=${chart.episode.id}`}>Open authorized exception follow-up</Link></section>
+          <details className="staff-alerts-compact work-history"><summary>Current source alerts · {work.alerts.length}</summary><StaffAlerts work={work} /></details>
         </>
       )}
     </>

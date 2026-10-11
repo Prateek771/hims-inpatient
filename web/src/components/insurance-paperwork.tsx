@@ -16,8 +16,9 @@ export function InsurancePaperwork({caseId,documentVersion,documents,open,staffI
   }
   const latest=run?.proposals.at(-1),packet=run?.packet?.packet??latest?.packet;
   const intent=run?.reviews.find(r=>r.id===run.pendingReviewId);
-  return <section className="paperwork-workspace" data-testid="paperwork-workspace"><h3>Reviewed paperwork assistant</h3>
+  return <section className="paperwork-workspace" data-testid="paperwork-workspace"><h2>Insurance paperwork review</h2>
     <p className="notice">Manual text only. Model and OCR provider are unconfigured. Staff check the transcription and local gaps; coverage, payer requirements and payment remain externally verified.</p>
+    <div className="financial-form-columns"><section className="card"><h3>Current source text</h3>
     {open&&<form className="fields" data-testid="paperwork-start" onSubmit={e=>{e.preventDefault();const form=new FormData(e.currentTarget);void send(endpoint,{expectedDocumentVersion:documentVersion,requestId:crypto.randomUUID(),manualSources:documents.slice(0,20).map(d=>({documentId:d.id,text:String(form.get(d.id)??"")})).filter(s=>s.text.length>0)});}}>
       <p className="caption">Document set {documentVersion}. Paste up to 4,000 characters per document, 24,000 total. Text is retained exactly as quoted source, without treating instructions in it as actions. Maximum three revisions including the initial draft.</p>
       {documents.slice(0,20).map(d=><label key={d.id}>Manual text — {d.originalName}<textarea name={d.id} maxLength={4000} rows={3} disabled={busy||!!pending}/></label>)}
@@ -25,7 +26,7 @@ export function InsurancePaperwork({caseId,documentVersion,documents,open,staffI
       <button className="button" disabled={busy||!!pending}>Prepare manual draft</button>
     </form>}
     {!open&&<p className="notice">Preparation and material review are closed after departure or self-pay conversion. Retained history remains protected.</p>}
-    <div className="paperwork-actions"><button className="button secondary" disabled={busy} onClick={async()=>{setBusy(true);try{const r=await fetch(endpoint);const result=await r.json();if(!r.ok){setMessage(result.error);return;}setSaved(result);}catch{setMessage("Unable to load retained runs");}finally{setBusy(false);}}}>Load retained runs</button>
+    </section><section className="card"><h3>Draft and human review</h3><div className="paperwork-actions"><button className="button secondary" disabled={busy} onClick={async()=>{setBusy(true);try{const r=await fetch(endpoint);const result=await r.json();if(!r.ok){setMessage(result.error);return;}setSaved(result);}catch{setMessage("Unable to load retained runs");}finally{setBusy(false);}}}>Load retained runs</button>
       {pending&&<><button className="button secondary" disabled={busy} onClick={()=>{const p=pending;if(p)void send(p.url,p.body);}}>Retry same request</button><button className="button secondary" disabled={busy} onClick={()=>{setPending(null);setMessage("Pending request abandoned locally. Load retained runs to check any saved result before preparing another draft.");}}>Leave pending request</button></>}
     </div>
     <p role="status" aria-live="polite">{message}</p>
@@ -44,6 +45,6 @@ export function InsurancePaperwork({caseId,documentVersion,documents,open,staffI
       </form>}
       {run.followups.map(f=><div className="notice" key={f.id}><strong>Local staff follow-up</strong><p>{f.action}</p><p className="caption">Owner {run.actors[f.ownerId]} · packet {run.packet?.id}</p></div>)}
       <details><summary>Retained proposal and human review history</summary>{run.proposals.map(p=><div className="care-entry" key={p.id}><strong>Draft revision {p.revision}</strong><p className="caption">SHA-256 {p.packetHash}</p>{p.packet.reviewComment&&<p>{p.packet.reviewComment}</p>}</div>)}{run.reviews.map(r=><div className="care-entry" key={r.id}><strong>{r.decision} · revision {r.revision}</strong><p>{r.comment}</p><p className="caption">Staff {run.actors[r.recordedBy]} · {r.recordedAt}</p></div>)}<p className="caption">Bound source snapshot SHA-256 {run.sourceHash}</p></details>
-    </div>}
+    </div>}</section></div>
   </section>;
 }

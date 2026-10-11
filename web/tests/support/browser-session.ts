@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -11,4 +11,9 @@ export async function useStaffSession(page: Page, role: WorkflowRole) {
   await page.context().clearCookies();
   await page.context().addCookies(state.cookies);
   await page.goto("/workspace");
+  // Next can stream the authenticated redirect after the original document loads.
+  // Wait for its actual destination before a test begins another navigation.
+  const homes = { ADMIN: "/overview", ADMISSION: "/admissions", DOCTOR: "/clinical", BILLING: "/billing", NURSE: "/nursing", PHARMACY: "/pharmacy", LAB: "/lab", INSURANCE: "/insurance" };
+  await page.waitForURL(new RegExp(`${homes[role]}$`), { waitUntil: "load" });
+  await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
 }

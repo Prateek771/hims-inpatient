@@ -17,13 +17,13 @@ export function StaffAlerts({ work }: { work: Work }) {
     {work.alerts.length ? <><ul className="alert-list">{work.alerts.slice(0, 12).map(item)}</ul>{work.alerts.length > 12 && <details><summary>Show {work.alerts.length - 12} more current alerts</summary><ul className="alert-list">{work.alerts.slice(12).map(item)}</ul></details>}</> : <p>No current actionable alerts in your authorized work.</p>}
   </section>;
 }
-export function StaffWorklist({ work }: { work: Work }) {
-  return <section className="card" data-testid="staff-worklist"><h2>Current work</h2><p className="caption">Your authorized open episodes and, where permitted, the latest 50 closed episodes for retained history.</p>
+export function StaffWorklist({ work, title = "Current work" }: { work: Work; title?: string }) {
+  return <section className="card" data-testid="staff-worklist"><h2>{title}</h2><p className="caption">Your authorized open episodes and, where permitted, the latest 50 closed episodes for retained history.</p>
     <div className="table-scroll" tabIndex={0} role="region" aria-label="Current staff work table"><table className="staff-table"><thead><tr><th>Patient / admission</th><th>Bed</th><th>Status</th><th>Next action</th></tr></thead>
       <tbody>{work.episodes.map(e => <tr key={e.id}><td><strong>{e.name}</strong><p className="caption">{e.ipCode}</p></td><td>{e.bedLabel}<p className="caption">{e.bedCategory}</p></td><td><span className="status">{e.status}</span></td><td><Link href={e.href}>{e.action}</Link><details><summary>Admission reference</summary><p className="caption">{e.id}</p></details></td></tr>)}</tbody></table></div>
     {!work.episodes.length && <p>No admission episodes currently assigned to this workspace.</p>}
   </section>;
 }
 export function WorkTimestamp({ work }: { work: Work }) {
-  return <p className="page-description">Current records evaluated {formatHospitalTime(work.asOf, work.timezone)}. {work.configuration.hospitalConfigured ? "Hospital timezone configured." : "Asia/Kolkata default; hospital timezone is not configured."}</p>;
+  return <p className="page-description">Current records evaluated <time dateTime={work.asOf}>{formatHospitalTime(work.asOf, work.timezone)}</time>. {work.configuration.hospitalConfigured ? "Hospital timezone configured." : "Asia/Kolkata default; hospital timezone is not configured."}</p>;
 }

@@ -186,12 +186,27 @@ export async function getOverview(ctx: CommandContext, input: { asOf: Date; bedC
   return db.transaction(async tx => {
     const work = await projection(tx, ctx, value, true);
     const categoryScope = value.bedCategory ? eq(beds.category, value.bedCategory) : undefined;
-    const physical = await tx.select({ id: beds.id, active: beds.active, holdId: bedHolds.admissionId,
+    const physical = await tx.select({ id: beds.id, category: beds.category, active: beds.active, holdId: bedHolds.admissionId,
       occupied: sql<boolean>`exists(select 1 from hims.effective_room_stays s where s.bed_id=${beds.id} and s.ended_at is null)`,
       cleaning: sql<boolean>`exists(select 1 from hims.effective_bed_turnovers t where t.bed_id=${beds.id} and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id))` }).from(beds).leftJoin(bedHolds, eq(bedHolds.bedId, beds.id)).where(categoryScope);
+    const categoryNames = new Map(work.categories.map(category => [category.code, category.name]));
+    const categoryCodes = [...new Set([...categoryNames.keys(), ...physical.map(bed => bed.category)])]
+      .filter(code => !value.bedCategory || code === value.bedCategory);
+    const bedOccupancy = categoryCodes.map(code => {
+      const group = physical.filter(bed => bed.category === code);
+      return { code, name: categoryNames.get(code) ?? code, total: group.length,
+        occupied: group.filter(bed => bed.occupied).length,
+        reserved: group.filter(bed => !!bed.holdId && !bed.occupied).length,
+        cleaning: group.filter(bed => bed.cleaning).length,
+        ready: group.filter(bed => bed.active && !bed.holdId && !bed.occupied && !bed.cleaning).length,
+        disabled: group.filter(bed => !bed.active).length };
+    });
     const day = hospitalDate(value.asOf, work.timezone);
     const exits = (await tx.execute(sql`select d.id from (select id,admission_id,departed_at from hims.departures union all select id,admission_id,departed_at from hims.exceptional_departures) d join hims.admissions a on a.id=d.admission_id join hims.beds b on b.id=a.bed_id where (d.departed_at at time zone ${work.timezone})::date=${day}::date ${value.bedCategory ? sql`and b.category=${value.bedCategory}` : sql``}`)).rows;
-    return { ...work, metrics: { activeAdmissions: work.episodes.filter(e => e.status === "ADMITTED").length, pendingAdmissions: work.episodes.filter(e => e.status === "PENDING").length,
+    return { ...work, bedOccupancy, physicalBeds: physical.map(bed => ({ id: bed.id, category: bed.category,
+      occupied: bed.occupied, reserved: !!bed.holdId && !bed.occupied, cleaning: bed.cleaning,
+      ready: bed.active && !bed.holdId && !bed.occupied && !bed.cleaning, disabled: !bed.active })),
+      metrics: { totalBeds: physical.length, activeAdmissions: work.episodes.filter(e => e.status === "ADMITTED").length, pendingAdmissions: work.episodes.filter(e => e.status === "PENDING").length,
       occupiedBeds: physical.filter(b => b.occupied).length, reservedBeds: physical.filter(b => !!b.holdId && !b.occupied).length, cleaningBeds: physical.filter(b => b.cleaning).length,
       availableBeds: physical.filter(b => b.active && !b.holdId && !b.occupied && !b.cleaning).length, disabledBeds: physical.filter(b => !b.active).length, dischargesToday: exits.length, dischargeWaiting: work.discharge.filter(d => d.ownerRole !== null).length,
       needsAttention: work.alerts.length }, financialTotals: {

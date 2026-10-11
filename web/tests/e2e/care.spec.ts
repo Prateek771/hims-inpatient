@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { useStaffSession } from "../support/browser-session";
 import { fillUtcDateTime } from "../support/datetime-input";
+import { openWorkflowTab } from "../support/workflow-tabs";
+import { submitServerAction } from "../support/server-action";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 async function currentCareAdmission() {
@@ -14,10 +16,12 @@ async function currentCareAdmission() {
 test("doctor signs rounds, addenda and prescription versions through actual forms", async ({
   page,
 }, testInfo) => {
+  // Multiple actual signed rounds, addenda, orders, summaries and rendered proofs.
+  test.setTimeout(60_000);
   await useStaffSession(page, "DOCTOR");
   await page.goto("/clinical");
   await expect(
-    page.getByRole("heading", { name: "Care history, without the searching" }),
+    page.getByRole("heading", { name: "Patients", exact: true }),
   ).toBeVisible();
   await page
     .locator(`a[href="/clinical?admissionId=${await currentCareAdmission()}"]`)
@@ -39,7 +43,8 @@ test("doctor signs rounds, addenda and prescription versions through actual form
   await latest
     .getByLabel("Addendum text")
     .fill("Original retained; signed browser addendum");
-  await latest.getByRole("button", { name: "Sign addendum" }).click();
+  await submitServerAction(page, latest.getByRole("button", { name: "Sign addendum" }));
+  await expect(latest.getByRole("button", { name: "Sign addendum" })).toBeEnabled({ timeout: 15_000 });
   await expect(latest).toContainText(
     "Original retained; signed browser addendum",
   );
@@ -64,12 +69,14 @@ test("doctor signs rounds, addenda and prescription versions through actual form
   await round.getByLabel("Prescribed dispensing quantity").fill("6");
   await round.getByLabel("Prescribed dispensing unit").fill("tablet");
   await round.getByRole("button", { name: "Sign round and orders" }).click();
+  await openWorkflowTab(page, "Orders");
   await expect(
     page
       .getByRole("cell")
       .filter({ hasText: "Synthetic home-only medicine" })
       .first(),
   ).toContainText("TAKE_HOME");
+  await openWorkflowTab(page, "Summary & Rx");
   const summary = page.getByTestId("summary-form");
   await summary
     .getByLabel("Diagnosis", { exact: true })
@@ -120,11 +127,12 @@ test("assigned nurse records explicit occurrences and handover without duplicate
   await useStaffSession(page, "NURSE");
   await page.goto("/nursing");
   await expect(
-    page.getByRole("heading", { name: "A dependable shift handover" }),
+    page.getByRole("heading", { name: "My shift", exact: true }),
   ).toBeVisible();
   await page
-    .locator(`a[href="/nursing?admissionId=${await currentCareAdmission()}"]`)
+    .getByTestId("staff-worklist").locator(`a[href="/nursing?admissionId=${await currentCareAdmission()}"]`)
     .click();
+  await openWorkflowTab(page, "Handover");
   const shift = page.getByTestId("shift-start");
   await fillUtcDateTime(shift.getByLabel("Shift start (Asia/Kolkata)"), new Date());
   await shift
@@ -132,6 +140,7 @@ test("assigned nurse records explicit occurrences and handover without duplicate
     .fill("Synthetic browser incoming handover");
   await shift.getByRole("button", { name: "Start assigned shift" }).click();
   await expect(page.getByTestId("shift-end")).toBeVisible();
+  await openWorkflowTab(page, "Medicines");
   await page
     .getByText("Record medication outcome", { exact: true })
     .first()
@@ -145,6 +154,7 @@ test("assigned nurse records explicit occurrences and handover without duplicate
     .fill("Synthetic refusal recorded and doctor contacted");
   await mar.getByRole("button", { name: "Sign medication outcome" }).click();
   await expect(page.getByTestId("mar-history")).toContainText("REFUSED");
+  await openWorkflowTab(page, "Observations");
   await page
     .getByText("Record actual readings", { exact: true })
     .first()
@@ -154,6 +164,7 @@ test("assigned nurse records explicit occurrences and handover without duplicate
   await vitals.getByLabel("Pulse").fill("78");
   await vitals.getByRole("button", { name: "Sign actual readings" }).click();
   await expect(page.getByTestId("observation-history")).toContainText("78");
+  await openWorkflowTab(page, "Handover");
   const handover = page.getByTestId("shift-end");
   await fillUtcDateTime(handover.getByLabel("Shift end (Asia/Kolkata)"), new Date());
   await handover
@@ -165,7 +176,9 @@ test("assigned nurse records explicit occurrences and handover without duplicate
   await expect(
     page.getByText("Synthetic unfinished work handed over"),
   ).toBeVisible();
+  await openWorkflowTab(page, "Observations");
   await expect(page.getByText(/OVERDUE/).first()).toBeVisible();
+  await openWorkflowTab(page, "Corrections");
   await page.getByText("Add a signed correction", { exact: true }).click();
   await page
     .getByLabel("Correction reason")
@@ -200,7 +213,7 @@ test("admin can assign care operationally but cannot open or sign clinical chart
   await useStaffSession(page, "ADMIN");
   await page.goto("/admin/care");
   await expect(
-    page.getByRole("heading", { name: "Nursing assignments" }),
+    page.getByRole("heading", { name: "Assignments", level: 1 }),
   ).toBeVisible();
   await page.goto("/clinical");
   await expect(page.getByRole("heading", { name: /404/ })).toBeVisible();

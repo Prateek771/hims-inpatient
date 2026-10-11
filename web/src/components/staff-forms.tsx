@@ -87,38 +87,6 @@ export function StaffForms({ staff }: { staff: StaffRow[] }) {
     <>
       <p role="status">{message}</p>
       <section className="card">
-        <h2>Create staff account</h2>
-        <form className="fields" onSubmit={(e) => save(e)}>
-          <label>
-            Full name
-            <input name="name" required minLength={2} maxLength={100} />
-          </label>
-          <label>
-            Email
-            <input name="email" type="email" required />
-          </label>
-          <RoleField />
-          <label>
-            Initial password
-            <input
-              name="password"
-              type="password"
-              autoComplete="new-password"
-              minLength={12}
-              maxLength={128}
-              required
-            />
-          </label>
-          <label>
-            Reason for creating account
-            <input name="reason" required minLength={3} maxLength={500} />
-          </label>
-          <button className="button" disabled={busy}>
-            Create account
-          </button>
-        </form>
-      </section>
-      <section className="card">
         <h2>Staff directory</h2>
         {staff.map((row) => (
           <details key={`${row.id}-${row.role}-${row.disabled}`}>
@@ -171,6 +139,38 @@ export function StaffForms({ staff }: { staff: StaffRow[] }) {
             </form>
           </details>
         ))}
+      </section>
+      <section className="card">
+        <h2>Create staff account</h2>
+        <form className="fields" onSubmit={(e) => save(e)}>
+          <label>
+            Full name
+            <input name="name" required minLength={2} maxLength={100} />
+          </label>
+          <label>
+            Email
+            <input name="email" type="email" required />
+          </label>
+          <RoleField />
+          <label>
+            Initial password
+            <input
+              name="password"
+              type="password"
+              autoComplete="new-password"
+              minLength={12}
+              maxLength={128}
+              required
+            />
+          </label>
+          <label>
+            Reason for creating account
+            <input name="reason" required minLength={3} maxLength={500} />
+          </label>
+          <button className="button" disabled={busy}>
+            Create account
+          </button>
+        </form>
       </section>
     </>
   );

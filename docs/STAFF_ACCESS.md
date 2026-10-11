@@ -8,6 +8,8 @@ The owner authorized temporary local accounts for ADMIN, ADMISSION, DOCTOR, NURS
 
 Open `http://localhost:3000/login` after starting the application. Administrators can manage staff and hospital settings from their workspace. Users can change their own password and sign out. Hospital financial settings begin unconfigured; demo accounts do not establish real staff credentials or real hospital policy.
 
+The top-right Profile shows the authenticated staff identity with Admin-managed name, email and role. Its real password change revokes other sessions; Logout ends the current session. Adjacent Customize stores only that staff member's accent, density and motion in the current browser, with a visible fallback if storage is unavailable and respect for reduced motion. Appearance controls do not modify hospital rules or access. Staff administration stays in Admin's Staff screen. Role start paths and current UI evidence are recorded in [overview](OVERVIEW.md) and [UI progress](agent/UI_REDESIGN_PROGRESS.md).
+
 Fresh local setup first follows [database setup](DATABASE_SETUP.md). With an explicitly supplied private `HIMS_DEMO_PASSWORD`, the command below creates the eight development accounts only in the dedicated local database:
 
 ```powershell

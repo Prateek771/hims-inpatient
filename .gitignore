@@ -31,3 +31,9 @@ playwright-report/
 test-results/
 .DS_Store
 Thumbs.db
+
+# Illustrated guide render evidence and interim Word copies
+/docs/guides/qa/
+/docs/guides/__pycache__/
+/docs/guides/*-draft.docx
+/docs/guides/~$*.docx

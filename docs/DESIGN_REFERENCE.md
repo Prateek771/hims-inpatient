@@ -1,5 +1,39 @@
 # Approved Figma reference
 
+## Current approval · 11 October 2026
+
+The owner approved **HIMS · Final Product — Role Workflows** and authorized actual implementation in one next chat in this same INS folder, with parallel subagents and a dedicated illustrated patient-journey guide agent. This replaces the older visual layout below; existing Tasks 1–16 business behavior and server authority remain controlling.
+
+- [Current editable workspace](https://www.figma.com/design/SHtJNa3gp1oqOpNm8VzcmQ)
+- [Doctor prototype entry](https://www.figma.com/proto/SHtJNa3gp1oqOpNm8VzcmQ/HIMS-Final-Product?node-id=3-4&starting-point-node-id=3%3A4&scaling=scale-down&content-scaling=fixed)
+- File key `SHtJNa3gp1oqOpNm8VzcmQ`; pages `0:1` (Role workspaces), `2:2` (Components & tokens).
+- [Implementation handoff](agent/UI_REDESIGN_HANDOFF.md). Sole-folder native source, role coverage and current 96-view state: ignored `tmp/final-product/README.md` and `tmp/final-product/final-state-current.json`; earlier states are historical. Inspect live Figma before implementation.
+
+| Role | Entry node | Job navigation |
+| --- | --- | --- |
+| Admin | `7:456` | Home, Beds, Staff, Assignments, Billing, Pharmacy, Insurance, Discharge, Documents, Exceptions, Settings |
+| Doctor | `3:4` | Patients, Discharge, Exceptions; clinical work is inside patient tabs |
+| Nurse | `6:236` | My shift, Discharge, Exceptions; actual care is inside nursing tabs |
+| Admission | `10:957` | Admissions, Insurance, Exceptions; intake, patient deposit and actual activation stay together |
+| Pharmacy | `11:1096` | Medicines, Discharge, Exceptions |
+| Lab | `12:1392` | Lab, Exceptions |
+| Insurance | `12:1852` | Cases, Exceptions |
+| Billing | `13:1663` | Billing, Insurance, Discharge, Documents, Exceptions |
+
+No arbitrary section cap. No staff Home repeats its principal worklist. Preserve navy navigation, teal selection, restrained reporting/status colour, IBM Plex Sans, exact occupancy denominators and clear ownership. Top-right Profile/Logout and neighbouring Customize are approved. Implement real authorized data/forms and useful responsive layouts; synthetic Figma values are never ordinary app fixtures. Personal appearance does not change policy or permissions.
+
+Native design checks: 96/96 views reachable, 838 valid links, no cross-role/dangling/self destinations, frame overlaps, horizontal text escapes, component text clipping or image fills; 40 unique General-bed labels. The prototype does not execute forms/signatures/login/print/scan or persist preferences and does not establish a full phone flow; those application behaviors require implementation/verification.
+
+Current source rules override older prose: admission creation is Admission-only; activation is Admission/Admin; Admission records patient deposits/top-ups only; Billing cannot activate. Admin cannot open clinical charts or sign another profession’s gate. Final settlement allocates original deposits and records actual refunds. Settings use six implemented configuration types with fixed deposit amounts; no formula/slab policy is configured.
+
+## Implemented source and review · 11 October 2026
+
+All eight role workspaces now implement this approved direction with real authorized data and existing forms. The shared shell, exact menus/role homes, real Profile/password/signout, per-staff Customize preferences, keyboard-accessible retained task panels and responsive layouts received independent specification/quality and whole-branch review. Current physical occupancy comes from a read-only exact source projection rather than Figma sample counts. Previous financial/clinical/role/source/HTTP checks remain effective; new browser checks exercise narrow screens, keyboard links, retained drafts, nonempty nursing schedules and actual computed text contrast.
+
+The [15-page illustrated guide](guides/README.md) uses eight reconciled screenshots of the tested implementation, with separate fictional narrative values. Capture application SHA256 is `021d46011ef00b58d6ef5a625052c89344c528fd82b61005d1db365ce65f36c0`; the manifest retains exact image/build/test provenance. These excerpts are implementation illustrations, not all96 prototype frames or real patient records. Source acceptance and final guide QA are complete; full local/recovery/preservation, exact development/main CI and copied ordinary preview have their own observed gates in [redesign progress](agent/UI_REDESIGN_PROGRESS.md) and `tmp/ui-redesign/release-evidence.json`.
+
+## Historical approval · 9 October 2026
+
 The owner approved the clean, minimal sections and data presentation on **9 October 2026**. Use this file as the visual starting point when implementing or reviewing a corresponding role/workflow.
 
 - [Editable Figma workspace](https://www.figma.com/design/I4LQwHYp5IKZq0JQPZyM7X?node-id=4-2)

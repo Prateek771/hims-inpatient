@@ -15,12 +15,11 @@ export default async function SettingsPage() {
   }
   return (
     <>
-      <Link href="/workspace">Back to workspace</Link>
-      <p className="eyebrow">Hospital administration</p>
-      <h1>Hospital settings</h1>
+      <Link href="/overview">Back to Home</Link>
+      <h1>Settings</h1>
       <p className="page-description">
-        Changes create a new version. Existing stays will retain the policy
-        version assigned to them.
+        Hospital configuration with attributable reasons and retained versions.
+        Existing stays retain their assigned policy version.
       </p>
       <SettingsForms {...settings} />
     </>
