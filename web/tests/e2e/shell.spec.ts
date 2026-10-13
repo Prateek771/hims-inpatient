@@ -11,7 +11,7 @@ test("unsigned root opens the real staff sign-in with keyboard access", async ({
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: testInfo.outputPath("workspace-desktop.png"), fullPage: true });
   await page.keyboard.press("Tab");
-  await expect(page.getByLabel("Email", { exact: true })).toBeFocused();
+  await expect(page.getByLabel("Email or role", { exact: true })).toBeFocused();
   expect(errors).toEqual([]);
 });
 

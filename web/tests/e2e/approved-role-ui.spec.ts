@@ -136,7 +136,7 @@ test("profile changes a dedicated synthetic password and Logout revokes that act
   expect(created.ok()).toBe(true);
   await page.context().clearCookies();
   await page.goto("/login");
-  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel("Email or role", { exact: true }).fill(email);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/clinical$/);
@@ -151,7 +151,7 @@ test("profile changes a dedicated synthetic password and Logout revokes that act
   await expect(page).toHaveURL(/\/login$/);
   await page.goto("/clinical");
   await expect(page).toHaveURL(/\/login$/);
-  await page.getByLabel("Email", { exact: true }).fill(email);
+  await page.getByLabel("Email or role", { exact: true }).fill(email);
   await page.getByLabel("Password", { exact: true }).fill(updated);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/clinical$/);

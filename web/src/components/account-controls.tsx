@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import type { Staff } from "@/server/access";
+import { loginEmail } from "./login-identifier";
 
 export function LoginForm() {
   const [message, setMessage] = useState("");
@@ -21,7 +22,7 @@ export function LoginForm() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              email: data.get("email"),
+              email: loginEmail(String(data.get("email") ?? "")),
               password: data.get("password"),
             }),
           });
@@ -42,8 +43,8 @@ export function LoginForm() {
       }}
     >
       <label>
-        Email
-        <input name="email" type="email" autoComplete="username" required />
+        Email or role
+        <input name="email" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} required />
       </label>
       <label>
         Password
