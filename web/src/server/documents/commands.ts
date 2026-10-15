@@ -19,7 +19,7 @@ const hashes = z.string().regex(/^[0-9a-f]{64}$/);
 const input = z.strictObject({ admissionId: z.uuid(), billVersion: z.number().int().positive(), clearanceVersions: z.strictObject({ DOCTOR: z.uuid().nullable(), PHARMACY: z.uuid().nullable(), NURSING: z.uuid().nullable(), BILLING: z.uuid().nullable() }), exceptionId: z.uuid().optional(), expectedSourceHash: hashes });
 const byteHash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 /** Full final-copy delivery purpose is intentionally narrower than raw chart/episode navigation. */
-async function documentOperator(tx: Transaction, ctx: CommandContext) { return admissionOperator(ctx, ["ADMIN", "BILLING"], tx); }
+async function documentOperator(tx: Transaction, ctx: CommandContext, allowNurse=false) { return admissionOperator(ctx, allowNurse?["ADMIN", "BILLING","NURSE"]:["ADMIN", "BILLING"], tx); }
 function binding(source: DocumentSource) {
   return { admissionId: source.admission.id, billVersion: source.money.bill.revision, clearanceVersions: Object.fromEntries(source.seals.map(s => [s.gate, s.seal?.id ?? null])) as z.infer<typeof input>["clearanceVersions"], ...(source.departure.exception ? { exceptionId: source.departure.exception.id } : {}), expectedSourceHash: snapshotHash(source) };
 }
@@ -92,27 +92,28 @@ export async function publishDischargeDocumentInTransaction(tx: Transaction, ctx
   await writeFile(resolve(directory, `${storageKey}.manifest.json`), JSON.stringify({ storageKey, documentId, admissionId: e.id, version, sourceHash: snapshot.sourceHash, hash, pdfHash, sizeBytes: bytes.length, createdAt: snapshot.createdAt }), { flag: "wx", mode: 0o600 });
   await writeFile(resolve(directory, `${storageKey}.staging`), bytes, { flag: "wx", mode: 0o600 });
   await rename(resolve(directory, `${storageKey}.staging`), pathFor(storageKey));
-  const row: StoredDocument = { id: documentId, admissionId: e.id, version, replacesDocumentId: previous?.id ?? null, sourceHash: snapshot.sourceHash, hash, snapshot, storageKey, pdfHash, sizeBytes: bytes.length, createdBy: staff.id, createdAt };
+  const row: StoredDocument = { id: documentId, admissionId: e.id, version, schemaVersion:1,kind:"FINAL", replacesDocumentId: previous?.id ?? null, sourceHash: snapshot.sourceHash, hash, snapshot, storageKey, pdfHash, sizeBytes: bytes.length, createdBy: staff.id, createdAt };
   await readPDF(row);
   await tx.insert(dischargeDocuments).values(row);
   await appendAudit(tx, ctx, { event: "document.created", entityType: "discharge-document", entityId: documentId, reason: "Immutable final-copy snapshot and protected PDF published from reviewed actual departure sources", beforeVersion: previous?.version, afterVersion: version });
   return { documentId, version, hash };
 }
 async function ownedDocument(tx: Transaction, ctx: CommandContext, documentId: string) {
-  await documentOperator(tx, ctx);
+  const staff=await documentOperator(tx, ctx,true);
   // Initial immutable lookup locates ownership only. Reread under admission ownership.
   const [located] = await tx.select({ admissionId: dischargeDocuments.admissionId }).from(dischargeDocuments).where(eq(dischargeDocuments.id, z.uuid().parse(documentId)));
   if (!located) throw new DomainError("FORBIDDEN", "Final document access denied");
   const e = await lockBillingAdmission(tx, located.admissionId);
   const [row] = await tx.select().from(dischargeDocuments).where(and(eq(dischargeDocuments.id, documentId), eq(dischargeDocuments.admissionId, e.id)));
   if (!row) throw new DomainError("FORBIDDEN", "Final document access denied");
+  if(staff.role==="NURSE"&&(row.schemaVersion!==2||!(await tx.execute(sql`select 1 from hims.nurse_assignments a where a.admission_id=${e.id} and a.nurse_id=${staff.id} and not exists(select 1 from hims.nurse_assignment_revocations r where r.assignment_id=a.id)`)).rows.length))throw new DomainError("FORBIDDEN","Current assigned Nurse may access MVP delivery papers only");
   return { e, row: row as StoredDocument };
 }
 async function status(tx: Transaction, e: typeof admissions.$inferSelect, row: StoredDocument) {
   try { await readPDF(row); } catch (error) { if (error instanceof DomainError && error.code === "PRECONDITION") return "FILE_UNAVAILABLE" as const; throw error; }
-  const [newer] = await tx.select({ id: dischargeDocuments.id }).from(dischargeDocuments).where(and(eq(dischargeDocuments.admissionId, e.id), sql`${dischargeDocuments.version}>${row.version}`)).limit(1);
+  const [newer] = await tx.select({ id: dischargeDocuments.id }).from(dischargeDocuments).where(and(eq(dischargeDocuments.admissionId, e.id), sql`${dischargeDocuments.version}>${row.version}`,row.schemaVersion===2?eq(dischargeDocuments.kind,row.kind):undefined)).limit(1);
   if (newer) return "SUPERSEDED" as const;
-  try { return row.sourceHash === snapshotHash(await documentSourceInTransaction(tx, e)) ? "CURRENT" as const : "SOURCE_CHANGED" as const; }
+  try { return row.sourceHash === snapshotHash(row.schemaVersion===2?await (await import("./mvp")).mvpDocumentSource(tx,e,row.kind as "CLINICAL"|"FINAL"):await documentSourceInTransaction(tx, e)) ? "CURRENT" as const : "SOURCE_CHANGED" as const; }
   catch (error) { if (error instanceof DomainError && error.code === "PRECONDITION") return "SOURCE_CHANGED" as const; throw error; }
 }
 export async function getDischargeDocument(ctx: CommandContext, documentId: string) { return withTransaction(async tx => {

@@ -1,5 +1,7 @@
 # Human clearances, settlement and departure
 
+> Version 1 contract and retained acceptance evidence. New admissions follow the approved [version 2 scope](PROJECT_SCOPE.md); [implementation progress](agent/MVP_IMPLEMENTATION_PROGRESS.md) records actual verification. Existing episodes keep the original rules described below.
+
 The discharge workspace coordinates four human reviews, actual money records and physical departure. Task11 passed independent specification/quality review and the complete application checks; checkpoint progress is recorded in [build handoff](agent/BUILD_HANDOFF.md). Insurer and payment-service communication remains with staff through their existing channels.
 
 ## Staff sequence

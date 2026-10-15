@@ -1,5 +1,5 @@
 import "server-only";
-import { createHash } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import { and, asc, desc, eq, getViewSelectedFields, ilike, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { appendAudit } from "../audit";
@@ -21,6 +21,7 @@ import {
 } from "./schema";
 import { admissionTransfers, transferInsuranceTasks, transferOrders } from "./transfer-schema";
 import { transferAuthority } from "./transfer-authority";
+import { doctorDirectoryVersions } from "../mvp/staff-schema";
 
 const categoryCode = z
   .string()
@@ -46,7 +47,7 @@ export const dateOfBirth = z
       date <= new Date()
     );
   }, "Enter a valid date of birth");
-export const admissionInput = z
+export const legacyAdmissionInput = z
   .strictObject({
     patientId: z.uuid().optional(),
     patientDetails: z
@@ -97,6 +98,18 @@ export const admissionInput = z
     (v) => Boolean(v.patientId) !== Boolean(v.patientDetails),
     "Select an existing patient or enter new identity details",
   );
+
+export const admissionInput = z.strictObject({
+  patientId:legacyAdmissionInput.shape.patientId,patientDetails:legacyAdmissionInput.shape.patientDetails,
+  bedId:legacyAdmissionInput.shape.bedId,paymentRoute:legacyAdmissionInput.shape.paymentRoute,
+  expectedStayDays:legacyAdmissionInput.shape.expectedStayDays,requestId:legacyAdmissionInput.shape.requestId,
+  externalDoctorId:z.uuid(),destinationCategory:categoryCode.optional(),overrideReason:reason.optional(),
+}).refine(v=>Boolean(v.patientId)!==Boolean(v.patientDetails),"Select an existing patient or enter new identity details");
+
+export function generatePatientUhid(name?:string) {
+  const initials = name?.trim().split(/\s+/u).map(part=>part.match(/\p{L}/u)?.[0]??"").join("").toUpperCase() || "UN";
+  return `${initials}${randomInt(0,10_000_000).toString().padStart(7,"0")}`;
+}
 
 export async function admissionOperator(
   ctx: CommandContext,
@@ -239,11 +252,19 @@ export async function createAdmission(
   ctx: CommandContext,
   input: unknown,
 ): Promise<{ admissionId: string; patientId: string; ipCode: string }> {
-  const value = admissionInput.parse(input);
+  return createAdmissionVersion(ctx, admissionInput.parse(input), 2);
+}
+
+/** Server-only historical fixture/import path; never expose through an action or HTTP route. */
+export async function createLegacyAdmission(ctx:CommandContext,input:unknown) {
+  return createAdmissionVersion(ctx,legacyAdmissionInput.parse(input),1);
+}
+
+async function createAdmissionVersion(ctx:CommandContext,value:z.infer<typeof admissionInput>|z.infer<typeof legacyAdmissionInput>,workflowVersion:1|2):Promise<{ admissionId: string; patientId: string; ipCode: string }> {
   if (ctx.requestId !== value.requestId)
     throw new DomainError("VALIDATION", "Request keys disagree");
   const payload = createHash("sha256")
-    .update(JSON.stringify(value))
+    .update(JSON.stringify(workflowVersion===1?value:{workflowVersion,...value}))
     .digest("hex");
   return withTransaction(async (tx) => {
     const operator = await admissionOperator(ctx, ["ADMISSION"], tx);
@@ -272,6 +293,7 @@ export async function createAdmission(
         ipCode: retry.ipCode,
       };
     }
+    if ("admittingDoctorId" in value) {
     const clinicianIds = [
       ...new Set([
         value.admittingDoctorId,
@@ -292,6 +314,11 @@ export async function createAdmission(
         "VALIDATION",
         "Admitting and assessing clinicians must be active doctors",
       );
+    } else {
+      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`doctor-directory:${value.externalDoctorId}`},0))`);
+      const [doctor] = await tx.select().from(doctorDirectoryVersions).where(eq(doctorDirectoryVersions.doctorId,value.externalDoctorId)).orderBy(desc(doctorDirectoryVersions.version)).limit(1);
+      if(!doctor?.active) throw new DomainError("VALIDATION","Select an active Doctor from the directory");
+    }
     const [hospital] = await tx.select().from(hospitalSettings).limit(1);
     if (!hospital)
       throw new DomainError(
@@ -325,15 +352,20 @@ export async function createAdmission(
           "This patient already has a pending or active admission",
         );
     } else {
+      for(let attempt=0;attempt<20;attempt++) {
+      const uhid=generatePatientUhid(value.patientDetails!.identityStatus==="TEMPORARY"?undefined:value.patientDetails!.name);
       [patient] = await tx
         .insert(originalPatients)
         .values({
           ...value.patientDetails!,
-          name:value.patientDetails!.name??`Unidentified ${crypto.randomUUID().slice(0,8).toUpperCase()}`,
-          uhid: `UHID-${crypto.randomUUID()}`,
+          name:value.patientDetails!.name??`Unidentified ${uhid}`,
+          uhid,
           registeredBy: operator.id,
         })
-        .returning();
+        .onConflictDoNothing({target:originalPatients.uhid}).returning();
+        if(patient) break;
+      }
+      if(!patient) throw new DomainError("CONFLICT","Could not allocate a unique UHID; retry registration");
     }
     const [bed] = await tx
       .select()
@@ -353,10 +385,12 @@ export async function createAdmission(
         "This bed is no longer available. Choose another bed.",
       );
     const categories = await configuredCategories(tx);
+    const destinationCategory = "clinicianAssessment" in value ? value.clinicianAssessment.destinationCategory : value.destinationCategory??bed.category;
+    const overrideReason = "clinicianAssessment" in value ? value.clinicianAssessment.overrideReason : value.overrideReason;
     if (
       !categories.some((v) => v.payload.code === bed.category) ||
       !categories.some(
-        (v) => v.payload.code === value.clinicianAssessment.destinationCategory,
+        (v) => v.payload.code === destinationCategory,
       )
     )
       throw new DomainError(
@@ -364,8 +398,8 @@ export async function createAdmission(
         "Select active configured room categories",
       );
     if (
-      bed.category !== value.clinicianAssessment.destinationCategory &&
-      !value.clinicianAssessment.overrideReason
+      bed.category !== destinationCategory &&
+      !overrideReason
     )
       throw new DomainError(
         "VALIDATION",
@@ -387,8 +421,10 @@ export async function createAdmission(
         hospitalId: hospital.id,
         patientId: patient.id,
         ipCode,
-        admittingDoctorId: value.admittingDoctorId,
-        clinicianAssessment: value.clinicianAssessment,
+        workflowVersion,
+        admittingDoctorId: "admittingDoctorId" in value ? value.admittingDoctorId : null,
+        externalDoctorId: "externalDoctorId" in value ? value.externalDoctorId : null,
+        clinicianAssessment: "clinicianAssessment" in value ? value.clinicianAssessment : null,
         bedId: bed.id,
         paymentRoute: value.paymentRoute,
         expectedStayDays: value.expectedStayDays,
@@ -566,7 +602,8 @@ export async function transferAdmission(ctx: CommandContext, input: unknown): Pr
  * Composing callers acquire shared settings lock 729104211 before any staff/admission locks.
  */
 export async function transferAdmissionInTransaction(tx: Transaction, ctx: CommandContext, input: unknown): Promise<{ oldStayId: string; newStayId: string }> {
-  const value = z.strictObject({ admissionId: z.uuid(), transferOrderId: z.uuid(), targetBedId: z.uuid(), handover: z.strictObject({ shiftId: z.uuid(), notes: reason }), transferredAt: z.iso.datetime(), requestId: z.uuid() }).parse(input);
+  const commonTransfer = { admissionId: z.uuid(), targetBedId: z.uuid(), handover: z.strictObject({ shiftId: z.uuid(), notes: reason }), transferredAt: z.iso.datetime(), requestId: z.uuid() };
+  const value = z.union([z.strictObject({ ...commonTransfer, transferOrderId: z.uuid() }), z.strictObject({ ...commonTransfer, mvpAuthorityId: z.uuid() })]).parse(input);
   if (ctx.requestId !== value.requestId) throw new DomainError("VALIDATION", "Request keys disagree");
   // Staff administration takes this existing exclusive lock before updating user rows.
   // Acquire its shared form first, then authenticate, so settings and staff changes serialize.
@@ -580,12 +617,22 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
   const result = await careRequest(tx, ctx, staff, "admission.transferred", value, async () => {
     const episode = await careEpisode(tx, staff, value.admissionId);
     const [stay] = await tx.select().from(roomStays).where(and(eq(roomStays.admissionId, episode.id), isNull(roomStays.endedAt)));
-    const [order] = await tx.select().from(transferOrders).where(eq(transferOrders.id, value.transferOrderId));
+    let order: { id: string; destinationCategory: string; signedAt: Date };
+    if ("mvpAuthorityId" in value) {
+      const { currentMvpTransferAuthority } = await import("../mvp/transfers");
+      const authority = await currentMvpTransferAuthority(tx, episode, stay, value.mvpAuthorityId);
+      order = { id: authority.id, destinationCategory: authority.destinationCategory, signedAt: authority.sourceTime };
+    } else {
+    if (episode.workflowVersion !== 1) throw new DomainError("PRECONDITION", "MVP transfers require recorded external Doctor authority");
+    const [nativeOrder] = await tx.select().from(transferOrders).where(eq(transferOrders.id, value.transferOrderId));
     const [latest] = await tx.select().from(transferOrders).where(eq(transferOrders.admissionId, episode.id)).orderBy(desc(transferOrders.version)).limit(1);
     const used = await tx.select({ id: admissionTransfers.id }).from(admissionTransfers).where(eq(admissionTransfers.transferOrderId, value.transferOrderId));
     const current = (await transferAuthority(tx, episode.id)).orders[0];
-    if (!stay || stay.bedId !== episode.bedId || !order || order.admissionId !== episode.id || order.sourceStayId !== stay.id || latest?.id !== order.id || used.length || !current || !["PENDING", "WITNESSED"].includes(current.status))
+    if (!stay || stay.bedId !== episode.bedId || !nativeOrder || nativeOrder.admissionId !== episode.id || nativeOrder.sourceStayId !== stay.id || latest?.id !== nativeOrder.id || used.length || !current || !["PENDING", "WITNESSED"].includes(current.status))
       throw new DomainError("CONFLICT", "Transfer authority is missing, superseded or already consumed. Refresh the current stay and doctor order");
+    order = nativeOrder;
+    }
+    if (!stay) throw new DomainError("CONFLICT", "A current occupied source stay is required");
     const { actual: T } = await shiftForCare(tx, staff, value.handover.shiftId, episode.id, value.transferredAt);
     if (T <= stay.startedAt || T < order.signedAt || (stay.lastReconciledAt && T < stay.lastReconciledAt))
       throw new DomainError("CONFLICT", "Transfer precedes the occupied stay, doctor authority or committed room cursor; use the attributable correction workflow");
@@ -630,7 +677,7 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
     await tx.delete(bedHolds).where(eq(bedHolds.admissionId, episode.id));
     await tx.insert(bedHolds).values({ admissionId: episode.id, bedId: target.id, heldAt: T });
     await tx.update(admissions).set({ bedId: target.id, version: sql`${admissions.version}+1`, billRevision: sql`${admissions.billRevision}+1` }).where(eq(admissions.id, episode.id));
-    const [transfer] = await tx.insert(admissionTransfers).values({ admissionId: episode.id, transferOrderId: order.id, oldStayId: stay.id, newStayId: next.id, oldBedId: stay.bedId, targetBedId: target.id, shiftId: value.handover.shiftId, handover: value.handover.notes, transferredAt: T, signedBy: staff.id, signedAt: new Date() }).returning();
+    const [transfer] = await tx.insert(admissionTransfers).values({ admissionId: episode.id, transferOrderId: "transferOrderId" in value ? order.id : null, mvpAuthorityId: "mvpAuthorityId" in value ? order.id : null, oldStayId: stay.id, newStayId: next.id, oldBedId: stay.bedId, targetBedId: target.id, shiftId: value.handover.shiftId, handover: value.handover.notes, transferredAt: T, signedBy: staff.id, signedAt: new Date() }).returning();
     const {bedTurnovers}=await import("../discharge/schema");
     await tx.insert(bedTurnovers).values({bedId:stay.bedId,stayId:stay.id,admissionId:episode.id,vacatedAt:T,reason:"Actual transfer vacated the previous physical bed",signedBy:staff.id,signedAt:new Date()});
     if (episode.paymentRoute === "INSURED") await tx.insert(transferInsuranceTasks).values({ admissionId: episode.id, transferId: transfer.id, reason: "Insurance staff must review the transfer's externally verified insurance implications using existing payer channels" });

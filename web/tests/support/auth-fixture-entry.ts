@@ -1,3 +1,4 @@
+// Historical workflow-v1 coverage: create legacy episodes explicitly; current intake uses MVP v2.
 import { db } from "../../src/server/db";
 import { and, eq, sql } from "drizzle-orm";
 import { createStaffAuth } from "../../src/server/auth";
@@ -111,6 +112,9 @@ async function prepare() {
   await prepareFinalReviewBrowserFixture(h);
   const { prepareInpatientJourney } = await import("./inpatient-journey-fixture");
   await prepareInpatientJourney(h);
+  const { prepareMvpBrowserFixtures } = await import("./mvp-workflow-fixture");
+  const mvp = await prepareMvpBrowserFixtures(h);
+  writeFileSync(resolve("tmp/e2e-mvp.json"), JSON.stringify({meeraAdmissionId:mvp.meeraAdmissionId,meeraShiftId:mvp.meeraShiftId,meeraFinalDocumentId:mvp.meeraFinalDocumentId,selfPayAdmissionId:mvp.selfPayAdmissionId,selfPayShiftId:mvp.selfPayShiftId,caseId:mvp.caseId}), {mode:0o600});
   // Workflow browser contexts reuse real synthetic sessions, avoiding unrelated login-limiter traffic.
   // These signed cookies are credentials and stay exclusively inside the ignored test output folder.
   for (const role of ["ADMIN", "DOCTOR", "ADMISSION", "BILLING", "NURSE", "PHARMACY", "LAB", "INSURANCE"] as const) {
@@ -138,7 +142,7 @@ async function prepare() {
 async function prepareOverviewFixture(adminHeaders: Headers) {
   const { listSettings, saveSetting } = await import("../../src/server/settings");
   const { requireStaff, staffContext } = await import("../../src/server/access");
-  const { createBed, createAdmission, activateAdmission } = await import("../../src/server/admissions/commands");
+  const { createBed, createLegacyAdmission, activateAdmission } = await import("../../src/server/admissions/commands");
   const { withTransaction } = await import("../../src/server/db");
   const { postChargeInTransaction } = await import("../../src/server/billing/commands");
   const { charges } = await import("../../src/server/billing/schema");
@@ -158,7 +162,7 @@ async function prepareOverviewFixture(adminHeaders: Headers) {
   const ctx = (role: string) => ({ actor: { type: "staff" as const, staffId: id(role) }, source: "synthetic-overview-boundary", requestId: crypto.randomUUID() });
   const bed = existing ? null : await createBed(staffContext(await requireStaff(adminHeaders), "synthetic-overview-boundary"), { label: "Synthetic long bed label for current overview wrapping", category: "OV_LARGE", reason: "Synthetic overview UI boundary" });
   const desk = ctx("ADMISSION");
-  const a = existing ?? await createAdmission(desk, { patientDetails: { name: "Synthetic José सावधानी क्षेत्र - Long recorded patient name for wrapping and international text verification", ageYearsAtRegistration: 44, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: new Date().toISOString(), chiefComplaint: "Private synthetic overview assessment", vitals: "Synthetic vitals", triage: "Synthetic destination", destinationCategory: "OV_LARGE" }, bedId: bed!.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: desk.requestId });
+  const a = existing ?? await createLegacyAdmission(desk, { patientDetails: { name: "Synthetic José सावधानी क्षेत्र - Long recorded patient name for wrapping and international text verification", ageYearsAtRegistration: 44, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: new Date().toISOString(), chiefComplaint: "Private synthetic overview assessment", vitals: "Synthetic vitals", triage: "Synthetic destination", destinationCategory: "OV_LARGE" }, bedId: bed!.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: desk.requestId });
   if (!existing || existing.status === "PENDING") {
     const arrival = ctx("ADMISSION");
     await activateAdmission(arrival, { admissionId: a.admissionId, expectedVersion: existing?.version ?? 1, arrivedAt: new Date().toISOString(), requestId: arrival.requestId });
@@ -175,7 +179,7 @@ async function prepareBillingFixtures(adminHeaders: Headers) {
   const { getAuth } = await import("../../src/server/auth");
   const { requireStaff, staffContext } = await import("../../src/server/access");
   const { listSettings, saveSetting } = await import("../../src/server/settings");
-  const { createAdmission, createBed, activateAdmission } = await import("../../src/server/admissions/commands");
+  const { createLegacyAdmission, createBed, activateAdmission } = await import("../../src/server/admissions/commands");
   const { recordReceipt, postChargeInTransaction, reconcileBill } = await import("../../src/server/billing/commands");
   const { withTransaction } = await import("../../src/server/db");
   const { admissions } = await import("../../src/server/admissions/schema");
@@ -199,7 +203,7 @@ async function prepareBillingFixtures(adminHeaders: Headers) {
   for (const name of ["Synthetic E2E billing patient", "Synthetic E2E activation patient"]) {
     const bed = await createBed(staffContext(admin, "synthetic-browser-bed"), { label: `Synthetic billing ${crypto.randomUUID()}`, category: "GENERAL", reason: "Synthetic browser billing inventory" });
     const desk = await context("admission");
-    const a = await createAdmission(desk, { patientDetails: { name, ageYearsAtRegistration: 54, sex: "FEMALE" }, admittingDoctorId: doctor.id, clinicianAssessment: { clinicianId: doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Synthetic complaint", vitals: "Synthetic assessment", triage: "Synthetic destination", destinationCategory: "GENERAL" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 2, requestId: desk.requestId });
+    const a = await createLegacyAdmission(desk, { patientDetails: { name, ageYearsAtRegistration: 54, sex: "FEMALE" }, admittingDoctorId: doctor.id, clinicianAssessment: { clinicianId: doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Synthetic complaint", vitals: "Synthetic assessment", triage: "Synthetic destination", destinationCategory: "GENERAL" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 2, requestId: desk.requestId });
     if (name.includes("activation")) continue;
     const cashier = await context("billing");
     await recordReceipt(cashier, { admissionId: a.admissionId, party: "PATIENT", kind: "DEPOSIT", amountPaise: "50000", mode: "CASH", channel: "Synthetic E2E fixture book", sourceReference: crypto.randomUUID(), reference: "Synthetic initial deposit", requestId: cashier.requestId });
@@ -214,7 +218,7 @@ async function prepareBillingFixtures(adminHeaders: Headers) {
 }
 async function prepareCareFixtures(adminHeaders: Headers, transferCase = false) {
   const { requireStaff } = await import("../../src/server/access");
-  const { createAdmission, createBed, activateAdmission } = await import("../../src/server/admissions/commands");
+  const { createLegacyAdmission, createBed, activateAdmission } = await import("../../src/server/admissions/commands");
   const { recordReceipt } = await import("../../src/server/billing/commands");
   const { recordRound } = await import("../../src/server/clinical/commands");
   const { assignNurse } = await import("../../src/server/nursing/commands");
@@ -227,7 +231,7 @@ async function prepareCareFixtures(adminHeaders: Headers, transferCase = false) 
   const [billing] = await db.select().from(user).where(eq(user.email, "billing@e2e.fixture.invalid"));
   const bed = await createBed(context(admin.id), { label: `Synthetic care ${crypto.randomUUID()}`, category: "GENERAL", reason: "Synthetic care inventory" });
   const deskCtx = context(desk.id);
-  const a = await createAdmission(deskCtx, { patientDetails: { name: transferCase ? "Synthetic E2E transfer patient" : "Synthetic E2E care patient", ageYearsAtRegistration: 54, sex: "FEMALE" }, admittingDoctorId: doctor.id, clinicianAssessment: { clinicianId: doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Synthetic complaint", vitals: "Synthetic assessment", triage: "Synthetic destination", destinationCategory: "GENERAL" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 2, requestId: deskCtx.requestId });
+  const a = await createLegacyAdmission(deskCtx, { patientDetails: { name: transferCase ? "Synthetic E2E transfer patient" : "Synthetic E2E care patient", ageYearsAtRegistration: 54, sex: "FEMALE" }, admittingDoctorId: doctor.id, clinicianAssessment: { clinicianId: doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Synthetic complaint", vitals: "Synthetic assessment", triage: "Synthetic destination", destinationCategory: "GENERAL" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 2, requestId: deskCtx.requestId });
   const receiptCtx = context(billing.id);
   await recordReceipt(receiptCtx, { admissionId: a.admissionId, party: "PATIENT", kind: "DEPOSIT", amountPaise: "50000", mode: "CASH", channel: "Synthetic care fixture book", sourceReference: crypto.randomUUID(), reference: "Synthetic care deposit", requestId: receiptCtx.requestId });
   const arrival = context(desk.id), startedAt = new Date().toISOString();
@@ -260,7 +264,7 @@ async function prepareTransferFixtures(adminHeaders: Headers) {
 
 async function preparePharmacyFixtures(adminHeaders: Headers) {
   const { listSettings,saveSetting }=await import("../../src/server/settings");
-  const { createBed,createAdmission,activateAdmission }=await import("../../src/server/admissions/commands");
+  const { createBed,createLegacyAdmission,activateAdmission }=await import("../../src/server/admissions/commands");
   const { recordRound,getCare,signClinicalSummary }=await import("../../src/server/clinical/commands");
   const { recordReceipt }=await import("../../src/server/billing/commands");
   const { recordStockReceipt }=await import("../../src/server/pharmacy/commands");
@@ -271,7 +275,7 @@ async function preparePharmacyFixtures(adminHeaders: Headers) {
   await saveSetting(adminHeaders,{expectedVersion:Math.max(0,...settings.versions.filter(v=>v.kind==="tariff").map(v=>v.version)),reason:"Synthetic pharmacy medicine",value:{type:"billable-item",code:"E2E_PHARM",name:"Synthetic pharmacy medicine",category:"medicine",department:"PHARMACY",unit:"tablet",quantityScale:0,amount:"25",active:true}});
   const bed=await createBed(ctx("ADMIN"),{label:`Synthetic pharmacy ${crypto.randomUUID()}`,category:"GENERAL",reason:"Independent synthetic pharmacy patient"});
   const ac=ctx("ADMISSION");
-  const a=await createAdmission(ac,{patientDetails:{name:"Synthetic E2E pharmacy patient",ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Synthetic assessment",vitals:"Synthetic vitals",triage:"Synthetic routing",destinationCategory:"GENERAL"},bedId:bed.id,paymentRoute:"SELF_PAY",expectedStayDays:2,requestId:ac.requestId});
+  const a=await createLegacyAdmission(ac,{patientDetails:{name:"Synthetic E2E pharmacy patient",ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Synthetic assessment",vitals:"Synthetic vitals",triage:"Synthetic routing",destinationCategory:"GENERAL"},bedId:bed.id,paymentRoute:"SELF_PAY",expectedStayDays:2,requestId:ac.requestId});
   const rc=ctx("BILLING");await recordReceipt(rc,{admissionId:a.admissionId,party:"PATIENT",kind:"DEPOSIT",amountPaise:"50000",mode:"CASH",channel:"Synthetic pharmacy book",sourceReference:crypto.randomUUID(),reference:"Synthetic pharmacy deposit",requestId:rc.requestId});
   const activation=ctx("ADMISSION"),start=new Date().toISOString();await activateAdmission(activation,{admissionId:a.admissionId,arrivedAt:start,expectedVersion:1,requestId:activation.requestId});
   const dc=ctx("DOCTOR");await recordRound(dc,{admissionId:a.admissionId,notes:"Pharmacy fixture order, no contact/clinical notes projection",orders:[{kind:"MEDICINE",requestedItem:"Synthetic pharmacy medicine",itemId:"E2E_PHARM",dose:"5",doseUnit:"mg",route:"oral",frequency:"Explicit schedule",durationDays:1,medicationPurpose:"BOTH",dispensingQuantity:"4",dispensingUnit:"tablet",schedule:{startsAt:start,intervalMinutes:60,occurrences:1}}],requestId:dc.requestId});
@@ -284,7 +288,7 @@ async function preparePharmacyFixtures(adminHeaders: Headers) {
 
 async function prepareLabFixtures(adminHeaders:Headers){
   const {listSettings,saveSetting}=await import("../../src/server/settings");
-  const {createBed,createAdmission,activateAdmission}=await import("../../src/server/admissions/commands");
+  const {createBed,createLegacyAdmission,activateAdmission}=await import("../../src/server/admissions/commands");
   const {recordRound,getCare}=await import("../../src/server/clinical/commands");
   const {recordReceipt}=await import("../../src/server/billing/commands");
   const staff=await db.select({id:user.id,email:user.email}).from(user),id=(role:string)=>staff.find(s=>s.email===`${role.toLowerCase()}@e2e.fixture.invalid`)!.id;
@@ -293,7 +297,7 @@ async function prepareLabFixtures(adminHeaders:Headers){
     const settings=await listSettings(adminHeaders);await saveSetting(adminHeaders,{expectedVersion:Math.max(0,...settings.versions.filter(v=>v.kind==="tariff").map(v=>v.version)),reason:"Synthetic diagnostic price",value:{type:"billable-item",code,name,category,department:"LAB",unit:"test",quantityScale:0,amount:"100",active:true}});
   }
   const bed=await createBed(ctx("ADMIN"),{label:`Synthetic lab ${crypto.randomUUID()}`,category:"GENERAL",reason:"Independent synthetic lab inventory"}),aCtx=ctx("ADMISSION");
-  const a=await createAdmission(aCtx,{patientDetails:{name:"Synthetic E2E lab patient",ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Private lab patient clinical assessment",vitals:"Synthetic vitals",triage:"Synthetic routing",destinationCategory:"GENERAL"},bedId:bed.id,paymentRoute:"SELF_PAY",expectedStayDays:2,requestId:aCtx.requestId});
+  const a=await createLegacyAdmission(aCtx,{patientDetails:{name:"Synthetic E2E lab patient",ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Private lab patient clinical assessment",vitals:"Synthetic vitals",triage:"Synthetic routing",destinationCategory:"GENERAL"},bedId:bed.id,paymentRoute:"SELF_PAY",expectedStayDays:2,requestId:aCtx.requestId});
   const receipt=ctx("BILLING");await recordReceipt(receipt,{admissionId:a.admissionId,party:"PATIENT",kind:"DEPOSIT",amountPaise:"50000",mode:"CASH",channel:"Synthetic lab book",sourceReference:crypto.randomUUID(),reference:"Synthetic lab deposit",requestId:receipt.requestId});
   const ac=ctx("ADMISSION");await activateAdmission(ac,{admissionId:a.admissionId,expectedVersion:1,arrivedAt:new Date().toISOString(),requestId:ac.requestId});
   const dc=ctx("DOCTOR");await recordRound(dc,{admissionId:a.admissionId,notes:"Private diagnostic clinician notes must stay out of Lab",orders:[{kind:"LAB",requestedItem:"Synthetic CBC",itemId:"E2E_LAB",quantity:"1",unit:"test"},{kind:"RADIOLOGY",requestedItem:"Synthetic radiology",itemId:"E2E_RADIO",quantity:"1",unit:"test"}],requestId:dc.requestId});
@@ -301,14 +305,14 @@ async function prepareLabFixtures(adminHeaders:Headers){
 }
 
 async function prepareInsuranceFixtures(adminHeaders:Headers){
-  const {createBed,createAdmission,activateAdmission}=await import("../../src/server/admissions/commands");
+  const {createBed,createLegacyAdmission,activateAdmission}=await import("../../src/server/admissions/commands");
   const {createInsuranceCase,recordPolicyVerification,recordPayerDecision,getInsuranceCase}=await import("../../src/server/insurance/commands");
   const {listSettings,saveSetting}=await import("../../src/server/settings");
   const {recordRound}=await import("../../src/server/clinical/commands");
   const {recordReceipt}=await import("../../src/server/billing/commands");
   const staff=await db.select({id:user.id,email:user.email}).from(user),id=(role:string)=>staff.find(s=>s.email===`${role.toLowerCase()}@e2e.fixture.invalid`)!.id;
   const ctx=(role:string)=>({actor:{type:"staff" as const,staffId:id(role)},source:"synthetic-browser-insurance",requestId:crypto.randomUUID()});
-  async function episode(assigned:boolean,name=assigned?"Synthetic E2E insurance patient":"Synthetic unassigned private case"){const bed=await createBed(ctx("ADMIN"),{label:`Synthetic insurance ${crypto.randomUUID()}`,category:"GENERAL",reason:"Independent synthetic insurance case"});const a=ctx("ADMISSION"),admission=await createAdmission(a,{patientDetails:{name,ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Private clinical assessment excluded from Insurance",vitals:"Synthetic vitals",triage:"Synthetic routing",destinationCategory:"GENERAL"},bedId:bed.id,paymentRoute:"INSURED",expectedStayDays:2,requestId:a.requestId});const c=ctx("ADMIN"),record=await createInsuranceCase(c,{admissionId:admission.admissionId,assignedStaffId:assigned?id("INSURANCE"):null,reason:"Synthetic case assignment",requestId:c.requestId});return {...record,admissionId:admission.admissionId};}
+  async function episode(assigned:boolean,name=assigned?"Synthetic E2E insurance patient":"Synthetic unassigned private case"){const bed=await createBed(ctx("ADMIN"),{label:`Synthetic insurance ${crypto.randomUUID()}`,category:"GENERAL",reason:"Independent synthetic insurance case"});const a=ctx("ADMISSION"),admission=await createLegacyAdmission(a,{patientDetails:{name,ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Private clinical assessment excluded from Insurance",vitals:"Synthetic vitals",triage:"Synthetic routing",destinationCategory:"GENERAL"},bedId:bed.id,paymentRoute:"INSURED",expectedStayDays:2,requestId:a.requestId});const c=ctx("ADMIN"),record=await createInsuranceCase(c,{admissionId:admission.admissionId,assignedStaffId:assigned?id("INSURANCE"):null,reason:"Synthetic case assignment",requestId:c.requestId});return {...record,admissionId:admission.admissionId};}
   const assigned=await episode(true),unassigned=await episode(false);
   const paperwork=await episode(true,"Synthetic E2E paperwork review");
   const {attachCaseDocument}=await import("../../src/server/insurance/documents");
@@ -346,7 +350,7 @@ async function prepareInsuranceFixtures(adminHeaders:Headers){
 
 async function prepareDischargeFixture(adminHeaders:Headers){
   const {listSettings,saveSetting}=await import("../../src/server/settings");
-  const {createBed,createAdmission,activateAdmission}=await import("../../src/server/admissions/commands");
+  const {createBed,createLegacyAdmission,activateAdmission}=await import("../../src/server/admissions/commands");
   const {signClinicalSummary}=await import("../../src/server/clinical/commands");
   const {assignNurse,recordShift}=await import("../../src/server/nursing/commands");
   const staff=await db.select({id:user.id,email:user.email}).from(user),id=(role:string)=>staff.find(s=>s.email===`${role.toLowerCase()}@e2e.fixture.invalid`)!.id;
@@ -356,14 +360,14 @@ async function prepareDischargeFixture(adminHeaders:Headers){
     await saveSetting(adminHeaders,{value,expectedVersion:Math.max(0,...state.versions.filter(v=>v.kind===kind).map(v=>v.version)),reason:"Isolated synthetic discharge browser policy"});
   }
   const bed=await createBed(ctx("ADMIN"),{label:`Synthetic discharge ${crypto.randomUUID()}`,category:"DISCHARGE",reason:"Isolated discharge browser bed"});
-  const a=ctx("ADMISSION"),admission=await createAdmission(a,{patientDetails:{name:"Synthetic E2E discharge patient",ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Private clinical assessment not for Billing",vitals:"Synthetic vitals",triage:"Synthetic route",destinationCategory:"DISCHARGE"},bedId:bed.id,paymentRoute:"SELF_PAY",expectedStayDays:1,requestId:a.requestId});
+  const a=ctx("ADMISSION"),admission=await createLegacyAdmission(a,{patientDetails:{name:"Synthetic E2E discharge patient",ageYearsAtRegistration:54,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Private clinical assessment not for Billing",vitals:"Synthetic vitals",triage:"Synthetic route",destinationCategory:"DISCHARGE"},bedId:bed.id,paymentRoute:"SELF_PAY",expectedStayDays:1,requestId:a.requestId});
   const ac=ctx("ADMISSION"),arrivedAt=new Date().toISOString();await activateAdmission(ac,{admissionId:admission.admissionId,arrivedAt,expectedVersion:1,requestId:ac.requestId});
   await assignNurse(ctx("ADMIN"),{admissionId:admission.admissionId,nurseId:id("NURSE"),reason:"Actual browser nursing assignment",authority:"Synthetic roster"});
   const nurse=ctx("NURSE");await recordShift(nurse,{admissionId:admission.admissionId,startedAt:new Date().toISOString(),handover:"Continue monitoring until physical departure",requestId:nurse.requestId});
   await signClinicalSummary(ctx("DOCTOR"),{admissionId:admission.admissionId,expectedVersion:0,diagnosis:"Synthetic Doctor diagnosis",course:"Signed human course",condition:"Reviewed by Doctor",followUp:"Human follow-up",advice:"Human advice",prescriptionOrderIds:[]});
   const settings=await listSettings(adminHeaders);await saveSetting(adminHeaders,{value:{type:"deposit",category:"DISCHARGE",route:"insured",requirement:"not-required",amount:"0"},expectedVersion:Math.max(0,...settings.versions.filter(v=>v.kind==="rule").map(v=>v.version)),reason:"Synthetic unallocated insured browser policy"});
   const unallocatedBed=await createBed(ctx("ADMIN"),{label:`Synthetic unallocated ${crypto.randomUUID()}`,category:"DISCHARGE",reason:"Independent responsibility review fixture"});
-  const u=ctx("ADMISSION"),unallocated=await createAdmission(u,{patientDetails:{name:"Synthetic unallocated discharge patient",ageYearsAtRegistration:40,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Synthetic complaint",vitals:"Synthetic vitals",triage:"Synthetic route",destinationCategory:"DISCHARGE"},bedId:unallocatedBed.id,paymentRoute:"INSURED",expectedStayDays:1,requestId:u.requestId});
+  const u=ctx("ADMISSION"),unallocated=await createLegacyAdmission(u,{patientDetails:{name:"Synthetic unallocated discharge patient",ageYearsAtRegistration:40,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Synthetic complaint",vitals:"Synthetic vitals",triage:"Synthetic route",destinationCategory:"DISCHARGE"},bedId:unallocatedBed.id,paymentRoute:"INSURED",expectedStayDays:1,requestId:u.requestId});
   const arrival=ctx("ADMISSION");await activateAdmission(arrival,{admissionId:unallocated.admissionId,arrivedAt:new Date().toISOString(),expectedVersion:1,requestId:arrival.requestId});
   await new Promise(resolve=>setTimeout(resolve,80));
   const {reconcileBill,getBill}=await import("../../src/server/billing/commands");await reconcileBill(ctx("BILLING"),{admissionId:unallocated.admissionId,cutoff:new Date().toISOString()});assert((await getBill(ctx("BILLING"),unallocated.admissionId)).netPaise>0n);
@@ -372,7 +376,7 @@ async function prepareDischargeFixture(adminHeaders:Headers){
 
 async function prepareExceptionFixture(adminHeaders: Headers) {
   const { listSettings, saveSetting } = await import("../../src/server/settings");
-  const { createBed, createAdmission, activateAdmission } = await import("../../src/server/admissions/commands");
+  const { createBed, createLegacyAdmission, activateAdmission } = await import("../../src/server/admissions/commands");
   const { assignNurse, recordShift } = await import("../../src/server/nursing/commands");
   const staff = await db.select({ id: user.id, email: user.email }).from(user);
   const id = (role: string) => staff.find(s => s.email === `${role.toLowerCase()}@e2e.fixture.invalid`)!.id;
@@ -387,7 +391,7 @@ async function prepareExceptionFixture(adminHeaders: Headers) {
   }
   const bed = await createBed(ctx("ADMIN"), { label: `Synthetic exception ${crypto.randomUUID()}`, category: "EXCEPTIONS", reason: "Isolated exception browser bed" });
   const a = ctx("ADMISSION");
-  const admission = await createAdmission(a, { patientDetails: { name: "Synthetic E2E early-exit patient", ageYearsAtRegistration: 44, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: new Date().toISOString(), chiefComplaint: "Private clinical assessment excluded from Billing", vitals: "Synthetic vitals", triage: "Synthetic route", destinationCategory: "EXCEPTIONS" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: a.requestId });
+  const admission = await createLegacyAdmission(a, { patientDetails: { name: "Synthetic E2E early-exit patient", ageYearsAtRegistration: 44, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: new Date().toISOString(), chiefComplaint: "Private clinical assessment excluded from Billing", vitals: "Synthetic vitals", triage: "Synthetic route", destinationCategory: "EXCEPTIONS" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: a.requestId });
   const ac = ctx("ADMISSION");
   await activateAdmission(ac, { admissionId: admission.admissionId, expectedVersion: 1, arrivedAt: new Date().toISOString(), requestId: ac.requestId });
   await assignNurse(ctx("ADMIN"), { admissionId: admission.admissionId, nurseId: id("NURSE"), reason: "Actual browser nursing assignment", authority: "Synthetic roster" });
@@ -398,7 +402,7 @@ async function prepareExceptionFixture(adminHeaders: Headers) {
   const { getClearanceReview, issueClearance, recordRoomVacated } = await import("../../src/server/discharge/commands");
   const { recordExceptionEvidence, authorizeException } = await import("../../src/server/discharge/exceptions");
   const returnBed = await createBed(ctx("ADMIN"), { label: `Synthetic return review ${crypto.randomUUID()}`, category: "EXCEPTIONS", reason: "Isolated Doctor reconsideration browser bed" });
-  const desk = ctx("ADMISSION"), returning = await createAdmission(desk, { patientDetails: { name: "Synthetic Doctor return reconsideration", ageYearsAtRegistration: 44, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: new Date().toISOString(), chiefComplaint: "Actual synthetic complaint", vitals: "Synthetic vitals", triage: "Synthetic route", destinationCategory: "EXCEPTIONS" }, bedId: returnBed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: desk.requestId });
+  const desk = ctx("ADMISSION"), returning = await createLegacyAdmission(desk, { patientDetails: { name: "Synthetic Doctor return reconsideration", ageYearsAtRegistration: 44, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: new Date().toISOString(), chiefComplaint: "Actual synthetic complaint", vitals: "Synthetic vitals", triage: "Synthetic route", destinationCategory: "EXCEPTIONS" }, bedId: returnBed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: desk.requestId });
   const arrival = ctx("ADMISSION");
   await activateAdmission(arrival, { admissionId: returning.admissionId, expectedVersion: 1, arrivedAt: new Date().toISOString(), requestId: arrival.requestId });
   await assignNurse(ctx("ADMIN"), { admissionId: returning.admissionId, nurseId: id("NURSE"), reason: "Actual browser assignment", authority: "Synthetic roster" });

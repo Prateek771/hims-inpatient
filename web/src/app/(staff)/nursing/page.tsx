@@ -1,6 +1,8 @@
 import { HospitalTimestamp } from "@/components/hospital-timestamp";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { MvpWorkspace } from "@/components/mvp-workspace";
+import { isMvpEpisode } from "@/server/mvp/workspace";
 import { requireStaff, staffContext } from "@/server/access";
 import { getCare } from "@/server/clinical/commands";
 import { DomainError } from "@/server/contracts";
@@ -18,16 +20,20 @@ type CareChart = Awaited<ReturnType<typeof getCare>>;
 export default async function NursingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ admissionId?: string; tab?: string }>;
+  searchParams: Promise<{ admissionId?: string; tab?: string; legacy?: string; q?: string; view?: string; selected?: string }>;
 }) {
   const staff = await requireStaff();
   if (!["NURSE", "DOCTOR"].includes(staff.role)) notFound();
+  const { admissionId, tab, legacy, ...filters } = await searchParams;
+  if (admissionId && await isMvpEpisode(admissionId)) redirect(`/mvp/${admissionId}`);
+  if (!admissionId && legacy !== "1" && staff.role === "NURSE") return <MvpWorkspace filters={filters} />;
   const { timezone } = await hospitalTimeConfiguration();
   const ctx = staffContext(staff, "nursing-view");
   const work = await getStaffWorklist(ctx);
-  const currentWork = { ...work, episodes: work.episodes.filter(e => ["PENDING", "ADMITTED"].includes(e.status)) };
-  const historyWork = { ...work, episodes: work.episodes.filter(e => !["PENDING", "ADMITTED"].includes(e.status)) };
-  const { admissionId, tab } = await searchParams;
+  const mvpFlags = await Promise.all(work.episodes.map(episode => isMvpEpisode(episode.id)));
+  const legacyEpisodes = work.episodes.filter((_, index) => !mvpFlags[index]);
+  const currentWork = { ...work, episodes: legacyEpisodes.filter(e => ["PENDING", "ADMITTED"].includes(e.status)) };
+  const historyWork = { ...work, episodes: legacyEpisodes.filter(e => !["PENDING", "ADMITTED"].includes(e.status)) };
   let chart: Awaited<ReturnType<typeof getCare>> | undefined;
   if (admissionId)
     try {

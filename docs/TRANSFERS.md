@@ -1,5 +1,10 @@
 # Exact inpatient transfers
 
+## Version 2 transfer contract
+
+Assigned Nurse records the named external Doctor's instruction and evidence against the current occupied stay. The actual move retains a separate Nurse recorder/shift, exact adjacent room boundaries, original tariff charges, target bed hold, cleaning and external insurance follow-up. Only an unperformed current instruction can be withdrawn; a recorded move remains history. Source: `web/src/server/mvp/transfers.ts`; native guards in0059. Version1 behavior below remains unchanged.
+
+
 The doctor records an attributable transfer decision for the current admission and occupied stay. A currently assigned nurse records the actual move, destination bed and handover within their own attendance. Administrator access does not substitute for either signature. Newer doctor decisions supersede older unconsumed decisions through an admission-specific version, rather than timestamp ordering.
 
 The current Doctor may withdraw a truly unperformed current order from the clinical chart with a reason. An immutable cancellation retains the original authority, Doctor, signing time and reason. Completed or superseded orders and a retained same-source Nurse `TRANSFER_HANDOVER` cannot be withdrawn. Actual transfer and withdrawal serialize on the admission; only one prospective outcome succeeds. Care, Doctor/Admin worklists and discharge use the same effective state, so an unperformed withdrawn order no longer leaves an impossible discharge blocker. Closed episodes cannot acquire a new withdrawal.

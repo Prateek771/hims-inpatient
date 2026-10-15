@@ -1,6 +1,7 @@
+// Historical workflow-v1 coverage: create legacy episodes explicitly; current intake uses MVP v2.
 import { describe, expect, it } from "vitest";
 import {
-  admissionInput,
+  legacyAdmissionInput,
   admissionYear,
 } from "../../src/server/admissions/commands";
 
@@ -30,7 +31,7 @@ describe("ordinary admission input boundaries", () => {
   it("requires 7 to 15 digits in a supplied phone while allowing formatting", () => {
     for (const phone of ["-------", "(((((((", "123-456", "1234567890123456"]) {
       expect(
-        admissionInput.safeParse({
+        legacyAdmissionInput.safeParse({
           ...sample,
           patientDetails: { ...sample.patientDetails, phone },
         }).success,
@@ -38,7 +39,7 @@ describe("ordinary admission input boundaries", () => {
     }
     for (const phone of ["123-4567", "+91 (999) 999-9999", "123456789012345"]) {
       expect(
-        admissionInput.safeParse({
+        legacyAdmissionInput.safeParse({
           ...sample,
           patientDetails: { ...sample.patientDetails, phone },
         }).success,
@@ -47,13 +48,13 @@ describe("ordinary admission input boundaries", () => {
   });
   it("allows unavailable contact without fabricating a phone number", () => {
     expect(
-      admissionInput.safeParse({
+      legacyAdmissionInput.safeParse({
         ...sample,
         patientDetails: { ...sample.patientDetails, phone: undefined },
       }).success,
     ).toBe(true);
     expect(
-      admissionInput.safeParse({
+      legacyAdmissionInput.safeParse({
         ...sample,
         patientDetails: { ...sample.patientDetails, phone: "not a phone" },
       }).success,
@@ -68,17 +69,17 @@ describe("ordinary admission input boundaries", () => {
     ).toBe(2026);
   });
   it("accepts explicitly recorded age without inventing a date of birth", () => {
-    const parsed = admissionInput.parse(sample);
+    const parsed = legacyAdmissionInput.parse(sample);
     expect(parsed.patientDetails?.ageYearsAtRegistration).toBe(54);
     expect(parsed.patientDetails?.dateOfBirth).toBeUndefined();
     expect(
-      admissionInput.safeParse({
+      legacyAdmissionInput.safeParse({
         ...sample,
         patientDetails: { ...sample.patientDetails, dateOfBirth: "1972-01-01" },
       }).success,
     ).toBe(false);
     expect(
-      admissionInput.safeParse({
+      legacyAdmissionInput.safeParse({
         ...sample,
         patientDetails: {
           ...sample.patientDetails,
@@ -89,10 +90,10 @@ describe("ordinary admission input boundaries", () => {
   });
   it("rejects calendar-invalid birth dates, forged actor fields and clinician-future times", () => {
     expect(
-      admissionInput.safeParse({ ...sample, actorId: "forged" }).success,
+      legacyAdmissionInput.safeParse({ ...sample, actorId: "forged" }).success,
     ).toBe(false);
     expect(
-      admissionInput.safeParse({
+      legacyAdmissionInput.safeParse({
         ...sample,
         patientDetails: {
           ...sample.patientDetails,
@@ -102,7 +103,7 @@ describe("ordinary admission input boundaries", () => {
       }).success,
     ).toBe(false);
     expect(
-      admissionInput.safeParse({
+      legacyAdmissionInput.safeParse({
         ...sample,
         clinicianAssessment: {
           ...sample.clinicianAssessment,

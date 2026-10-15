@@ -1,0 +1,76 @@
+{
+  "date": "2026-10-15",
+  "status": "awaiting owner dashboard review",
+  "fileKey": "kxdaQE7WdLC5UcXrChvXVE",
+  "nodeId": "2:131",
+  "url": "https://www.figma.com/design/kxdaQE7WdLC5UcXrChvXVE?node-id=2-131",
+  "visualReview": {
+    "composition": "inspected at 1600px",
+    "correctivePasses": 1,
+    "finalScreenshot": "admin-dashboard.png",
+    "dimensions": [
+      1600,
+      1320
+    ],
+    "clippingOrOverlapObserved": false
+  },
+  "nativeAudit": {
+    "dashboardDescendants": 173,
+    "textLayers": 105,
+    "instances": 10,
+    "componentSets": 2,
+    "variants": 9,
+    "variables": 31,
+    "textStyles": 6,
+    "overflow": [],
+    "imageFills": 0,
+    "sections": 6,
+    "patientRows": 5
+  },
+  "contrastRatios": {
+    "#202D27/#FFFFFF": 14.32,
+    "#56655D/#F8F9F5": 5.82,
+    "#56655D/#F2F1E9": 5.43,
+    "#203F35/#E8F0E7": 9.9,
+    "#FFFFFF/#203F35": 11.51,
+    "#DCE7DC/#203F35": 9.05,
+    "#326046/#F8F9F5": 6.85,
+    "#80520A/#FFFFFF": 6.71
+  },
+  "localLinksChecked": 217,
+  "brokenLocalLinks": [],
+  "originalSourceIntegrity": [
+    {
+      "file": "docs\\reference\\SKILL.md",
+      "sha256": "15d799c8130b8e806e2c98bb36e5dab0de46b28116684202b6ba42a8bd296f27",
+      "match": true
+    },
+    {
+      "file": "docs\\reference\\HIMS_Hospital_Admission_Discharge_Workflow.pdf",
+      "sha256": "eb4adbd771212d435bb32e3839f32915452e6b9fed3f443796bd7484861ad291",
+      "match": true
+    },
+    {
+      "file": "docs\\reference\\HIMS_Workflow_Reference.jpeg",
+      "sha256": "73a859a0eea6f433d36170c4c6c74daa94472471f977e0c70eb89b23af7fb1f1",
+      "match": true
+    }
+  ],
+  "appFilesChanged": [],
+  "fullApplicationSuite": "not run: documentation and Figma only",
+  "databaseCommands": "none",
+  "stagedFiles": [],
+  "branch": "codex/hims-development",
+  "head": "8ffa9691ca2bf8acfcd8e8a58ba8141ad56c2e54",
+  "remote": "origin https://github.com/Prateek771/hims-inpatient.git; no fetch/push/merge performed",
+  "limitations": [
+    "Static desktop proposal; browser keyboard/responsive/server/persistence behavior untested.",
+    "Existing application still implements historical workflow.",
+    "Existing Figma files were read only; no write calls targeted them."
+  ],
+  "screenshotSha256": "bc21bca2e301f44c5cdcf76858791e7c1ee8cc9375bb156c1df9f8be12f8295f",
+  "gitDiffCheck": "passed",
+  "finalNativeAudit": "native-audit.json",
+  "sourceScript": "build-dashboard.js",
+  "gitTrackingStatus": "development matches locally known origin tracking ref; no live remote fetch performed"
+}

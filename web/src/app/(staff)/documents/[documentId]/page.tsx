@@ -6,8 +6,10 @@ import { verificationQR } from "@/server/documents/pdf";
 import { DomainError } from "@/server/contracts";
 import { DischargeCopy } from "@/components/discharge-copy";
 import { HospitalTimestamp } from "@/components/hospital-timestamp";
+import { MvpPaper } from "@/components/mvp-paper";
 export default async function DocumentPage({ params }: { params: Promise<{ documentId: string }> }) {
   let doc; try { doc = await getDischargeDocument(staffContext(await requireStaff(), "final-document-view"), (await params).documentId); } catch (e) { if (e instanceof DomainError && e.code === "FORBIDDEN") notFound(); throw e; }
+  if (doc.schemaVersion === 2) return <><h1>{doc.kind === "CLINICAL" ? "Clinical papers" : "Authorized final papers"}</h1><p className="page-description">Immutable version {doc.version} · <span data-testid="document-status">{doc.status}</span></p><div className="actions"><Link className="button secondary" href={`/documents/${doc.id}/print`}>Print / save exact paper</Link><Link className="button secondary" href={`/api/documents/${doc.id}/pdf`}>Download verified PDF</Link><Link href={`/documents/${doc.id}/verify`}>Verify version and integrity</Link><Link href={`/mvp/${doc.admissionId}?tab=exit`}>Back to paper delivery & exit</Link></div><MvpPaper snapshot={doc.snapshot} hash={doc.hash} /></>;
   const qr = `data:image/png;base64,${(await verificationQR(doc.snapshot.verificationUrl)).toString("base64")}`;
   return <><p className="eyebrow">Final documents · Admin / Billing</p><h1>Final documents</h1><p className="page-description">One retained signed package for the patient and one traceable hospital record.</p>
     <section className="care-patient-context discharge-identity"><div><h2>{doc.snapshot.patient?.name}</h2><p>{doc.snapshot.admission.ipCode} · Revision {doc.version}</p></div><div><span className="status">{doc.snapshot.departure.kind} departure</span><p><span className="status" data-testid="document-status">{doc.status}</span></p></div></section>

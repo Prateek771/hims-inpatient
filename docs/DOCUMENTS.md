@@ -1,5 +1,7 @@
 # Discharge copies
 
+> Version 1 contract and retained acceptance evidence. New admissions follow the approved [version 2 scope](PROJECT_SCOPE.md); [implementation progress](agent/MVP_IMPLEMENTATION_PROGRESS.md) records actual verification. Existing episodes keep the original rules described below.
+
 Task13 is independently accepted with the complete application checks. This guide records the accepted contracts and current limits; checkpoint and preview evidence are in the current handoff.
 
 Admin and Billing staff create a final copy after the recorded hospital departure. The document contains the patient/admission and hospital details, recorded care and instructions, the deterministic financial statement, the actual professional clearances or exceptional authority, and the document reference and verification QR. Creating a copy does not approve coverage, discharge a patient, sign for another professional or erase an unpaid balance. Insurance verification and payments remain staff-entered external facts.

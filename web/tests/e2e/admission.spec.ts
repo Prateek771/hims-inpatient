@@ -26,24 +26,8 @@ test("admission desk reserves a pending stay and safely cancels it", async ({
     .selectOption("FEMALE");
   await page.getByLabel("Contact number").fill("9999999999");
   await page
-    .getByLabel("Admitting doctor")
-    .selectOption({ label: "Synthetic E2E DOCTOR" });
-  await page
-    .getByLabel("Assessing clinician")
-    .selectOption({ label: "Synthetic E2E DOCTOR" });
-  await page.getByLabel("Assessment time").fill("2026-01-01T09:00");
-  await page
-    .getByLabel("Chief complaint")
-    .fill("Synthetic clinician complaint");
-  await page
-    .getByLabel("Clinician-recorded vitals")
-    .fill("Synthetic vitals as recorded by clinician");
-  await page
-    .getByLabel("Clinical routing assessment")
-    .fill("Synthetic clinician-selected General destination");
-  await page
-    .getByLabel("Clinician-selected destination")
-    .selectOption("GENERAL");
+    .getByLabel("Named treating Doctor")
+    .selectOption({ label: "Synthetic external Doctor" });
   await page
     .getByLabel("Bed assignment")
     .selectOption({ label: "Synthetic E2E General bed · GENERAL · Available" });

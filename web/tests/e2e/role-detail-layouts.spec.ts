@@ -54,6 +54,7 @@ for (const detail of details) test(`${detail.role} ${detail.path} keeps every ta
 
 test("Nurse prescribed work is unique, time-ordered and split at its published evaluation", async ({ page }) => {
   await useStaffSession(page, "NURSE");
+  await page.goto("/nursing?legacy=1");
   const evaluatedAt = await page.locator(".page-description time").getAttribute("datetime");
   const cutoff = Date.parse(evaluatedAt!);
   expect(Number.isFinite(cutoff)).toBe(true);

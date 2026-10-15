@@ -5,6 +5,7 @@ import { admissions } from "../admissions/schema";
 import { user } from "../schema/auth";
 export const dischargeDocuments = hims.table("discharge_documents", {
   id: uuid("id").primaryKey(), admissionId: uuid("admission_id").notNull().references(() => admissions.id), version: integer("version").notNull(),
+  schemaVersion: integer("schema_version").notNull().default(1), kind: text("kind").notNull().default("FINAL"),
   replacesDocumentId: uuid("replaces_document_id"), sourceHash: text("source_hash").notNull(), hash: text("hash").notNull(),
   snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(), storageKey: uuid("storage_key").notNull(), pdfHash: text("pdf_hash").notNull(), sizeBytes: integer("size_bytes").notNull(),
   createdBy: text("created_by").notNull().references(() => user.id), createdAt: timestamp("created_at", { withTimezone: true }).notNull(),

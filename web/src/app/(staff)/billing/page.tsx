@@ -1,6 +1,8 @@
 import { HospitalTimestamp } from "@/components/hospital-timestamp";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { MvpWorkspace } from "@/components/mvp-workspace";
+import { isMvpEpisode } from "@/server/mvp/workspace";
 import { requireStaff, staffContext } from "@/server/access";
 import { billingWorkspace, getBill, getDepositSummary } from "@/server/billing/commands";
 import { formatINR } from "@/server/billing/money";
@@ -14,14 +16,17 @@ export default async function BillingPage({ searchParams }: {
     searchParams: Promise<{
         admissionId?: string;
         tab?: string;
+        legacy?: string; q?: string; view?: string; selected?: string;
     }>;
 }) {
     const staff = await requireStaff();
     if (!["ADMIN", "BILLING"].includes(staff.role))
         notFound();
+    const { admissionId, tab, legacy, ...filters } = await searchParams;
+    if (admissionId && await isMvpEpisode(admissionId)) redirect(`/mvp/${admissionId}?tab=money`);
+    if (!admissionId && legacy !== "1") return <MvpWorkspace filters={filters} surface="payments" />;
     const ctx = staffContext(staff, "billing-view");
     const [workspace, work] = await Promise.all([billingWorkspace(ctx), getStaffWorklist(ctx)]);
-    const { admissionId, tab } = await searchParams;
     let loadedBill: Awaited<ReturnType<typeof getBill>> | undefined;
     if (admissionId) {
         try {

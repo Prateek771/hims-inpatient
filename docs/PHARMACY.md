@@ -1,5 +1,7 @@
 # Pharmacy stock and medicines
 
+> Version 1 contract and retained acceptance evidence. New admissions follow the approved [version 2 scope](PROJECT_SCOPE.md); [implementation progress](agent/MVP_IMPLEMENTATION_PROGRESS.md) records actual verification. Existing episodes keep the original rules described below.
+
 Pharmacy works from the doctor's persisted medicine orders and current signed take-home prescription. Its view contains the patient/episode and medicine information needed for fulfillment, rather than an unrestricted chart. Administrator operations can record stock work but cannot supply the Pharmacy discharge seal.
 
 ## Stock and physical identity

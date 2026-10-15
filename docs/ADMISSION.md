@@ -1,5 +1,15 @@
 # Admission and physical beds
 
+> Version 1 contract and retained acceptance evidence. New admissions follow the approved [version 2 scope](PROJECT_SCOPE.md); [implementation progress](agent/MVP_IMPLEMENTATION_PROGRESS.md) records actual verification. Existing episodes keep the original rules described below.
+
+## Version 2 identity and intake
+
+New intake uses the external Doctor directory, without requiring a Doctor login or inventing a clinical assessment. Admin assigns the responsible Nurse separately. Admission staff still record the real deposit and actual occupied start; a bed reservation starts neither occupancy nor room charges. Urgent authority retains the reason, evidence and follow-up instead of erasing the deposit obligation.
+
+Known patients receive their capital name initials plus seven random digits. A single-name patient uses one initial, avoiding an invented surname. An unidentified emergency patient receives `UN` plus seven random digits, an explicit temporary identity and intake provenance. After staff verify the name, an attributable identity correction changes the displayed facts while retaining the original record and UHID. Keeping one identifier makes the original wristband, documents and later records traceable to the same patient. Every prior UHID and per-stay IP remains unchanged; uniqueness, collision retry and concurrent IP allocation are enforced on the server.
+
+Doctor availability records an Admin-assigned Nurse owner/backup, effective period, status, expected return and updater/time. It is separate from patient assignment, attendance and external clinical approval. The paragraphs below retain version1 intake requirements.
+
 The admission desk registers a permanent patient identity (UHID), or selects an existing identity, and creates a separate IP code for each stay. Known date of birth or explicitly reported age is supported; an unavailable phone number does not require invented contact details. A shared family phone number does not merge patient identities.
 
 An administrator configures room categories in hospital settings, then creates physical beds in the bed inventory. A reserved or occupied bed cannot be disabled. No beds, patients or financial policies are automatically seeded into the ordinary application.

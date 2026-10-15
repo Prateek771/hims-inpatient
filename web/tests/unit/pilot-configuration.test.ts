@@ -2,12 +2,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { resolve } from "node:path";
 import { mkdirSync, symlinkSync, unlinkSync, rmdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
+import { createLogger } from "@better-auth/core/env";
 import { createStaffAuth } from "../../src/server/auth";
 import { insuranceStorageDirectory } from "../../src/server/insurance/documents";
 import { documentStorageDirectory } from "../../src/server/documents/commands";
 
 afterEach(() => vi.unstubAllEnvs());
 describe("explicit local-pilot authentication", () => {
+  it("does not log provider query parameters or session credentials on authentication errors", () => {
+    vi.stubEnv("BETTER_AUTH_URL", "http://localhost:3000");vi.stubEnv("BETTER_AUTH_SECRET", "SyntheticPrivateSecretAtLeast32Characters");
+    const output=vi.spyOn(console,"error").mockImplementation(()=>{});
+    try {
+      const logger=createLogger(createStaffAuth().options.logger);
+      logger.error("Failed query params: synthetic-private-session",{query:"select private authentication source",params:["synthetic-private-password"]});
+      expect(output).toHaveBeenCalled();
+      expect(JSON.stringify(output.mock.calls)).not.toContain("synthetic-private-session");expect(JSON.stringify(output.mock.calls)).not.toContain("synthetic-private-password");
+    } finally {output.mockRestore();}
+  });
   it.each([
     ["", "SyntheticPrivateSecretAtLeast32Characters"],
     ["http://hospital.example", "SyntheticPrivateSecretAtLeast32Characters"],

@@ -1,10 +1,11 @@
+// Historical workflow-v1 coverage: create legacy episodes explicitly; current intake uses MVP v2.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { loadLocalEnvironment } from "../../scripts/migrate";
 import { withTestDatabase, waitForTestDatabaseIdle } from "../../scripts/test-database";
 import { getTestDatabaseConfig } from "../../scripts/test-database-guard";
 import { staffContext } from "../../src/server/access";
 import { billingFixture } from "../support/billing-fixture";
-import { activateAdmission, createAdmission, createBed } from "../../src/server/admissions/commands";
+import { activateAdmission, createLegacyAdmission, createBed } from "../../src/server/admissions/commands";
 import * as care from "../../src/server/clinical/commands";
 import * as nursing from "../../src/server/nursing/commands";
 import * as discharge from "../../src/server/discharge/commands";
@@ -68,7 +69,7 @@ async function fixture(exceptional = false, temporary = false, medicine = false,
   let admissionId: string, urgentId: string | undefined;
   if (temporary) {
     const bed = await createBed(staffContext(f.admin, "synthetic-documents"), { label: randomUUID(), category: "GENERAL", reason: "Synthetic urgent identity bed" }), c = f.deskCtx();
-    const created = await createAdmission(c, { patientDetails: { identityStatus: "TEMPORARY", identityProvenance: "Unknown actual identity and age", sex: "UNKNOWN" }, admittingDoctorId: f.doctor.id, clinicianAssessment: { clinicianId: f.doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Actual urgent complaint", vitals: "Actual assessment", triage: "Urgent actual route", destinationCategory: "GENERAL" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: c.requestId });
+    const created = await createLegacyAdmission(c, { patientDetails: { identityStatus: "TEMPORARY", identityProvenance: "Unknown actual identity and age", sex: "UNKNOWN" }, admittingDoctorId: f.doctor.id, clinicianAssessment: { clinicianId: f.doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Actual urgent complaint", vitals: "Actual assessment", triage: "Urgent actual route", destinationCategory: "GENERAL" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: c.requestId });
     admissionId = created.admissionId;
     urgentId = (await exceptions.authorizeException(staffContext(f.admin, "synthetic-documents"), { admissionId, type: "URGENT_ADMISSION", disposition: "ACTIVATE", authority: "Administrator actual urgent route", reason: "Urgent unknown identity", evidenceIds: [], evidence: "Actual intake provenance", followUpOwnerId: f.desk.id })).id;
   } else admissionId = (await f.episode(route)).admissionId;
@@ -459,7 +460,7 @@ describe("immutable protected discharge documents", () => {
     const f = await fixture(true, true), d = await documents();
     const patientId = (await runtime.query("select patient_id from hims.admissions where id=$1", [f.admissionId])).rows[0].patient_id;
     const bed = await createBed(f.admin(), { label: randomUUID(), category: "GENERAL", reason: "Second episode of same patient" }), desk = f.deskCtx();
-    const second = await createAdmission(desk, { patientId, admittingDoctorId: f.doctor.id, clinicianAssessment: { clinicianId: f.doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Actual later assessment", vitals: "Actual vitals", triage: "Actual urgent routing", destinationCategory: "GENERAL" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: desk.requestId });
+    const second = await createLegacyAdmission(desk, { patientId, admittingDoctorId: f.doctor.id, clinicianAssessment: { clinicianId: f.doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Actual later assessment", vitals: "Actual vitals", triage: "Actual urgent routing", destinationCategory: "GENERAL" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: desk.requestId });
     const urgent = await exceptions.authorizeException(f.admin(), { admissionId: second.admissionId, type: "URGENT_ADMISSION", disposition: "ACTIVATE", authority: "Administrator second urgent routing", reason: "Same temporary patient later episode", evidenceIds: [], evidence: "Actual original temporary identity", followUpOwnerId: f.desk.id });
     const r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId);
     const race = await heldSource(runtime, await preparedPublication(f.ctx(), r.input), client => client.query("insert into hims.patient_identifications(patient_id,admission_id,exception_id,version,name,date_of_birth,sex,evidence,reason,signed_by) values($1,$2,$3,1,'Actual verified patient identity','1980-01-01','FEMALE','Original identity inspected','Later actual identification',$4)", [patientId, second.admissionId, urgent.id, f.desk.id]));

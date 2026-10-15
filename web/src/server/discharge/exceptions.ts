@@ -352,7 +352,9 @@ export async function getExceptionReview(ctx: CommandContext, admissionId: strin
 export async function actualEpisodeDeparture(tx: Transaction, admissionId: string) {
   const [ordinary] = await tx.select({ departedAt: departures.departedAt }).from(departures).where(eq(departures.admissionId, admissionId));
   const [exceptional] = await tx.select({ departedAt: exceptionalDepartures.departedAt }).from(exceptionalDepartures).where(eq(exceptionalDepartures.admissionId, admissionId));
-  return ordinary?.departedAt ?? exceptional?.departedAt;
+  const {mvpExceptionalDepartures}=await import("../mvp/schema");
+  const [mvp]=await tx.select({departedAt:mvpExceptionalDepartures.departedAt}).from(mvpExceptionalDepartures).where(eq(mvpExceptionalDepartures.admissionId,admissionId));
+  return ordinary?.departedAt ?? exceptional?.departedAt??mvp?.departedAt;
 }
 export { applyDelayedTransfer } from "./exception-physical";
 export { returnToBed } from "./exception-physical";

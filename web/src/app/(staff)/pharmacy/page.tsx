@@ -1,6 +1,8 @@
 import { HospitalTimestamp } from "@/components/hospital-timestamp";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { MvpWorkspace } from "@/components/mvp-workspace";
+import { isMvpEpisode } from "@/server/mvp/workspace";
 import { requireStaff, staffContext } from "@/server/access";
 import { getPharmacyReview, pharmacyWorkspace } from "@/server/pharmacy/commands";
 import { getStaffWorklist } from "@/server/overview";
@@ -10,11 +12,13 @@ import { StaffAlerts, WorkTimestamp } from "@/components/staff-dashboard";
 import { WorkflowTabs } from "@/components/workflow-tabs";
 import { savePharmacy } from "./actions";
 
-export default async function PharmacyPage({searchParams}:{searchParams:Promise<{admissionId?:string;barcode?:string;tab?:string}>}) {
+export default async function PharmacyPage({searchParams}:{searchParams:Promise<{admissionId?:string;barcode?:string;tab?:string;legacy?:string;q?:string;view?:string;selected?:string}>}) {
   const staff=await requireStaff();if(!["PHARMACY","ADMIN"].includes(staff.role))notFound();
+  const {admissionId,barcode,tab,legacy,...filters}=await searchParams;
+  if(admissionId&&await isMvpEpisode(admissionId))redirect(`/mvp/${admissionId}?tab=money`);
+  if(!admissionId&&legacy!=="1"&&!barcode)return <MvpWorkspace filters={filters} surface="medicine"/>;
   const ctx=staffContext(staff,"pharmacy-view");
   const [workspace,work]=await Promise.all([pharmacyWorkspace(ctx),getStaffWorklist(ctx)]);
-  const {admissionId,barcode,tab}=await searchParams;
   let review:Awaited<ReturnType<typeof getPharmacyReview>>|undefined;
   if(admissionId)try {review=await getPharmacyReview(ctx,admissionId);}catch(error){if(error instanceof DomainError && error.code==="FORBIDDEN")notFound();throw error;}
   const action=(operation:Parameters<typeof savePharmacy>[2],target="")=>savePharmacy.bind(null,admissionId??"",crypto.randomUUID(),operation,target);

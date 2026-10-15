@@ -4,6 +4,7 @@ import { hims } from "../schema/core";
 import { admissions, beds, roomStays } from "../admissions/schema";
 import { user } from "../schema/auth";
 import { nursingShifts } from "../nursing/schema";
+import { mvpEvents,mvpExceptionEvents } from "../mvp/schema";
 export const gates = ["DOCTOR", "PHARMACY", "NURSING", "BILLING"] as const;
 export type Gate = typeof gates[number];
 const signed = () => ({ signedBy: text("signed_by").notNull().references(() => user.id), signedAt: timestamp("signed_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`) });
@@ -20,17 +21,20 @@ export const clearanceInvalidations = hims.table("clearance_invalidations", {
 }, t => [uniqueIndex("clearance_invalidated_once").on(t.sealId)]);
 export const departures = hims.table("departures", {
   id: uuid("id").primaryKey().defaultRandom(), admissionId: uuid("admission_id").notNull().references(() => admissions.id),
-  stayId: uuid("stay_id").notNull().references(() => roomStays.id), billSealId: uuid("bill_seal_id").notNull().references(() => clearanceSeals.id),
+  stayId: uuid("stay_id").notNull().references(() => roomStays.id), billSealId: uuid("bill_seal_id").references(() => clearanceSeals.id),
+  mvpFinanceId: uuid("mvp_finance_id").references(() => mvpEvents.id),
   departedAt: timestamp("departed_at", { withTimezone: true }).notNull(), billVersion: integer("bill_version").notNull(), ...signed(),
 }, t => [uniqueIndex("departure_episode_once").on(t.admissionId), index("departure_stay").on(t.stayId), index("departure_seal").on(t.billSealId), index("departure_signer").on(t.signedBy)]);
 export const roomVacations = hims.table("room_vacations", {
   id: uuid("id").primaryKey().defaultRandom(), admissionId: uuid("admission_id").notNull().references(() => admissions.id),
-  stayId: uuid("stay_id").notNull().references(() => roomStays.id), nursingSealId: uuid("nursing_seal_id").notNull().references(() => clearanceSeals.id),
+  stayId: uuid("stay_id").notNull().references(() => roomStays.id), nursingSealId: uuid("nursing_seal_id").references(() => clearanceSeals.id),
+  mvpReadinessId: uuid("mvp_readiness_id").references(() => mvpEvents.id),
+  mvpExceptionId:uuid("mvp_exception_id").references(()=>mvpExceptionEvents.id),
   shiftId: uuid("shift_id").notNull().references(()=>nursingShifts.id), vacatedAt: timestamp("vacated_at", { withTimezone: true }).notNull(),
   waitingLocation: text("waiting_location").notNull(), handover: text("handover").notNull(), ...signed(),
 }, t => [uniqueIndex("room_vacation_stay_once").on(t.stayId), index("room_vacation_nursing_seal").on(t.nursingSealId), index("room_vacation_shift").on(t.shiftId), index("room_vacation_signer").on(t.signedBy)]);
 export const effectiveRoomVacations = hims.view("effective_room_vacations", {
-  id:uuid("id").notNull(),admissionId:uuid("admission_id").notNull(),stayId:uuid("stay_id").notNull(),nursingSealId:uuid("nursing_seal_id").notNull(),shiftId:uuid("shift_id").notNull(),vacatedAt:timestamp("vacated_at",{withTimezone:true}).notNull(),waitingLocation:text("waiting_location").notNull(),handover:text("handover").notNull(),signedBy:text("signed_by").notNull(),signedAt:timestamp("signed_at",{withTimezone:true}).notNull(),
+  id:uuid("id").notNull(),admissionId:uuid("admission_id").notNull(),stayId:uuid("stay_id").notNull(),nursingSealId:uuid("nursing_seal_id"),shiftId:uuid("shift_id").notNull(),vacatedAt:timestamp("vacated_at",{withTimezone:true}).notNull(),waitingLocation:text("waiting_location").notNull(),handover:text("handover").notNull(),signedBy:text("signed_by").notNull(),signedAt:timestamp("signed_at",{withTimezone:true}).notNull(),
   amendmentId:uuid("amendment_id"),evidenceId:uuid("evidence_id"),originalVacatedAt:timestamp("original_vacated_at",{withTimezone:true}).notNull(),originalShiftId:uuid("original_shift_id").notNull(),originalHandover:text("original_handover").notNull(),originalSignedBy:text("original_signed_by").notNull(),originalSignedAt:timestamp("original_signed_at",{withTimezone:true}).notNull(),originalWaitingLocation:text("original_waiting_location").notNull(),
 }).existing();
 export const bedTurnovers = hims.table("bed_turnovers", {

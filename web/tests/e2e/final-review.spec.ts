@@ -12,7 +12,7 @@ test("Doctor withdraws current unperformed transfer from the retained chart",asy
   await expect(page.getByText(/Withdrawal.*Current Doctor reassessment/)).toBeVisible();await expect(page.getByTestId("transfer-withdraw-form")).toHaveCount(0);
 });
 test("summary-only Pharmacy row opens the real empty-prescription clearance",async({page})=>{
-  const f=await fixture();await loadStaffSession(page,"PHARMACY");await page.locator("details.staff-alerts-compact > summary").click();
+  const f=await fixture();await loadStaffSession(page,"PHARMACY");await page.goto("/pharmacy?legacy=1");await page.locator("details.staff-alerts-compact > summary").click();
   await page.locator(`a[href="/discharge?admissionId=${f.summaryId}"]`).first().click();await expect(page).toHaveURL(new RegExp(`/discharge\\?admissionId=${f.summaryId}$`));
   await expect(page.getByText("No medicines ordered; explicit empty prescription still requires this Pharmacy review.")).toBeVisible();
   const form=page.getByTestId("clearance-sign");await form.getByLabel("Review and reconciliation note").fill("Actual Pharmacy reviewed the signed empty prescription");await form.getByRole("button").click();await expect(page.getByTestId("gate-PHARMACY")).toContainText("Approved");

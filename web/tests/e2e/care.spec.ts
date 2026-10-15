@@ -125,7 +125,7 @@ test("assigned nurse records explicit occurrences and handover without duplicate
   page,
 }, testInfo) => {
   await useStaffSession(page, "NURSE");
-  await page.goto("/nursing");
+  await page.goto("/nursing?legacy=1");
   await expect(
     page.getByRole("heading", { name: "My shift", exact: true }),
   ).toBeVisible();
@@ -217,6 +217,6 @@ test("admin can assign care operationally but cannot open or sign clinical chart
   ).toBeVisible();
   await page.goto("/clinical");
   await expect(page.getByRole("heading", { name: /404/ })).toBeVisible();
-  await page.goto("/nursing");
+  await page.goto("/nursing?legacy=1");
   await expect(page.getByRole("heading", { name: /404/ })).toBeVisible();
 });

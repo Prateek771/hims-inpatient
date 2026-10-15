@@ -1,5 +1,14 @@
 # Approved Figma reference
 
+## Full MVP implementation authorization · 15 October 2026
+
+The owner accepted the new Admin dashboard direction and requested the whole MVP including local PostgreSQL. This supersedes earlier design-only stop language below. Read the [executable plan](superpowers/plans/2026-10-15-mvp-implementation.md) and [current progress](agent/MVP_IMPLEMENTATION_PROGRESS.md) for actual checks/status. Existing episodes retain their old workflow; new admissions use version 2. Preserve old data/accounts/credentials/migrations/files and unrelated work. No reset/reseed or deployment.
+
+## Approved MVP implementation - 15 October 2026
+
+The owner accepted the new Admin dashboard and authorized the whole MVP including local PostgreSQL. [Controlling scope](PROJECT_SCOPE.md); [executable plan](superpowers/plans/2026-10-15-mvp-implementation.md); [actual verification and pending work](agent/MVP_IMPLEMENTATION_PROGRESS.md). Six routine staff workspaces use the forest/linen/Public Sans design. New admissions use version 2; existing episodes retain version 1. Earlier design-only stops and eight-role descriptions below are historical. No repeated design approval is required. Preserve accounts, data, credentials, private files, old designs/builds and applied migrations.
+
+
 ## Current approval · 11 October 2026
 
 The owner approved **HIMS · Final Product — Role Workflows** and authorized actual implementation in one next chat in this same INS folder, with parallel subagents and a dedicated illustrated patient-journey guide agent. This replaces the older visual layout below; existing Tasks 1–16 business behavior and server authority remain controlling.

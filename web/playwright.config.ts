@@ -6,6 +6,8 @@ const { runtimeUrl } = getTestDatabaseConfig();
 export default defineConfig({
   testDir: "./tests/e2e",
   fullyParallel: true,
+  // Local Chromium contexts share RAM with the desktop; correctness assertions/timeouts stay unchanged.
+  workers: process.env.CI ? undefined : 2,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   reporter: [["list"], ["html", { open: "never" }]],

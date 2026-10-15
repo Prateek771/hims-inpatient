@@ -1,5 +1,12 @@
 # Accountable exceptions and corrections
 
+## Version 2 exception contract
+
+Assigned Nurse records external clinical disposition and factual movement; Admin records source-bound exception authority, reason, evidence and follow-up owner. A credit exception retains actual debt and absent checks. Planned exceptional papers must be generated, verified intact and delivered before actual Nurse exit. Return-to-bed needs current unperformed external instruction, Admin routing and completed actual turnover; consumed movements cannot be cancelled.
+
+Later collection keeps original exit/papers intact. Originally complete responsibility uses the lower of original and current corrected party shares, less retained cash. An originally unresolved insurance-delay exit requires the exact later Admin-authorized insurance allocation amendment, current verified allocation, party remainder and remaining original-net limit; each receipt retains its amendment source. Post-exit financial changes use linked authority/amendments and the actual permitted staff role. Source: `web/src/server/mvp/{commands,exceptions}.ts`; native guards in0058. Version1 behavior below remains retained.
+
+
 The exceptions workspace records an unusual hospital situation, the responsible person's decision, the supporting professional evidence and the remaining follow-up. Administrator authority routes work; Doctor and Nurse evidence records clinical decisions and actual events. Outstanding money and missing professional approvals remain visible. Task12 passed independent specification/quality review after the three clinical-freshness, corrected-witness and selected-access findings were fixed and reviewed by a fresh GPT-6.1 reviewer. Fresh controller verification passed 36 unit tests, 92 actual PostgreSQL tests across 12 files, lint, type checks, the standard production build and 26 Chromium/HTTP checks at six workers; runtime audit found zero vulnerabilities. Reviewed ordinary migrations 0000–0048 are current. Fresh before/after hashes preserve all 25 original records across all 61 original tables and columns; all 49 applied SQL files retain their literal bytes. No ordinary patient/policy seed, provider/integration or deployment was introduced.
 
 ## Hospital workflow

@@ -63,8 +63,8 @@ test("Insurance records verified policy/decisions and protects actual HTTP docum
   await openWorkflowTab(page,"Case");await page.getByText("Record manual pre-auth, enhancement or appeal work",{exact:true}).click();const followup=page.getByTestId("insurance-followup");await followup.getByLabel("Request type").selectOption("ENHANCEMENT");await followup.getByLabel("Follow-up reference").fill("PORTAL-SYN-1");await followup.getByLabel("Staff next action").fill("Staff to review payer portal through existing hospital process");await followup.getByRole("button").click();await expect(page.getByText("ENHANCEMENT · OPEN",{exact:true})).toBeVisible();
   await page.locator("details[open] > summary").evaluateAll(elements=>elements.forEach(e=>(e.parentElement as HTMLDetailsElement).open=false));await page.getByRole("heading",{name:"Insurance cases",exact:true}).click();await page.evaluate(()=>document.fonts.ready);await page.screenshot({path:testInfo.outputPath("insurance-desktop.png"),fullPage:true});await page.setViewportSize({width:390,height:844});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:testInfo.outputPath("insurance-narrow.png"),fullPage:true});
   const currentAlerts = () => page.locator(".staff-alerts li").filter({has:page.locator(`a[href="/insurance?caseId=${f.caseId}"]`)});
-  const showAllAlerts = async () => { const outer=page.locator("details.staff-alerts-compact > summary").filter({hasText:/^Attention needed/}); if(await outer.count()) await outer.click(); await expect(page.getByRole("heading",{name:"Attention needed"})).toBeVisible(); const more=page.locator(".staff-alerts > details > summary"); if(await more.count()) await more.click(); };
-  await page.setViewportSize({width:1440,height:1100}); await page.goto("/workspace");await page.waitForURL(/\/insurance$/, {waitUntil:"load"});
+  const showAllAlerts = async () => { await expect(page.locator(".staff-alerts")).toBeAttached(); const outer=page.locator("details.staff-alerts-compact > summary").filter({hasText:/^Attention needed/}); if(await outer.count()) await outer.click(); await expect(page.getByRole("heading",{name:"Attention needed"})).toBeVisible(); const more=page.locator(".staff-alerts > details > summary"); if(await more.count()) await more.click(); };
+  await page.setViewportSize({width:1440,height:1100}); await page.goto("/workspace");await page.waitForURL(/\/insurance$/, {waitUntil:"load"}); await page.getByRole("link",{name:"Manage verified cases, assignments & protected evidence",exact:true}).click();
   await showAllAlerts();
   await expect(currentAlerts()).toHaveCount(1);
   await expect(currentAlerts().getByRole("heading",{name:"Review enhancement follow-up"})).toBeVisible();
@@ -72,7 +72,7 @@ test("Insurance records verified policy/decisions and protects actual HTTP docum
   await page.screenshot({path:testInfo.outputPath("fix1-insurance-open-desktop.png"),fullPage:true});
   await page.setViewportSize({width:390,height:844}); expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   await page.screenshot({path:testInfo.outputPath("fix1-insurance-open-narrow.png"),fullPage:true});
-  await useStaffSession(page,"ADMIN"); await page.goto("/overview");
+  await useStaffSession(page,"ADMIN"); await page.goto("/overview?legacy=1");
   await showAllAlerts();
   await expect(currentAlerts().getByRole("heading",{name:"Review enhancement follow-up"})).toBeVisible();
   await expect(currentAlerts()).toContainText("Insurance desk");
@@ -84,7 +84,7 @@ test("Insurance records verified policy/decisions and protects actual HTTP docum
   await fillUtcDateTime(conversion.getByLabel("Verified at (Asia/Kolkata)",{exact:true}),new Date(Date.now()-60000));
   await conversion.getByRole("button",{name:"Record self-pay conversion"}).click();
   await expect(page.getByRole("region",{name:"Selected insurance case"})).toContainText("Converted to self-pay");
-  await useStaffSession(page,"INSURANCE"); await page.goto("/workspace");await page.waitForURL(/\/insurance$/, {waitUntil:"load"});
+  await useStaffSession(page,"INSURANCE"); await page.goto("/workspace");await page.waitForURL(/\/insurance$/, {waitUntil:"load"}); await page.getByRole("link",{name:"Manage verified cases, assignments & protected evidence",exact:true}).click();
   await showAllAlerts();
   await expect(currentAlerts()).toHaveCount(1);
   await expect(currentAlerts().getByRole("heading",{name:"Review enhancement follow-up"})).toBeVisible();
@@ -96,7 +96,7 @@ test("Insurance records verified policy/decisions and protects actual HTTP docum
   await completion.getByLabel("Follow-up outcome reference").fill("FIX1-BROWSER-DONE"); await completion.getByLabel("Follow-up outcome",{exact:true}).fill("Staff completed the retained follow-up");
   await submitServerAction(page,completion.getByRole("button",{name:"Record follow-up completed"}));
   await expect(page.getByText("ENHANCEMENT · COMPLETED",{exact:true})).toBeVisible({timeout:15_000});
-  await page.goto("/workspace");await page.waitForURL(/\/insurance$/, {waitUntil:"load"}); await showAllAlerts(); await expect(currentAlerts()).toHaveCount(0);
+  await page.goto("/workspace");await page.waitForURL(/\/insurance$/, {waitUntil:"load"}); await page.getByRole("link",{name:"Manage verified cases, assignments & protected evidence",exact:true}).click(); await showAllAlerts(); await expect(currentAlerts()).toHaveCount(0);
   await page.setViewportSize({width:1440,height:1100}); await page.screenshot({path:testInfo.outputPath("fix1-insurance-completed-desktop.png"),fullPage:true});
   await useStaffSession(page,"NURSE");expect((await page.request.get(downloadUrl)).status()).toBe(403);expect((await page.request.post(endpoint,{headers:{origin},multipart:multipart(bytes)})).status()).toBe(403);await page.context().clearCookies();expect((await page.request.get(downloadUrl)).status()).toBe(401);
 });

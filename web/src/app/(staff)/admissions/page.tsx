@@ -7,6 +7,7 @@ import { AdmissionForm } from "@/components/admission-forms";
 import { StaffAlerts, WorkTimestamp } from "@/components/staff-dashboard";
 import { HospitalTimestamp } from "@/components/hospital-timestamp";
 import { WorkflowTabs } from "@/components/workflow-tabs";
+import { getDoctorDirectory } from "@/server/mvp/staff";
 
 export default async function AdmissionsPage({ searchParams }: {
   searchParams: Promise<{ q?: string; patient?: string; view?: string }>;
@@ -22,6 +23,7 @@ export default async function AdmissionsPage({ searchParams }: {
     getStaffWorklist(staffContext(staff, "admission-current-work")),
   ]);
   const selected = results.find(patient => patient.id === params.patient);
+  const doctors = (await getDoctorDirectory(ctx)).filter(doctor => doctor.active);
   const pending = workspace.worklist.filter(episode => episode.status === "PENDING").length;
   const admitted = workspace.worklist.filter(episode => episode.status === "ADMITTED").length;
   return <>
@@ -58,7 +60,7 @@ export default async function AdmissionsPage({ searchParams }: {
           <form method="get" className="search-row"><input type="hidden" name="view" value="intake" /><label>Find existing patient by name or UHID<input name="q" defaultValue={query} minLength={2} maxLength={100} /></label><button className="button secondary">Find patient</button></form>
           {query.length >= 2 && <ul className="patient-results">{results.map(patient => <li key={patient.id}><Link href={`/admissions?view=intake&q=${encodeURIComponent(query)}&patient=${patient.id}`}>{patient.name} · {patient.uhid} · {patient.dateOfBirth ?? (patient.ageYearsAtRegistration === null ? "Age unknown" : `${patient.ageYearsAtRegistration} years at registration`)} · {patient.sex}</Link></li>)}{!results.length && <li>No matching identity. Register a new patient if appropriate.</li>}</ul>}
         </section>
-        <AdmissionForm requestId={crypto.randomUUID()} doctors={workspace.doctors} categories={workspace.categories} beds={workspace.beds} depositRules={workspace.depositRules} patient={selected} />
+        <AdmissionForm requestId={crypto.randomUUID()} doctors={doctors} categories={workspace.categories} beds={workspace.beds} depositRules={workspace.depositRules} patient={selected} />
         <section className="notice"><h2>Same arrival checks for self-pay and insured stays</h2><p>Record actual hospital receipts and the configured deposit before ordinary activation. Urgent temporary identity remains explicit and requires named Administrator authority.</p></section>
       </> },
     ]} />

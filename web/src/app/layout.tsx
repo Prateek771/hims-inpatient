@@ -2,13 +2,13 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
 
-const plexSans = localFont({
+const publicSans = localFont({
   src: [
-    { path: "../../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2", weight: "400" },
-    { path: "../../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2", weight: "500" },
-    { path: "../../node_modules/@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2", weight: "600" },
+    { path: "../../node_modules/@fontsource/public-sans/files/public-sans-latin-400-normal.woff2", weight: "400" },
+    { path: "../../node_modules/@fontsource/public-sans/files/public-sans-latin-500-normal.woff2", weight: "500" },
+    { path: "../../node_modules/@fontsource/public-sans/files/public-sans-latin-600-normal.woff2", weight: "600" },
   ],
-  variable: "--font-plex-sans",
+  variable: "--font-public-sans",
   display: "swap",
 });
 
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="en" className={plexSans.variable}>
+    <html lang="en" className={publicSans.variable}>
       <body>{children}</body>
     </html>
   );

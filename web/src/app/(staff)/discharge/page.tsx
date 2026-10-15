@@ -10,6 +10,10 @@ import { ReceiptForm, AllocationForm } from "@/components/billing-forms";
 import { dischargeAction } from "./actions";
 import { hospitalTimeConfiguration } from "@/server/hospital-time";
 import { formatHospitalTime } from "@/lib/hospital-time";
+import { MvpWorkspace } from "@/components/mvp-workspace";
+import { MvpTurnover } from "@/components/mvp-turnover";
+import { isMvpEpisode } from "@/server/mvp/workspace";
+import { redirect } from "next/navigation";
 const labels={DOCTOR:"Doctor",PHARMACY:"Pharmacy",NURSING:"Nursing",BILLING:"Billing / admin"};
 const money=(v:unknown)=>formatINR(BigInt(String(v??0)));
 const records=(v:unknown)=>Array.isArray(v)?v as Record<string,unknown>[]:[];
@@ -17,11 +21,14 @@ const attendance=(start:unknown,end:unknown,through:Date)=>{
   const minutes=Math.max(0,Math.floor((Math.min(end?Date.parse(String(end)):through.getTime(),through.getTime())-Date.parse(String(start)))/60000));
   return `${Math.floor(minutes/60)} h ${minutes%60} min`;
 };
-export default async function DischargePage({searchParams}:{searchParams:Promise<{admissionId?:string}>}){
+export default async function DischargePage({searchParams}:{searchParams:Promise<{admissionId?:string;legacy?:string;q?:string;view?:string;selected?:string}>}){
   const {timezone}=await hospitalTimeConfiguration();
   const signedTime=(value:Date)=>formatHospitalTime(value,timezone);
   const staff=await requireStaff();if(!["ADMIN","BILLING","DOCTOR","NURSE","PHARMACY"].includes(staff.role))notFound();
-  const ctx=staffContext(staff,"discharge-view"),workspace=await dischargeWorkspace(ctx),{admissionId}=await searchParams;
+  const {admissionId,legacy,...filters}=await searchParams;
+  if(admissionId&&await isMvpEpisode(admissionId))redirect(`/mvp/${admissionId}?tab=exit`);
+  if(!admissionId&&legacy!=="1"&&staff.role!=="DOCTOR")return <><MvpWorkspace filters={filters} surface="discharge"/>{["ADMIN","NURSE"].includes(staff.role)&&<MvpTurnover/>}</>;
+  const ctx=staffContext(staff,"discharge-view"),workspace=await dischargeWorkspace(ctx);
   let review:Awaited<ReturnType<typeof getClearanceReview>>|undefined;
   if(admissionId)try{review=await getClearanceReview(ctx,admissionId,workspace.selectedGate);}catch(error){if(error instanceof DomainError&&error.code==="FORBIDDEN")notFound();throw error;}
   const row=workspace.episodes.find(e=>e.id===admissionId),financial=workspace.selectedGate==="BILLING";

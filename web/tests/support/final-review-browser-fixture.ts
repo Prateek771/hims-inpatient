@@ -1,7 +1,8 @@
+// Historical workflow-v1 coverage: create legacy episodes explicitly; current intake uses MVP v2.
 import { db } from "../../src/server/db";
 import { user } from "../../src/server/schema/auth";
 import { listSettings, saveSetting } from "../../src/server/settings";
-import { activateAdmission, cancelAdmission, createAdmission, createBed } from "../../src/server/admissions/commands";
+import { activateAdmission, cancelAdmission, createLegacyAdmission, createBed } from "../../src/server/admissions/commands";
 import { assignNurse, recordShift } from "../../src/server/nursing/commands";
 import { orderTransfer, recordRound, signClinicalSummary } from "../../src/server/clinical/commands";
 import { getClearanceReview, issueClearance } from "../../src/server/discharge/commands";
@@ -26,7 +27,7 @@ export async function prepareFinalReviewBrowserFixture(adminHeaders: Headers) {
   ]) await setting(v);
   async function episode(name:string,active=true) {
     const bed=await createBed(ctx("ADMIN"),{label:`Synthetic final review ${crypto.randomUUID()}`,category:"FINAL_REVIEW",reason:"Independent browser bed"}),c=ctx("ADMISSION");
-    const a=await createAdmission(c,{patientDetails:{name,ageYearsAtRegistration:45,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Synthetic complaint",vitals:"Actual synthetic assessment",triage:"Synthetic destination",destinationCategory:"FINAL_REVIEW"},bedId:bed.id,paymentRoute:"SELF_PAY",expectedStayDays:1,requestId:c.requestId});
+    const a=await createLegacyAdmission(c,{patientDetails:{name,ageYearsAtRegistration:45,sex:"FEMALE"},admittingDoctorId:id("DOCTOR"),clinicianAssessment:{clinicianId:id("DOCTOR"),assessedAt:new Date().toISOString(),chiefComplaint:"Synthetic complaint",vitals:"Actual synthetic assessment",triage:"Synthetic destination",destinationCategory:"FINAL_REVIEW"},bedId:bed.id,paymentRoute:"SELF_PAY",expectedStayDays:1,requestId:c.requestId});
     if(active) {
       const ac=ctx("ADMISSION");await activateAdmission(ac,{admissionId:a.admissionId,expectedVersion:1,arrivedAt:new Date().toISOString(),requestId:ac.requestId});
       await assignNurse(ctx("ADMIN"),{admissionId:a.admissionId,nurseId:id("NURSE"),authority:"Synthetic roster",reason:"Current browser attendance"});

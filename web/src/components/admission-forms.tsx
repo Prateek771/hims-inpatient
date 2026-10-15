@@ -1,7 +1,7 @@
 "use client";
 import { useActionState, useState } from "react";
 import Link from "next/link";
-import { useHospitalTimezone } from "./hospital-time-context";
+
 import {
   addBed,
   cancelPendingAdmission,
@@ -63,7 +63,7 @@ export function AdmissionForm({
     initial,
   );
   const [temporaryIdentity, setTemporaryIdentity] = useState(false);
-  const [assessmentTime, setAssessmentTime] = useState("");
+
   const [selectedBed, setSelectedBed] = useState("");
   const [paymentRoute, setPaymentRoute] = useState("SELF_PAY");
   const category = beds.find((b) => b.id === selectedBed)?.category;
@@ -72,7 +72,7 @@ export function AdmissionForm({
       rule.category === category &&
       rule.route === (paymentRoute === "SELF_PAY" ? "self-pay" : "insured"),
   );
-  const timezone = useHospitalTimezone();
+
   const available = beds.filter(
     (b) =>
       b.active &&
@@ -148,88 +148,15 @@ export function AdmissionForm({
               </label>
             </div>
           )}
-          <h3>Clinician-provided intake</h3>
+          <h3>Admission responsibility</h3>
           <div className="fields admission-fields">
-            <label>
-              Admitting doctor
-              <select name="admittingDoctorId" required defaultValue="">
-                <option value="" disabled>
-                  Select active doctor
-                </option>
-                {doctors.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
+            <label>Named treating Doctor
+              <select name="externalDoctorId" required defaultValue="">
+                <option value="" disabled>Select Doctor from the hospital directory</option>
+                {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
               </select>
             </label>
-            <label>
-              Assessing clinician
-              <select name="clinicianId" required defaultValue="">
-                <option value="" disabled>
-                  Select active doctor
-                </option>
-                {doctors.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-                Assessment time ({timezone})
-              <input
-                name="assessmentLocalTime"
-                type="datetime-local"
-                  step="0.001"
-                  data-hospital-timezone={timezone}
-                required
-                value={assessmentTime}
-                onChange={(event) => setAssessmentTime(event.target.value)}
-              />
-                <input type="hidden" name="hospitalTimezone" value={timezone} />
-            </label>
-            <div className="intake-time">
-              <span>Registration time</span>
-              <p>
-                Recorded on saving. Actual admission starts after deposit
-                checks.
-              </p>
-            </div>
-            <label>
-              Chief complaint
-              <textarea
-                name="chiefComplaint"
-                required
-                minLength={2}
-                maxLength={2000}
-              />
-            </label>
-            <label>
-              Clinical routing assessment
-              <textarea name="triage" required minLength={2} maxLength={500} />
-            </label>
-            <label>
-              Clinician-recorded vitals
-              <textarea name="vitals" required minLength={2} maxLength={2000} />
-            </label>
-            <label>
-              Clinician-selected destination
-              <select name="destinationCategory" required defaultValue="">
-                <option value="" disabled>
-                  Select recorded destination
-                </option>
-                {categories.map((c) => (
-                  <option key={c.code} value={c.code}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="span-two">
-              Reason for destination override (if selected bed differs)
-              <input name="overrideReason" minLength={3} maxLength={500} />
-            </label>
+            <p className="caption">Doctor availability is maintained by the designated shift Nurse. This records the treating Doctor; clinical approval is recorded separately.</p>
           </div>
           <div className="notice admission-code">
             <h3>Admission code is generated when saved</h3>

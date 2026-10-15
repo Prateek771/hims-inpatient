@@ -33,7 +33,7 @@ function RoleField({ value = "ADMISSION" }: { value?: string }) {
     <label>
       Staff role
       <select name="role" defaultValue={value}>
-        {roles.map((r) => (
+        {roles.filter(r => !["DOCTOR", "LAB"].includes(r) || r === value).map((r) => (
           <option key={r} value={r}>
             {labels[r]}
           </option>

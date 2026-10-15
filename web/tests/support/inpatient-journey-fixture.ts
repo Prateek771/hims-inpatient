@@ -1,3 +1,4 @@
+// Historical workflow-v1 coverage: create legacy episodes explicitly; current intake uses MVP v2.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
@@ -6,7 +7,7 @@ import { sql } from "drizzle-orm";
 import { db } from "../../src/server/db";
 import { user } from "../../src/server/schema/auth";
 import { listSettings, saveSetting } from "../../src/server/settings";
-import { createAdmission, createBed, activateAdmission, transferAdmission } from "../../src/server/admissions/commands";
+import { createLegacyAdmission, createBed, activateAdmission, transferAdmission } from "../../src/server/admissions/commands";
 import * as clinical from "../../src/server/clinical/commands";
 import * as nursing from "../../src/server/nursing/commands";
 import * as pharmacy from "../../src/server/pharmacy/commands";
@@ -45,7 +46,7 @@ export async function prepareInpatientJourney(adminHeaders: Headers) {
 
   async function admission(route: "SELF_PAY" | "INSURED", label: string) {
     const bed = await createBed(ctx("ADMIN"), { label: `${label} ${randomUUID()}`, category: "JOURNEY_GENERAL", reason: "Isolated synthetic journey bed" });
-    const c = ctx("ADMISSION"), created = await createAdmission(c, { patientDetails: { name: label, ageYearsAtRegistration: 42, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: now(), chiefComplaint: "Synthetic clinician-entered assessment", vitals: "Human synthetic observations", triage: "Human assessed General destination", destinationCategory: "JOURNEY_GENERAL" }, bedId: bed.id, paymentRoute: route, expectedStayDays: 1, requestId: c.requestId });
+    const c = ctx("ADMISSION"), created = await createLegacyAdmission(c, { patientDetails: { name: label, ageYearsAtRegistration: 42, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: now(), chiefComplaint: "Synthetic clinician-entered assessment", vitals: "Human synthetic observations", triage: "Human assessed General destination", destinationCategory: "JOURNEY_GENERAL" }, bedId: bed.id, paymentRoute: route, expectedStayDays: 1, requestId: c.requestId });
     return { admissionId: created.admissionId, bedId: bed.id, name: label };
   }
   async function cash(admissionId: string, party: "PATIENT" | "INSURER", amountPaise: string, kind: "DEPOSIT" | "PAYMENT") {

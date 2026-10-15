@@ -1,0 +1,24 @@
+{
+  "sourceIntegrity": [
+    {
+      "file": "docs\\reference\\SKILL.md",
+      "sha256": "15d799c8130b8e806e2c98bb36e5dab0de46b28116684202b6ba42a8bd296f27",
+      "match": true
+    },
+    {
+      "file": "docs\\reference\\HIMS_Hospital_Admission_Discharge_Workflow.pdf",
+      "sha256": "eb4adbd771212d435bb32e3839f32915452e6b9fed3f443796bd7484861ad291",
+      "match": true
+    },
+    {
+      "file": "docs\\reference\\HIMS_Workflow_Reference.jpeg",
+      "sha256": "73a859a0eea6f433d36170c4c6c74daa94472471f977e0c70eb89b23af7fb1f1",
+      "match": true
+    }
+  ],
+  "changedAppFiles": [],
+  "head": "8ffa9691ca2bf8acfcd8e8a58ba8141ad56c2e54",
+  "branch": "codex/hims-development",
+  "staged": [],
+  "fullAppSuite": "not run: documentation/design only"
+}

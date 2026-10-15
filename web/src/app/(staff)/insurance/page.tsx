@@ -13,13 +13,16 @@ import { getStaffWorklist } from "@/server/overview";
 import { InsuranceUpload } from "@/components/insurance-upload";
 import { InsurancePaperwork } from "@/components/insurance-paperwork";
 import { saveInsurance } from "./actions";
+import { MvpWorkspace } from "@/components/mvp-workspace";
 function Provenance(){return <><CareField name="verifiedBy" label="External verifier / hospital staff"/><CareField name="verifiedAt" label="Verified at (UTC)" type="datetime-local"/><CareField name="reference" label="External reference"/></>;}
 function WorkKind(){return <label>Request type<select name="kind"><option value="PREAUTH">Pre-authorization</option><option value="ENHANCEMENT">Enhancement</option><option value="APPEAL">Appeal</option></select></label>;}
-export default async function InsurancePage({searchParams}:{searchParams:Promise<{caseId?:string;tab?:string}>}){
+export default async function InsurancePage({searchParams}:{searchParams:Promise<{caseId?:string;admissionId?:string;tab?:string;legacy?:string;q?:string;view?:string;selected?:string}>}){
   const staff=await requireStaff();if(!["ADMIN","BILLING","ADMISSION","INSURANCE"].includes(staff.role))notFound();
+  const {caseId:requestedCase,admissionId,tab,legacy,...filters}=await searchParams;
+  if(!requestedCase&&!admissionId&&legacy!=="1"&&staff.role!=="ADMISSION")return <><MvpWorkspace filters={filters} surface="insurance"/><section className="card"><Link className="button secondary" href="/insurance?legacy=1">Manage verified cases, assignments & protected evidence</Link></section></>;
   const ctx=staffContext(staff,"insurance-view");
   const [workspace,worklist]=await Promise.all([insuranceWorkspace(ctx),getStaffWorklist(ctx)]);
-  const {caseId,tab}=await searchParams;
+  const caseId=requestedCase??workspace.rows.find(item=>item.admissionId===admissionId)?.id;
   let review:Awaited<ReturnType<typeof getInsuranceCase>>|undefined;
   if(caseId){if(staff.role==="ADMISSION")notFound();try{review=await getInsuranceCase(ctx,caseId);}catch(e){if(e instanceof DomainError&&e.code==="FORBIDDEN")notFound();throw e;}}
   const action=(op:Parameters<typeof saveInsurance>[3])=>saveInsurance.bind(null,caseId??"",review?.case.version??0,crypto.randomUUID(),op);

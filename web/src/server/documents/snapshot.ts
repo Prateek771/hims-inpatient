@@ -20,6 +20,7 @@ function json<T>(value: T): Json<T> { return jsonSnapshot(value) as Json<T>; }
 /** Caller owns settings/staff and the admission lock. Never refresh dynamic medicine safety at a later print date. */
 export async function documentSourceInTransaction(tx: Transaction, e: typeof admissions.$inferSelect) {
   if (e.status !== "DISCHARGED") throw new DomainError("PRECONDITION", "Final copies require a recorded actual hospital departure");
+  if(!e.admittingDoctorId)throw new DomainError("PRECONDITION","Legacy documents require the retained original Doctor identity");
   const [ordinary] = await tx.select().from(departures).where(eq(departures.admissionId, e.id));
   const [exceptional] = await tx.select().from(exceptionalDepartures).where(eq(exceptionalDepartures.admissionId, e.id));
   if (!!ordinary === !!exceptional) throw new DomainError("PRECONDITION", "One consistent recorded departure source is required");
@@ -92,9 +93,10 @@ export async function documentSourceInTransaction(tx: Transaction, e: typeof adm
     return { gate, seal: seal ? { ...seal, signerName: name(seal.signedBy) } : null, invalidation };
   });
   const pharmacySeal = selected.get("PHARMACY"), [pharmacySource] = pharmacySeal ? await tx.select({ inputs: clearanceSeals.inputs }).from(clearanceSeals).where(eq(clearanceSeals.id, pharmacySeal.id)) : [];
+  const {mvpFinanceId:_mvpFinanceId,...legacyOrdinary}=ordinary??{};void _mvpFinanceId;
   const departureRecord = exceptional ? { ...exceptional, snapshot: { ...exceptional.snapshot, seals: (exceptional.snapshot.seals as { seal?: Record<string, unknown>; invalidation?: unknown }[] | undefined)?.map(r => {
     if (!r.seal) return r; const { inputs: _originalInputs, ...record } = r.seal; void _originalInputs; return { ...r, seal: record };
-  }) } } : ordinary!;
+  }) } } : legacyOrdinary as Omit<NonNullable<typeof ordinary>,"mvpFinanceId">;
   const source = json({
     hospital: hospital ? { id: hospital.id, version: hospital.version, payload: hospital.payload } : null,
     patient: patient ?? null,

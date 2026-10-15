@@ -1,0 +1,35 @@
+import {afterEach,expect,it} from "vitest";
+import {withTestDatabase,waitForTestDatabaseIdle} from "../../scripts/test-database";
+import {getTestDatabaseConfig} from "../../scripts/test-database-guard";
+import {loadLocalEnvironment} from "../../scripts/migrate";
+import {billingFixture} from "../support/billing-fixture";
+import {createStaff} from "../../src/server/staff";
+import {prepareMvpBrowserFixtures} from "../support/mvp-workflow-fixture";
+import {acceptPatientMedicineReturn,getMvpEpisode,recordMvpAction,recordPatientMedicineCharge} from "../../src/server/mvp/commands";
+import {createMvpDocument} from "../../src/server/documents/mvp";
+loadLocalEnvironment();
+const keys=["DATABASE_URL","HIMS_SYNTHETIC_TEST_RUN","HIMS_DOCUMENT_STORAGE","HIMS_INSURANCE_STORAGE","BETTER_AUTH_URL","BETTER_AUTH_SECRET"];
+const original=Object.fromEntries(keys.map(k=>[k,process.env[k]]));
+afterEach(async()=>{await waitForTestDatabaseIdle();for(const key of keys){if(original[key]===undefined)delete process.env[key];else process.env[key]=original[key];}});
+it("settles a native self-pay zero bill after a full accepted return without inventing cash or insurer responsibility",async()=>withTestDatabase(async({runtime})=>{
+ process.env.DATABASE_URL=getTestDatabaseConfig().runtimeUrl;process.env.HIMS_SYNTHETIC_TEST_RUN="1";process.env.HIMS_DOCUMENT_STORAGE="synthetic";process.env.HIMS_INSURANCE_STORAGE="synthetic";process.env.BETTER_AUTH_URL="http://127.0.0.1:3100";process.env.BETTER_AUTH_SECRET="SyntheticMvpSelfPayOnlySecretAtLeast32Characters12345";
+ const f=await billingFixture();await createStaff(f.ah,{name:"Synthetic Insurance",email:"insurance@billing.invalid",password:"SyntheticBillingOnly123!",role:"INSURANCE",reason:"Synthetic self-pay contrast fixture"});
+ const m=await prepareMvpBrowserFixtures(f.ah,"billing.invalid"),id=m.selfPayAdmissionId,state=()=>getMvpEpisode(m.ac(),id);
+ const price=(await runtime.query("select id from hims.setting_versions where payload->>'code'='MVP_MED' order by version desc limit 1")).rows[0];
+ const charge=m.pc();await recordPatientMedicineCharge(charge,{admissionId:id,itemId:"MVP_MED",quantity:"1",unit:"pack",expectedTariffVersionId:price.id,sourceReference:"SELF-PAY-ORIGINAL-MEDICINE",evidence:"Synthetic originally recorded medicine bill",requestId:charge.requestId});
+ const charged=await state(),returnCtx=m.pc();await acceptPatientMedicineReturn(returnCtx,{admissionId:id,originalChargeId:charged.medicine.find(line=>line.kind==="CHARGE")!.chargeId,quantity:"1",reason:"Whole unused pack accepted",evidence:"Synthetic actual unused return",expectedBillVersion:charged.episode.billRevision,requestId:returnCtx.requestId});
+ async function action(ctx:ReturnType<typeof m.nc>,value:Record<string,unknown>){return recordMvpAction(ctx,{...value,admissionId:id,expectedReviewHash:(await state()).reviewHash,requestId:ctx.requestId});}
+ await action(m.nc(),{action:"doctor-approval",authorizerName:"Synthetic external Doctor",sourceTime:new Date().toISOString(),evidence:"External signed discharge approval",clinicalSummary:"External Doctor source summary",prescription:"External explicit no-medicine instruction",followUp:"External follow-up instructions"});
+ await action(m.nc(),{action:"checklist",items:["Synthetic physical readiness"],proposedNa:["INSURANCE","DIAGNOSTICS"],remarks:"Self-pay with fully accepted return"});
+ await action(m.nc(),{action:"check",check:"NURSING",status:"COMPLETE",remarks:"Physical readiness verified"});
+ await action(m.pc(),{action:"check",check:"PHARMACY",status:"COMPLETE",remarks:"Original medicine charge and full return reconciled"});
+ for(const check of ["INSURANCE","DIAGNOSTICS"])await action(m.ac(),{action:"n-a",check,reason:"No applicable service or pending work"});
+ await action(m.nc(),{action:"vacancy",shiftId:m.selfPayShiftId,vacatedAt:new Date().toISOString(),waitingLocation:"Synthetic supervised waiting chairs",handover:"Assigned Nurse retains waiting care and held bed"});
+ expect((await state()).blockers).toEqual([]);
+ await action(m.bc(),{action:"finance",reason:"Zero current self-pay bill after original-price return; no cash fabricated"});
+ const authorized=await state();expect(authorized.finance).not.toBeNull();expect(authorized.bill).toMatchObject({netPaise:"0",patientCashPaise:"0",insurerCashPaise:"0"});expect(authorized.financial?.responsibility).toMatchObject({allocationComplete:true,patientPaise:"0",insurerPaise:"0"});
+ const paper=await createMvpDocument(m.nc(),{admissionId:id,kind:"FINAL",expectedReviewHash:authorized.reviewHash});
+ await action(m.nc(),{action:"deliver",kind:"FINAL",documentId:paper.documentId,recipient:"Synthetic self-pay patient",deliveredAt:new Date().toISOString(),evidence:"Actual zero-bill final papers handed over"});
+ await action(m.nc(),{action:"exit",shiftId:m.selfPayShiftId,departedAt:new Date().toISOString()});
+ expect((await state()).episode.status).toBe("DISCHARGED");expect((await runtime.query("select count(*)::int n from hims.receipts where admission_id=$1",[id])).rows[0].n).toBe(0);expect((await runtime.query("select count(*)::int n from hims.bed_holds where admission_id=$1",[id])).rows[0].n).toBe(0);
+}),60000);

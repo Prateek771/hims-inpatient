@@ -1,5 +1,22 @@
 # HIMS build handoff
 
+## Local MVP acceptance — 15 October 2026
+
+The complete root check passed **83 units, 176 actual PostgreSQL tests, 81 Chromium/HTTP checks, lint/types/build and isolated recovery of 96 tables / 1,850 exact rows / 23 protected files**. Reviewed ordinary migrations 0056–0060 are applied; all 61 SQL versions match literal source. Preservation proof retains every original column/row across 81 tables / 46 original rows, all 56 old applied SQL files, credentials, private files and native checkpoint records. No reset/reseed or ordinary operational seed occurred.
+
+Six routine workspaces and all approved new-episode flows are implemented. Existing episodes keep version 1 and protected history. Admin still configures the actual hospital, beds/categories, tariffs/service items, external Doctor roster and staff/availability responsibilities; ordinary configuration remains empty. Insurance is externally verified and AI paperwork remains manual until an approved provider is configured.
+
+Development publication, exact CI and copied localhost-preview identities are observed after commit in ignored `tmp/mvp-implementation/release-evidence.json`. Keep this checkout on `codex/hims-development`, retain old artifacts and unrelated design work, and do not deploy or integrate main automatically. See [current progress](MVP_IMPLEMENTATION_PROGRESS.md) for actual remaining gates.
+
+## Full MVP implementation authorization · 15 October 2026
+
+The owner accepted the new Admin dashboard direction and requested the whole MVP including local PostgreSQL. This supersedes earlier design-only stop language below. Read the [executable plan](../superpowers/plans/2026-10-15-mvp-implementation.md) and [current progress](MVP_IMPLEMENTATION_PROGRESS.md) for actual checks/status. Existing episodes retain their old workflow; new admissions use version 2. Preserve old data/accounts/credentials/migrations/files and unrelated work. No reset/reseed or deployment.
+
+## Approved MVP implementation - 15 October 2026
+
+The owner accepted the new Admin dashboard and authorized the whole MVP including local PostgreSQL. [Controlling scope](../PROJECT_SCOPE.md); [executable plan](../superpowers/plans/2026-10-15-mvp-implementation.md); [actual verification and pending work](MVP_IMPLEMENTATION_PROGRESS.md). Six routine staff workspaces use the forest/linen/Public Sans design. New admissions use version 2; existing episodes retain version 1. Earlier design-only stops and eight-role descriptions below are historical. No repeated design approval is required. Preserve accounts, data, credentials, private files, old designs/builds and applied migrations.
+
+
 ## Owner-approved UI redesign successor · 11 October 2026
 
 The owner approved the final Figma file `SHtJNa3gp1oqOpNm8VzcmQ` and asked for actual codebase implementation in one next chat in this same project folder, using parallel subagents and a dedicated illustrated simple-language patient-journey guide agent. The [UI redesign handoff](UI_REDESIGN_HANDOFF.md) and updated [design reference](../DESIGN_REFERENCE.md) control this next work. No repeated approval is needed for this UI implementation. Existing Tasks 1–16 contracts, data preservation and exact-commit CI-before-main gates remain controlling. One successor chat owns app edits and serializes shared files/tests/builds/Git; non-overlapping subagent work inside it is explicitly authorized. This source chat ends its edits before dispatch. Use GPT-6.1 Sol / Extra High and the sole INS folder; do not resume old build chats.

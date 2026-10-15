@@ -9,7 +9,6 @@ import {
 } from "@/server/admissions/commands";
 import { DomainError } from "@/server/contracts";
 import { ZodError } from "zod";
-import { hospitalFormInstant } from "@/server/hospital-time";
 
 export type AdmissionActionState = {
   message: string;
@@ -38,7 +37,6 @@ export async function savePendingAdmission(
   try {
     const staff = await requireStaff();
     const patientId = field(form, "patientId");
-    const assessedAt = await hospitalFormInstant(field(form, "assessmentLocalTime"), field(form, "hospitalTimezone"));
     const result = await createAdmission(
       { ...staffContext(staff, "admission-form"), requestId },
       {
@@ -61,18 +59,7 @@ export async function savePendingAdmission(
                   : {}),
               },
             }),
-        admittingDoctorId: field(form, "admittingDoctorId"),
-        clinicianAssessment: {
-          clinicianId: field(form, "clinicianId"),
-          assessedAt,
-          chiefComplaint: field(form, "chiefComplaint"),
-          vitals: field(form, "vitals"),
-          triage: field(form, "triage"),
-          destinationCategory: field(form, "destinationCategory"),
-          ...(field(form, "overrideReason")
-            ? { overrideReason: field(form, "overrideReason") }
-            : {}),
-        },
+        externalDoctorId: field(form, "externalDoctorId"),
         bedId: field(form, "bedId"),
         paymentRoute: field(form, "paymentRoute"),
         expectedStayDays: Number(field(form, "expectedStayDays")),

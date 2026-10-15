@@ -4,6 +4,7 @@ import { user } from "../schema/auth";
 import { admissions, beds, roomStays } from "./schema";
 import { nursingShifts } from "../nursing/schema";
 import { sql } from "drizzle-orm";
+import { doctorDirectory } from "../mvp/staff-schema";
 const signed = () => ({ signedBy: text("signed_by").notNull().references(() => user.id), signedAt: timestamp("signed_at", { withTimezone: true }).notNull().defaultNow() });
 // Immutable doctor authority is tied to the originating stay, never reusable after a move.
 export const transferOrders = hims.table("transfer_orders", {
@@ -23,10 +24,36 @@ export const transferOrderCancellations = hims.table("transfer_order_cancellatio
   signedBy: text("signed_by").notNull().references(() => user.id),
   signedAt: timestamp("signed_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
 }, t => [index("transfer_cancel_episode_idx").on(t.admissionId)]);
+// External clinical authority and the authenticated Nurse recorder are distinct facts.
+export const mvpTransferAuthorities = hims.table("mvp_transfer_authorities", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  admissionId: uuid("admission_id").notNull().references(() => admissions.id),
+  sourceStayId: uuid("source_stay_id").notNull().references(() => roomStays.id),
+  externalDoctorId: uuid("external_doctor_id").notNull().references(() => doctorDirectory.id),
+  authorizerName: text("authorizer_name").notNull(),
+  sourceTime: timestamp("source_time", { withTimezone: true }).notNull(),
+  destinationCategory: text("destination_category").notNull(),
+  evidence: text("evidence").notNull(), reason: text("reason").notNull(),
+  version: integer("version").notNull(), admissionVersion: integer("admission_version").notNull(),
+  recordedBy: text("recorded_by").notNull().references(() => user.id),
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, t => [uniqueIndex("mvp_transfer_authority_version").on(t.admissionId, t.version), index("mvp_transfer_authority_stay").on(t.sourceStayId), index("mvp_transfer_authority_doctor").on(t.externalDoctorId)]);
+export const mvpTransferCancellations = hims.table("mvp_transfer_cancellations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  admissionId: uuid("admission_id").notNull().references(() => admissions.id),
+  authorityId: uuid("authority_id").notNull().unique().references(() => mvpTransferAuthorities.id),
+  externalDoctorId: uuid("external_doctor_id").notNull().references(() => doctorDirectory.id),
+  authorizerName: text("authorizer_name").notNull(),
+  sourceTime: timestamp("source_time", { withTimezone: true }).notNull(),
+  evidence: text("evidence").notNull(), reason: text("reason").notNull(),
+  recordedBy: text("recorded_by").notNull().references(() => user.id),
+  recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+}, t => [index("mvp_transfer_cancellation_episode").on(t.admissionId), index("mvp_transfer_cancellation_doctor").on(t.externalDoctorId)]);
 export const admissionTransfers = hims.table("admission_transfers", {
   id: uuid("id").primaryKey().defaultRandom(),
   admissionId: uuid("admission_id").notNull().references(() => admissions.id),
-  transferOrderId: uuid("transfer_order_id").notNull().unique().references(() => transferOrders.id),
+  transferOrderId: uuid("transfer_order_id").unique().references(() => transferOrders.id),
+  mvpAuthorityId: uuid("mvp_authority_id").unique().references(() => mvpTransferAuthorities.id),
   oldStayId: uuid("old_stay_id").notNull().unique().references(() => roomStays.id),
   newStayId: uuid("new_stay_id").notNull().unique().references(() => roomStays.id),
   oldBedId: uuid("old_bed_id").notNull().references(() => beds.id),

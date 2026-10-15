@@ -15,6 +15,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { hims, hospitalSettings, settingVersions } from "../schema/core";
 import { user } from "../schema/auth";
+import { doctorDirectory } from "../mvp/staff-schema";
 
 export type ClinicianAssessment = {
   clinicianId: string;
@@ -106,11 +107,11 @@ export const admissions = hims.table(
       .notNull()
       .default("PENDING"),
     admittingDoctorId: text("admitting_doctor_id")
-      .notNull()
       .references(() => user.id),
+    externalDoctorId: uuid("external_doctor_id").references(()=>doctorDirectory.id),
+    workflowVersion:integer("workflow_version").notNull().default(1),
     clinicianAssessment: jsonb("clinician_assessment")
-      .$type<ClinicianAssessment>()
-      .notNull(),
+      .$type<ClinicianAssessment>(),
     bedId: uuid("bed_id")
       .notNull()
       .references(() => beds.id),

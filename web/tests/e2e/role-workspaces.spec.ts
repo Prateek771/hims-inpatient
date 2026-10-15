@@ -1,12 +1,17 @@
 import { expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { useStaffSession } from "../support/browser-session";
+import { useStaffSession as currentStaffSession } from "../support/browser-session";
 import { Client } from "pg";
 import { getTestDatabaseConfig } from "../../scripts/test-database-guard";
+// Retained v1 operational views retain their exact financial/clinical proof.
+const legacyPaths = { ADMIN:"/overview?legacy=1", ADMISSION:"/admissions", DOCTOR:"/clinical", NURSE:"/nursing?legacy=1", PHARMACY:"/pharmacy?legacy=1", LAB:"/lab", INSURANCE:"/insurance?legacy=1", BILLING:"/billing?legacy=1" };
+async function useStaffSession(page: Parameters<typeof currentStaffSession>[0], role: Parameters<typeof currentStaffSession>[1]) {
+  await currentStaffSession(page,role); await page.goto(legacyPaths[role]);
+}
 test.use({ timezoneId: "America/Los_Angeles" });
 for (const role of ["ADMIN", "ADMISSION", "DOCTOR", "NURSE", "PHARMACY", "LAB", "INSURANCE", "BILLING"] as const) {
-  test(`${role} current work, role access, keyboard and desktop/narrow pixels`, async ({ page }) => {
+  test(`${role} retained v1 work, role access, keyboard and desktop/narrow pixels`, async ({ page }) => {
     await useStaffSession(page, role);
     const homeHeading = { ADMIN: "Home", ADMISSION: "Admissions", DOCTOR: "Patients", NURSE: "My shift", PHARMACY: "Medicine stock", LAB: "Lab", INSURANCE: "Insurance cases", BILLING: "Billing" }[role];
     await expect(page.getByRole("heading", { name: homeHeading, level: 1, exact: true })).toBeVisible();
@@ -28,12 +33,13 @@ for (const role of ["ADMIN", "ADMISSION", "DOCTOR", "NURSE", "PHARMACY", "LAB", 
     await expect(page.getByRole("main")).toBeFocused();
     if (role !== "ADMIN") {
       expect((await page.request.get("/overview")).status()).toBe(404);
-      await page.goto("/overview");
+      await page.goto("/overview?legacy=1");
       await expect(page.getByRole("heading", { name: "404", exact: true })).toBeVisible();
       await expect(page.getByTestId("overview-metrics")).toHaveCount(0);
       await page.goto("/workspace");
-      const homePath = { ADMISSION: "/admissions", DOCTOR: "/clinical", NURSE: "/nursing", PHARMACY: "/pharmacy", LAB: "/lab", INSURANCE: "/insurance", BILLING: "/billing" }[role];
+      const homePath = { ADMISSION: "/admissions", DOCTOR: "/history", NURSE: "/nursing", PHARMACY: "/pharmacy", LAB: "/history", INSURANCE: "/insurance", BILLING: "/billing" }[role];
       await page.waitForURL(new RegExp(`${homePath}$`), { waitUntil: "load" });
+      await page.goto(legacyPaths[role]);
       await expect(page.getByRole("heading", { name: homeHeading, level: 1, exact: true })).toBeVisible();
     } else {
       await expect(page.getByRole("heading", { name: "Home", level: 1 })).toBeVisible();
@@ -61,7 +67,7 @@ for (const role of ["ADMIN", "ADMISSION", "DOCTOR", "NURSE", "PHARMACY", "LAB", 
 
 test("overview uses real empty/large values and a safe error state", async ({ page }) => {
   await useStaffSession(page, "ADMIN");
-  await page.goto("/overview?bedCategory=OV_EMPTY");
+  await page.goto("/overview?legacy=1&bedCategory=OV_EMPTY");
   const emptyMetrics = page.getByTestId("overview-metrics").locator("strong");
   await expect(emptyMetrics.nth(0)).toHaveText("0");
   await expect(emptyMetrics.nth(1)).toHaveText("0%");
@@ -82,7 +88,7 @@ test("overview uses real empty/large values and a safe error state", async ({ pa
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: resolve(directory, "overview-large-narrow.png"), fullPage: true });
-  await page.goto("/overview?bedCategory=UNKNOWN");
+  await page.goto("/overview?legacy=1&bedCategory=UNKNOWN");
   await expect(page.getByRole("heading", { name: "Current records are unavailable" })).toBeVisible();
   await expect(page.getByTestId("overview-metrics")).toHaveCount(0);
   await page.getByRole("button", { name: "Retry current records" }).focus();
@@ -103,7 +109,7 @@ test("workspace navigation exposes a loading state without placeholder counts", 
     // Hold only a guarded synthetic source table, so the real streamed boundary is observable.
     await client.query("lock table hims.care_occurrences in access exclusive mode");
     const lockedAt = Date.now();
-    await page.goto("/overview", { waitUntil: "commit" });
+    await page.goto("/overview?legacy=1", { waitUntil: "commit" });
     await expect(page.getByRole("heading", { name: "Loading current hospital work" })).toBeVisible();
     await expect(page.getByTestId("overview-metrics")).toHaveCount(0);
     const loadingPixels = page.screenshot({ path: resolve("../tmp/task15/author-final/screenshots/overview-loading.png"), fullPage: true });

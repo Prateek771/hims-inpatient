@@ -13,7 +13,7 @@ export async function useStaffSession(page: Page, role: WorkflowRole) {
   await page.goto("/workspace");
   // Next can stream the authenticated redirect after the original document loads.
   // Wait for its actual destination before a test begins another navigation.
-  const homes = { ADMIN: "/overview", ADMISSION: "/admissions", DOCTOR: "/clinical", BILLING: "/billing", NURSE: "/nursing", PHARMACY: "/pharmacy", LAB: "/lab", INSURANCE: "/insurance" };
+  const homes = { ADMIN: "/overview", ADMISSION: "/admissions", DOCTOR: "/history", BILLING: "/billing", NURSE: "/nursing", PHARMACY: "/pharmacy", LAB: "/history", INSURANCE: "/insurance" };
   await page.waitForURL(new RegExp(`${homes[role]}$`), { waitUntil: "load" });
   await expect(page.getByRole("main").getByRole("heading", { level: 1 })).toBeVisible();
 }

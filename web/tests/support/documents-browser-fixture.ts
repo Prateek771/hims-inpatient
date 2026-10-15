@@ -1,10 +1,11 @@
+// Historical workflow-v1 coverage: create legacy episodes explicitly; current intake uses MVP v2.
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { db } from "../../src/server/db";
 import { user } from "../../src/server/schema/auth";
 import { listSettings, saveSetting } from "../../src/server/settings";
-import { createAdmission, createBed, activateAdmission } from "../../src/server/admissions/commands";
+import { createLegacyAdmission, createBed, activateAdmission } from "../../src/server/admissions/commands";
 import { getCare, recordRound, signClinicalSummary } from "../../src/server/clinical/commands";
 import { recordStockReceipt, prepareTakeHomeMedicines } from "../../src/server/pharmacy/commands";
 import { assignNurse, recordShift } from "../../src/server/nursing/commands";
@@ -24,7 +25,7 @@ export async function prepareDocumentsBrowserFixture(adminHeaders: Headers) {
     await saveSetting(adminHeaders, { value, expectedVersion: Math.max(0, ...current.versions.filter(v => v.kind === kind).map(v => v.version)), reason: "Isolated synthetic multi-page document configuration" });
   }
   const bed = await createBed(ctx("ADMIN"), { label: `Synthetic documents ${randomUUID()}`, category: "DOCUMENTS", reason: "Independent document browser bed" });
-  const a = ctx("ADMISSION"), { admissionId } = await createAdmission(a, { patientDetails: { name: "Synthetic José सावधानी क्षेत्र - Long recorded patient name for wrapping and international text verification", ageYearsAtRegistration: 54, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: new Date().toISOString(), chiefComplaint: "Synthetic human assessment", vitals: "Synthetic vitals", triage: "Actual Doctor route", destinationCategory: "DOCUMENTS" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: a.requestId });
+  const a = ctx("ADMISSION"), { admissionId } = await createLegacyAdmission(a, { patientDetails: { name: "Synthetic José सावधानी क्षेत्र - Long recorded patient name for wrapping and international text verification", ageYearsAtRegistration: 54, sex: "FEMALE" }, admittingDoctorId: id("DOCTOR"), clinicianAssessment: { clinicianId: id("DOCTOR"), assessedAt: new Date().toISOString(), chiefComplaint: "Synthetic human assessment", vitals: "Synthetic vitals", triage: "Actual Doctor route", destinationCategory: "DOCUMENTS" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: a.requestId });
   const arrival = ctx("ADMISSION"); await activateAdmission(arrival, { admissionId, arrivedAt: new Date().toISOString(), expectedVersion: 1, requestId: arrival.requestId });
   await assignNurse(ctx("ADMIN"), { admissionId, nurseId: id("NURSE"), reason: "Actual document fixture assignment", authority: "Synthetic roster" });
   const nurse = ctx("NURSE"), shift = await recordShift(nurse, { admissionId, startedAt: new Date().toISOString(), handover: "Actual nursing attendance through departure", requestId: nurse.requestId });

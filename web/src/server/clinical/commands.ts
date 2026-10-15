@@ -799,6 +799,8 @@ export async function getCare(ctx: CommandContext, admissionId: string) {
   return withTransaction(async (tx) => {
     const staff = await admissionOperator(ctx, ["DOCTOR", "NURSE"], tx);
     const episode = await careEpisode(tx, staff, admissionId, false);
+    if (episode.workflowVersion !== 1 || !episode.admittingDoctorId)
+      throw new DomainError("PRECONDITION", "Use the inpatient coordination workspace for this admission; legacy charts remain available for historical episodes");
     const [identity] = await tx
       .select({
         name: patients.name,

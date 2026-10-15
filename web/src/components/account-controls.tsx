@@ -244,7 +244,7 @@ export function AccountControls({ staff }: { staff: Staff }) {
           <div className="account-heading"><h2 id="customize-heading">Customize my view</h2><button type="button" className="button quiet" onClick={() => customize.current?.close()}>Close</button></div>
           <p className="account-subtitle">{staff.name} · {roleNames[staff.role]}</p>
           <fieldset className="accent-options"><legend>Personal appearance</legend>{([
-            ["teal", "Hospital teal"], ["blue", "Reporting blue"], ["purple", "Soft purple"],
+            ["teal", "Hospital forest"], ["blue", "Reporting blue"], ["purple", "Soft purple"],
           ] as const).map(([accent, label]) => <label key={accent} className="accent-option"><input type="radio" name="appearance-accent" value={accent} checked={appearance.accent === accent} onChange={() => updateAppearance({ ...appearance, accent })} /><span className={`accent-swatch accent-${accent}`} aria-hidden="true" /><span>{label}</span></label>)}</fieldset>
           <div className="fields">
             <label>Density<select value={appearance.density} onChange={(event) => updateAppearance({ ...appearance, density: event.target.value as Appearance["density"] })}><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>

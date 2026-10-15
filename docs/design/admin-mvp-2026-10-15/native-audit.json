@@ -1,0 +1,30 @@
+{
+  "rootNodeId": "2:131",
+  "descendants": 173,
+  "texts": 105,
+  "instances": 10,
+  "overflow": [],
+  "allTextStyled": true,
+  "allFontsPublicSans": true,
+  "textVariableBindings": true,
+  "semanticAliases": true,
+  "noAllScopes": true,
+  "noMissingCodeSyntax": true,
+  "variableCount": 31,
+  "correctedText": [
+    "View admissions",
+    "7 beds available",
+    "20 beds: 11 occupied · 7 available · 1 held · 1 cleaning"
+  ],
+  "componentSets": [
+    {
+      "name": "Button",
+      "variants": 7
+    },
+    {
+      "name": "Navigation",
+      "variants": 2
+    }
+  ],
+  "noImageFilledUI": true
+}

@@ -60,10 +60,10 @@ test("actual login, admin staff creation, settings history and wrong-role direct
     .fill("SyntheticE2EOnly123!");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await expect(page).toHaveURL(/\/overview$/);
-  await expect(page.getByRole("heading", { name: "Home", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Patients & admissions", level: 1 })).toBeVisible();
   await page
     .getByRole("navigation", { name: "Hospital sections" })
-    .getByRole("link", { name: "Staff", exact: true })
+    .getByRole("link", { name: "Staff & settings", exact: true })
     .click();
   const create = page
     .getByRole("heading", { name: "Create staff account" })
@@ -160,9 +160,9 @@ test("actual login, admin staff creation, settings history and wrong-role direct
     .getByLabel("Password", { exact: true })
     .fill("SyntheticE2EOnly123!");
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/clinical$/);
-  await expect(page.getByRole("heading", { name: "Patients", level: 1 })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Staff", exact: true })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/history$/);
+  await expect(page.getByRole("heading", { name: "Retained records", level: 1 })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Staff & settings", exact: true })).toHaveCount(0);
   const wrong = await page.request.post("/api/admin/settings", {
     headers: { Origin: "http://127.0.0.1:3100" },
     data: {
@@ -173,7 +173,7 @@ test("actual login, admin staff creation, settings history and wrong-role direct
   });
   expect(wrong.status()).toBe(403);
   await page.goto("/admin/staff");
-  await expect(page).toHaveURL(/clinical/);
+  await expect(page).toHaveURL(/\/history$/);
   expect((await request.get("/api/admin/staff")).status()).toBe(401);
   let throttled = false;
   for (let attempt = 0; attempt < 8; attempt++) {

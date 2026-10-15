@@ -59,6 +59,9 @@ export async function migrate(client: Client) {
     await client.query(`GRANT SELECT, INSERT ON hims.administrative_shift_ends TO ${runtime}; GRANT SELECT ON hims.effective_shift_ends TO ${runtime};`);
     await client.query(`GRANT SELECT, INSERT ON hims.room_returns TO ${runtime}; GRANT SELECT ON hims.effective_room_vacations, hims.effective_vacation_facts, hims.effective_bed_turnovers TO ${runtime};`);
     await client.query(`GRANT SELECT, INSERT ON hims.discharge_documents TO ${runtime};`);
+    await client.query(`GRANT SELECT, INSERT ON hims.mvp_events, hims.mvp_invalidations, hims.mvp_medicine_sources, hims.mvp_receivable_receipts, hims.doctor_directory, hims.doctor_directory_versions, hims.availability_coordinators, hims.doctor_availability TO ${runtime};`);
+    await client.query(`GRANT SELECT, INSERT ON hims.mvp_exception_events, hims.mvp_exceptional_departures, hims.mvp_room_returns, hims.mvp_transfer_authorities, hims.mvp_transfer_cancellations TO ${runtime};`);
+    await client.query(`GRANT SELECT, INSERT ON hims.mvp_external_services TO ${runtime};`);
     await client.query(`GRANT SELECT, INSERT ON hims.paperwork_runs, hims.paperwork_proposals, hims.paperwork_reviews, hims.paperwork_packets, hims.paperwork_followups TO ${runtime}; GRANT UPDATE (status, revision, pending_review_id) ON hims.paperwork_runs TO ${runtime};`);
   } finally {
     await client.query("SELECT pg_advisory_unlock(729104209)");

@@ -162,6 +162,8 @@ export async function saveNursing(
     revalidatePath("/admin/beds");
     revalidatePath("/admissions");
     revalidatePath("/billing");
+    if (admissionId) revalidatePath(`/mvp/${admissionId}`);
+    revalidatePath("/overview");
     return { message };
   } catch (error) {
     return {

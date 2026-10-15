@@ -62,7 +62,7 @@ export async function exceptionAction(action: string, b: ExceptionBinding, _prio
       } else if (kind === "LAB_REPORT") {
         data = { orderId: b.sourceId, result: field("result"), ...(field("barcode") ? { barcode: field("barcode") } : {}), requestId: b.requestId };
       } else if (kind === "INSURANCE_DECISION") {
-        data = { caseId: b.sourceId, expectedCaseVersion: b.caseVersion, requestId: b.requestId, kind: field("decisionKind"), status: field("status"), reason: field("reason"), approvedPaise: amount("approved"), coPayBps: Number(parseINR(field("coPayPercent"))), verifiedBy: field("verifiedBy"), verifiedAt: await at("verifiedAt"), reference: field("reference"), documentIds: [], allocation: { billRevision: b.billVersion, netBillPaise: b.netPaise, eligibleBillPaise: amount("eligible"), nonPayablePaise: amount("nonPayable"), ...(field("patient") ? { verifiedPatientLiabilityPaise: amount("patient") } : {}), sourceReference: field("sourceReference") } };
+        data = { caseId: b.sourceId, expectedCaseVersion: b.caseVersion, requestId: b.requestId, kind: field("decisionKind"), status: field("status"), reason: field("reason"), approvedPaise: amount("approved"), coPayBps: Number(parseINR(field("coPayPercent"))), verifiedBy: field("verifiedBy"), verifiedAt: await at("verifiedAt"), reference: field("reference"), documentIds: form.getAll("documentIds").map(String), allocation: { billRevision: b.billVersion, netBillPaise: b.netPaise, eligibleBillPaise: amount("eligible"), nonPayablePaise: amount("nonPayable"), ...(field("patient") ? { verifiedPatientLiabilityPaise: amount("patient") } : {}), sourceReference: field("sourceReference") } };
       } else {
         data = { text: field("text"), reason: field("reason"), ...(kind === "NURSING_ADDENDUM" ? { recordType: field("recordType") } : {}) };
       }
@@ -70,6 +70,8 @@ export async function exceptionAction(action: string, b: ExceptionBinding, _prio
       else await exceptions.applyPostDischargeCorrection(ctx, { ...base, kind, sourceId: b.sourceId, data });
     } else throw new DomainError("VALIDATION", "Unknown exception action");
     for (const path of ["/exceptions", "/admissions", "/billing", "/clinical", "/nursing", "/lab", "/pharmacy", "/insurance", "/discharge", "/admin/beds"]) revalidatePath(path);
+    revalidatePath(`/mvp/${b.admissionId}`);
+    revalidatePath("/overview");
     return { message: "Recorded with its authority and original evidence. Current obligations are shown below." };
   } catch (error) {
     return { error: true, message: error instanceof DomainError ? error.message : error instanceof ZodError || error instanceof RangeError ? "Check the required details, original source and actual times." : "Unable to save. Refresh the current record and retry." };

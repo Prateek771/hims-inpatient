@@ -8,6 +8,7 @@ import { DomainError } from "../contracts";
 import { documentSections } from "./model";
 import { documentLimits, assertDocumentSourceSize, documentFontFamily as family, documentTextParts as parts } from "./content";
 import type { DischargeSnapshot } from "./snapshot";
+import type { MvpSnapshot } from "./mvp";
 export function documentProjectDirectory() {
   const root = existsSync(resolve(process.cwd(), "web/package.json")) ? process.cwd() : resolve(process.cwd(), "..");
   if (!existsSync(resolve(root, "web/package.json"))) throw new DomainError("PRECONDITION", "Document assets require the INS project folder");
@@ -67,11 +68,12 @@ function columnHyphenation(width: number) {
 const labelHyphenation = columnHyphenation((595.28 - 76) * 0.7 - 14);
 const valueHyphenation = columnHyphenation((595.28 - 76) * 0.3 - 14);
 /** Only local fonts and generated QR bytes; no network or separately refreshed source query. */
-export async function renderDischargePDF(snapshot: DischargeSnapshot, hash: string) {
-  assertDocumentSourceSize(snapshot);
+export async function renderDischargePDF(snapshot: DischargeSnapshot | MvpSnapshot, hash: string) {
+  assertDocumentSourceSize(snapshot as Parameters<typeof assertDocumentSourceSize>[0]);
   await fonts();
   const sections = documentSections(snapshot);
-  const printable = ["Final discharge copy", snapshot.documentId, hash, ...sections.flatMap(s => [s.title, ...s.paragraphs, ...s.rows.flat()])].join("\n");
+  const title="schemaVersion" in snapshot?`${snapshot.kind==="CLINICAL"?"Clinical":"Authorized discharge"} papers`:"Final discharge copy";
+  const printable = [title, snapshot.documentId, hash, ...sections.flatMap(s => [s.title, ...s.paragraphs, ...s.rows.flat()])].join("\n");
   if (printable.length > documentLimits.printableCharacters || sections.some(s => s.rows.some(r => r.join("").length > documentLimits.rowCharacters))) throw new DomainError("PRECONDITION", "Printable content exceeds 500000 characters or a row exceeds 1600 characters; source records are retained without truncation");
   for (const part of parts(printable)) {
     const font = Font.getFont({ fontFamily: family(part) }).data;
@@ -82,10 +84,10 @@ export async function renderDischargePDF(snapshot: DischargeSnapshot, hash: stri
   // Very large flex trees can overflow Yoga's numeric layout. Bound each table tree;
   // React PDF still wraps actual text/rows and counts every resulting A4 page.
   const pages = sections[2].rows.length <= 80 ? [sections] : [sections.slice(0, 2), ...Array.from({ length: Math.ceil(sections[2].rows.length / 15) }, (_, i) => [{ ...sections[2], title: i ? `${sections[2].title} (continued)` : sections[2].title, paragraphs: i ? [] : sections[2].paragraphs, rows: sections[2].rows.slice(i * 15, (i + 1) * 15) }]), sections.slice(3)];
-  const bytes = await renderToBuffer(<Document title={`Final discharge copy - ${snapshot.admission.ipCode} - Revision ${snapshot.version}`} author={hospital} language="en-IN">
+  const bytes = await renderToBuffer(<Document title={`${title} - ${snapshot.admission.ipCode} - Revision ${snapshot.version}`} author={hospital} language="en-IN">
     {pages.map((sectionsOnPage, i) => <Page key={i} size="A4" style={style.page} wrap>
       <View fixed style={style.header}><Text><Words value={`${hospital} · ${snapshot.admission.ipCode} · Revision ${snapshot.version}`} /></Text></View>
-      {i === 0 && <Text style={style.title}>Final discharge copy</Text>}
+      {i === 0 && <Text style={style.title}>{title}</Text>}
       {sectionsOnPage.map(section => <Fragment key={section.title}>
         <Text style={style.section} minPresenceAhead={22}><Words value={section.title} /></Text>
         {section.paragraphs.map((p, i) => <Text key={i} style={style.paragraph} orphans={2} widows={2}><Words value={p} /></Text>)}

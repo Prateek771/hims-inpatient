@@ -1,5 +1,7 @@
 # Hospital overview and staff worklists
 
+> Version 1 contract and retained acceptance evidence. New admissions follow the approved [version 2 scope](PROJECT_SCOPE.md); [implementation progress](agent/MVP_IMPLEMENTATION_PROGRESS.md) records actual verification. Existing episodes keep the original rules described below.
+
 Task 15 connects the overview and eight staff projections to authorized hospital records. The owner-approved 11 October role UI makes `/workspace` redirect to each role's actual worklist: Admin `/overview`, Admission `/admissions`, Doctor `/clinical`, Nurse `/nursing`, Pharmacy `/pharmacy`, Lab `/lab`, Insurance `/insurance`, and Billing `/billing`. Every principal page retains its authorized source alerts, evaluation time and permitted history. `/overview` remains Administrator-only. Reading these screens creates no task, charge, signature or other record. Human professionals retain their existing authority. Current implementation and verification are recorded in [UI progress](agent/UI_REDESIGN_PROGRESS.md).
 
 ## Work and access

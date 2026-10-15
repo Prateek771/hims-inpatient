@@ -1,10 +1,12 @@
 import type { DischargeSnapshot } from "./snapshot";
 import { formatINR } from "../billing/money";
+import type { MvpSnapshot } from "./mvp";
 export type DocumentSection = { title: string; paragraphs: string[]; rows: [string, string][] };
 const text = (v: unknown) => v === null || v === undefined || v === "" ? "Not recorded" : String(v);
 const records = (v: unknown): Record<string, unknown>[] => Array.isArray(v) ? v : [];
 const money = (v: string | null) => v === null ? "Unknown / awaiting responsibility review" : formatINR(BigInt(v));
-export function documentSections(s: DischargeSnapshot): DocumentSection[] {
+export function documentSections(s: DischargeSnapshot|MvpSnapshot): DocumentSection[] {
+  if("schemaVersion" in s)return mvpDocumentSections(s);
   const p = s.patient, a = s.admission, summary = s.clinical.summary, e = s.departure.exception;
   const signed = (r: Record<string, unknown>) => `Signed by ${text(r.signedBy ?? r.signed_by)} at ${text(r.signedAt ?? r.signed_at)}`;
   const rows: [string, string][] = s.money.statement.lines.map(c => [c.kind === "ROOM" ? `${c.description} · ${c.bedLabel} · Original rate ${money(c.ratePaise)} / ${c.rateBasis} · Stay ${c.stayId} · Tariff ${c.tariffVersionId} · ${c.status} · ${c.amendmentId ? `Amendment ${c.amendmentId}` : "Original source"} · Recorded interval ${c.intervalStart} to ${c.intervalEnd} · ${c.postingCount} recorded postings; original charge IDs retained` : `${c.description} · ${c.quantity} ${c.unit} · ${c.status} · ${c.chargeIds[0]}`, money(c.amountPaise)]);
@@ -42,5 +44,17 @@ export function documentSections(s: DischargeSnapshot): DocumentSection[] {
     { title: "Itemized financial reconciliation", paragraphs: [`Bill version ${s.money.bill.revision}. External payer authorization is separate from actual money received. Allocation applies cash already received.`, "Room rows combine recorded postings for each bed stay and original tariff. Linked credits and returns remain separate; original records remain traceable.", `Payer responsibility: ${s.money.financial.responsibility?.allocationComplete ? "Current staff-reviewed responsibility" : "Unknown or stale; further staff review required"}.`], rows },
     { title: "Actual human clearances and exception evidence", paragraphs: signerParagraphs, rows: [] },
     { title: "Document verification and version history", paragraphs: revisionParagraphs, rows: [] },
+  ];
+}
+function mvpDocumentSections(s:MvpSnapshot):DocumentSection[]{
+  const p=s.clinical.payload,f=s.exception?.payload??s.finance?.payload,financial=f?.financial as {responsibility?:{allocationComplete?:boolean;insurerPaise?:string;patientPaise?:string;insurerOutstandingPaise?:string}}|undefined;
+  const responsibilityLabel=financial?.responsibility?.allocationComplete?"Current verified responsibility at authorization":"Unresolved or stale recorded allocation; further review required";
+  const bill=f?.bill as {revision?:number;netPaise?:string;insurerCashPaise?:string;patientCashPaise?:string;charges?:{description:string;amountPaise:string}[];reversals?:{chargeId:string;amountPaise:string}[]}|undefined;
+  return [
+    {title:"Patient and admission",paragraphs:[`${s.patient?.name} · UHID ${s.patient?.uhid} · IP ${s.admission.ipCode}`,`Admission ${s.admission.admittedAt} · Papers authorized before actual hospital exit. This copy does not assert departure.`],rows:[]},
+    {title:"External clinical authority",paragraphs:[`Doctor authorizer: ${p.authorizerName} · Source time ${p.sourceTime} · Source evidence ${p.evidence}`,`Recorded by Nurse ${p.recorderName??s.clinical.recordedBy} at ${s.clinical.recordedAt}. The recorder is not the prescriber.`,`Clinical instruction supplied: ${p.clinicalSummary??p.notes}`,`Prescription supplied: ${p.prescription??"Not supplied in this external disposition source"}`,`Follow-up supplied: ${p.followUp??"See the recorded exception follow-up obligations"}`],rows:[]},
+    {title:"Financial authority",paragraphs:s.kind==="CLINICAL"?["Clinical papers are available independently of final financial authorization."]:[s.exception?`Accountable Admin exception ${s.exception.id} · ${s.exception.type} · ${s.exception.recordedBy} · ${s.exception.recordedAt}. Authority ${f?.authority}. Reason ${f?.reason}. Missing professional checks and unpaid obligations are retained: ${JSON.stringify(f?.outstandingObligations??[])}`:`Finance authorization ${s.finance!.id} · ${s.finance!.recordedBy} · ${s.finance!.recordedAt} · Bill version ${bill?.revision}`,`${responsibilityLabel}. Recorded insurer share ${money(financial?.responsibility?.insurerPaise??null)}; recorded insurer outstanding ${money(financial?.responsibility?.insurerOutstandingPaise??null)}. This is distinct from cash.`,`Recorded patient share ${money(financial?.responsibility?.patientPaise??null)} · Actual patient cash retained ${money(bill?.patientCashPaise??null)} · Actual insurer cash ${money(bill?.insurerCashPaise??null)}`],rows:bill?[...(bill.charges??[]).map(c=>[c.description,money(c.amountPaise)] as [string,string]),...(bill.reversals??[]).map(c=>[`Linked accepted credit for ${c.chargeId}`,`-${money(c.amountPaise)}`] as [string,string]),["Net bill",money(bill.netPaise??null)]]:[]},
+    {title:"Applicable checks and provenance",paragraphs:[`Recorded applicable check decisions: ${JSON.stringify(f?.checks??[])}`,"Admin-confirmed N/A is distinct from professional completion. Accepted return credit is distinct from an actual Cashier refund."],rows:[]},
+    {title:"Immutable version and delivery",paragraphs:[`Document ${s.documentId} · Version ${s.version} · Created ${s.createdAt}`,`Source SHA-256 ${s.sourceHash}`,`Authenticated verification ${s.verificationUrl}`,"Delivery is separately recorded against this exact version. Later insurer receipts do not rewrite these historical papers."],rows:[]},
   ];
 }

@@ -5,12 +5,12 @@ import { resolve } from "node:path";
 import { openWorkflowTab } from "../support/workflow-tabs";
 
 const jobs = {
-  ADMIN: { home: "/overview", labels: ["Home", "Beds", "Staff", "Assignments", "Billing", "Pharmacy", "Insurance", "Discharge", "Documents", "Exceptions", "Settings"] },
-  DOCTOR: { home: "/clinical", labels: ["Patients", "Discharge", "Exceptions"] },
-  NURSE: { home: "/nursing", labels: ["My shift", "Discharge", "Exceptions"] },
-  ADMISSION: { home: "/admissions", labels: ["Admissions", "Insurance", "Exceptions"] },
-  PHARMACY: { home: "/pharmacy", labels: ["Medicines", "Discharge", "Exceptions"] },
-  LAB: { home: "/lab", labels: ["Lab", "Exceptions"] },
+  ADMIN: { home: "/overview", labels: ["Patients & admissions", "Beds", "Payments & insurance", "Medicine bills & returns", "Discharge", "Staff & settings"] },
+  DOCTOR: { home: "/history", labels: ["Retained records"] },
+  NURSE: { home: "/nursing", labels: ["My patients", "Discharge", "Doctor availability", "Exceptions"] },
+  ADMISSION: { home: "/admissions", labels: ["Admissions", "Doctor availability", "Insurance", "Exceptions"] },
+  PHARMACY: { home: "/pharmacy", labels: ["Medicine bills & returns", "Discharge", "Exceptions"] },
+  LAB: { home: "/history", labels: ["Retained records"] },
   INSURANCE: { home: "/insurance", labels: ["Cases", "Exceptions"] },
   BILLING: { home: "/billing", labels: ["Billing", "Insurance", "Discharge", "Documents", "Exceptions"] },
 } as const;
@@ -41,15 +41,7 @@ for (const role of Object.keys(jobs) as (keyof typeof jobs)[]) {
     await page.setViewportSize({ width: 1180, height: 900 });
     await page.evaluate(() => document.fonts.ready);
     await page.evaluate(() => window.scrollTo(0, 0));
-    // End the wide guide excerpt at a complete surface rather than splitting text.
-    const lastSurface = role === "NURSE" ? page.locator(".nursing-shift-summary")
-      : role === "INSURANCE" ? page.locator("main tbody tr").first()
-      : role === "ADMISSION" ? page.getByRole("tablist", { name: "Work sections" })
-      : page.locator(".operational-metrics, .care-work-metrics").first();
-    const surface = await lastSurface.boundingBox();
-    expect(surface).not.toBeNull();
-    const height = Math.ceil(surface!.y + surface!.height - 76 + (role === "INSURANCE" ? 1 : 8));
-    await page.screenshot({ path: testInfo.outputPath(`guide-${role.toLowerCase()}.png`), clip: { x: 220, y: 76, width: 960, height } });
+    await page.screenshot({ path: testInfo.outputPath(`mvp-${role.toLowerCase()}.png`), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.getByRole("button", { name: "Open menu", exact: true }).click();
     await expect(nav.getByRole("link")).toHaveText([...jobs[role].labels]);
@@ -84,7 +76,7 @@ test("personal appearance persists for its staff member and profile never grants
   await page.keyboard.press("Escape");
   await signInStaffSession(page, "DOCTOR");
   await page.getByRole("button", { name: "Customize", exact: true }).click();
-  await expect(customize.getByLabel("Hospital teal", { exact: true })).toBeChecked();
+  await expect(customize.getByLabel("Hospital forest", { exact: true })).toBeChecked();
   await expect(customize.getByRole("combobox", { name: "Density", exact: true })).toHaveValue("comfortable");
   await page.keyboard.press("Escape");
   expect((await page.request.post("/api/auth/update-user", { data: { role: "ADMIN", name: "Forged" } })).status()).toBe(403);
@@ -96,12 +88,12 @@ test("all personal accents keep actual small action and selected-tab text readab
   for (const role of ["DOCTOR", "NURSE"] as const) {
     await signInStaffSession(page,role);
     if(role === "DOCTOR") await page.goto(`/clinical?admissionId=${fixture.admissionId}`);
-  for (const accent of ["Hospital teal", "Reporting blue", "Soft purple"]) {
+  for (const accent of ["Hospital forest", "Reporting blue", "Soft purple"]) {
     await page.getByRole("button", { name: "Customize", exact: true }).click();
     const customize = page.getByRole("dialog", { name: "Customize my view" });
     await customize.getByLabel(accent, { exact: true }).check();
     await customize.getByRole("button", { name: "Done", exact: true }).click();
-    const contrasts = await page.locator(".nav-item.active, .eyebrow, .workflow-tablist [aria-selected=true], .button:not(.secondary):not(.quiet), .caption, th, .nursing-shift-summary p").evaluateAll(elements => {
+    const contrasts = await page.locator(".topbar .account-trigger, .nav-item.active, .eyebrow, .workflow-tablist [aria-selected=true], .button:not(.secondary):not(.quiet), .caption, th, .nursing-shift-summary p").evaluateAll(elements => {
       const color = (value: string) => {
         const values = value.match(/[\d.]+/g)?.map(Number) ?? [0, 0, 0, 1];
         return [values[0], values[1], values[2], values[3] ?? 1];
@@ -139,7 +131,7 @@ test("profile changes a dedicated synthetic password and Logout revokes that act
   await page.getByLabel("Email or role", { exact: true }).fill(email);
   await page.getByLabel("Password", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/clinical$/);
+  await expect(page).toHaveURL(/\/history$/);
   await page.getByRole("button", { name: "Profile for Synthetic profile doctor" }).click();
   const profile = page.getByRole("dialog", { name: "Profile", exact: true });
   await profile.getByLabel("Current password", { exact: true }).fill(password);
@@ -154,7 +146,7 @@ test("profile changes a dedicated synthetic password and Logout revokes that act
   await page.getByLabel("Email or role", { exact: true }).fill(email);
   await page.getByLabel("Password", { exact: true }).fill(updated);
   await page.getByRole("button", { name: "Sign in", exact: true }).click();
-  await expect(page).toHaveURL(/\/clinical$/);
+  await expect(page).toHaveURL(/\/history$/);
 });
 
 test("patient tabs retain an unsigned draft and support keyboard selection without losing admission identity", async ({ page }) => {

@@ -16,7 +16,8 @@ export default async function StaffPage() {
   return (
     <>
       <Link href="/overview">Back to Home</Link>
-      <h1>Staff</h1>
+      <h1>Staff & settings</h1>
+      <div className="actions"><Link href="/admin/care">Patient nursing assignments</Link><Link href="/availability">Doctor directory & availability</Link><Link href="/admin/settings">Hospital settings & tariffs</Link></div>
       <p className="page-description">
         Managed identities, professional roles and current access.
       </p>

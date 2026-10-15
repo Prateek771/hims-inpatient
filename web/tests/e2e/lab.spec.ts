@@ -5,7 +5,7 @@ import {useStaffSession} from "../support/browser-session";
 import {openWorkflowTab} from "../support/workflow-tabs";
 test("Lab binds keyboard scans, prints protected sample labels, signs reports and exposes them to the ordering Doctor",async({page},testInfo)=>{
   const f=JSON.parse(await readFile(resolve("tmp/e2e-lab.json"),"utf8")) as {admissionId:string;orderId:string;radiologyId:string};
-  await useStaffSession(page,"LAB");await page.getByRole("navigation",{name:"Hospital sections"}).getByRole("link",{name:"Lab",exact:true}).click();await page.goto(`/lab?orderId=${f.orderId}`);
+  await useStaffSession(page,"LAB");await page.getByRole("navigation",{name:"Hospital sections"}).getByRole("link",{name:"Retained records",exact:true}).click();await page.goto(`/lab?orderId=${f.orderId}`);
   await expect(page.getByRole("heading",{name:"Lab",exact:true,level:1})).toBeVisible();await expect(page.getByText("Private diagnostic clinician notes must stay out of Lab")).toHaveCount(0);
   await page.getByTestId("sample-collect").getByRole("button",{name:"Record sample collection"}).click();const barcode=(await page.getByTestId("sample-barcode").textContent())!;
   await openWorkflowTab(page,"Process");await page.getByLabel("Scan sample barcode",{exact:true}).pressSequentially("UNKNOWN-CODE");await page.getByLabel("Scan sample barcode",{exact:true}).press("Enter");await expect(page.getByTestId("sample-match")).toContainText("does not match");

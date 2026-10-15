@@ -32,6 +32,11 @@ export function createStaffAuth(database: typeof db | Transaction = db) {
   const configuration = authConfiguration();
   return betterAuth({
     appName: "HIMS",
+    // Provider errors can contain SQL parameters and session tokens. Keep operational logs nonsecret.
+    logger: { level: "warn", log(level) {
+      if (level === "error") console.error("HIMS authentication operation failed");
+      else if (level === "warn") console.warn("HIMS authentication warning");
+    } },
     baseURL: configuration.baseURL,
     secret: configuration.secret,
     database: drizzleAdapter(database, {

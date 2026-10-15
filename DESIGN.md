@@ -1,0 +1,9 @@
+# HIMS visual direction — Admin MVP proposal
+
+15 October 2026. The owner accepted this Admin direction and authorized full MVP implementation. The same world now extends to all six routine staff workspaces. Existing appearance preferences and protected Figma files are retained. Product truth: [PRODUCT](PRODUCT.md), [scope](docs/PROJECT_SCOPE.md). Surface: [Admin brief](docs/design/admin-mvp-2026-10-15/brief.md). Actual release checks are recorded in [implementation progress](docs/agent/MVP_IMPLEMENTATION_PROGRESS.md).
+
+Use a warm, high-clarity public-service visual language: deep forest shell, linen navigation, white work surfaces, ink text, dark green selection and limited amber/red for actual pending/problem states. Public Sans replaces the incumbent IBM Plex Sans for this proposal. Standard web navigation, search, tabs, buttons and worklists remain familiar. Compact 14–16px operational text, 20px section headings and a 30px page title; tabular numbers. Thin separators, no decorative shadows, gradients, equal-card dashboard or clinical imagery.
+
+The signature is an explicit patient journey with independently labelled checks and accountable next steps. The patient queue is the main workspace; selected-patient detail explains finances and papers/exit without a chart or a second dashboard. Color always accompanies words. White/ink contrast and restrained colour serve bright shared hospital workstations.
+
+The application uses the approved forest/linen foundation in its shared shell, semantic controls and role-specific worklists. Native Figma colour variables, text styles, component variants and auto-layout remain editable. Controls are at least 40px high. Browser checks cover keyboard operation, narrow reflow, contrast, permissions and persistence; consult current progress for the exact passed checkpoint.

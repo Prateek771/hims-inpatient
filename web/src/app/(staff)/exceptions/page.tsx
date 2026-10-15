@@ -3,7 +3,10 @@ import { hospitalTimeConfiguration } from "@/server/hospital-time";
 import { formatHospitalTime } from "@/lib/hospital-time";
 import Link from "next/link";
 import { WorkflowTabs } from "@/components/workflow-tabs";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { MvpWorkspace } from "@/components/mvp-workspace";
+import { isMvpEpisode } from "@/server/mvp/workspace";
+import { getMvpEpisode } from "@/server/mvp/commands";
 import { ZodError } from "zod";
 import { requireStaff, staffContext } from "@/server/access";
 import { DomainError } from "@/server/contracts";
@@ -16,8 +19,13 @@ import { exceptionAction, type ExceptionBinding } from "./actions";
 
 const label = (v: string) => v.toLowerCase().replaceAll("_", " ");
 const money = (v: unknown) => v === null || v === undefined ? "Awaiting responsibility review" : formatINR(BigInt(String(v)));
-export default async function ExceptionsPage({ searchParams }: { searchParams: Promise<{ admissionId?: string; exceptionId?: string }> }) {
+export default async function ExceptionsPage({ searchParams }: { searchParams: Promise<{ admissionId?: string; exceptionId?: string; legacy?: string; q?: string; view?: string; selected?: string }> }) {
   const staff = await requireStaff(), ctx = staffContext(staff, "exception-view"), query = await searchParams;
+  if (query.admissionId && await isMvpEpisode(query.admissionId)) {
+    try { const episode = await getMvpEpisode(ctx, query.admissionId); if (!["PENDING", "CANCELLED"].includes(episode.episode.status)) redirect(`/mvp/${query.admissionId}?tab=exceptions`); }
+    catch (error) { if (error instanceof DomainError && error.code === "FORBIDDEN") notFound(); throw error; }
+  }
+  if (!query.admissionId && query.legacy !== "1" && !["DOCTOR", "LAB"].includes(staff.role)) return <MvpWorkspace filters={query} surface="exceptions" />;
   const { timezone } = await hospitalTimeConfiguration();
   let workspace;
   try { workspace = await exceptionWorkspace(ctx, query.admissionId, query.exceptionId); } catch (error) { if (error instanceof ZodError || error instanceof DomainError && error.code === "FORBIDDEN") notFound(); throw error; }

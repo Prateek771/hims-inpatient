@@ -1,5 +1,7 @@
 # Staff-entered insurance and protected case files
 
+> Version 1 contract and retained acceptance evidence. New admissions follow the approved [version 2 scope](PROJECT_SCOPE.md); [implementation progress](agent/MVP_IMPLEMENTATION_PROGRESS.md) records actual verification. Existing episodes keep the original rules described below.
+
 The Insurance workspace records decisions verified outside HIMS and prepares local staff work. It does not verify eligibility, contact an insurer, send documents or choose an AI/OCR provider. See [scope](PROJECT_SCOPE.md) and [current review status](agent/BUILD_HANDOFF.md).
 
 ## Cases, assignment and provenance

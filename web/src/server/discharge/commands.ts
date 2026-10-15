@@ -158,6 +158,12 @@ export async function dischargeWorkspace(ctx:CommandContext){return withTransact
   return {selectedGate,episodes,turnovers};
 });}
 export async function requireGate4Review(tx:Transaction,episode:typeof admissions.$inferSelect,expectedHash?:string,expectedVersion?:number) {
+  if(episode.workflowVersion===2){
+    const state=await (await import("../mvp/dependencies")).mvpState(tx,episode);
+    if(!state.clinical||!state.checklist||state.checks.some(c=>!c.current))throw new DomainError("PRECONDITION","Current external Doctor authority and applicable department checks required");
+    if(expectedHash!==state.reviewHash||expectedVersion!==episode.billRevision)throw new DomainError("CONFLICT","Review the current MVP cash, sources and bill");
+    return {reviewHash:state.reviewHash};
+  }
   const state=await clearanceStateInTransaction(tx,episode);
   if(state.reviews.slice(0,3).some(r=>!r.current))throw new DomainError("PRECONDITION","Refunds and allocation corrections require current Doctor, Pharmacy and Nursing clearances");
   const review=state.reviews[3];

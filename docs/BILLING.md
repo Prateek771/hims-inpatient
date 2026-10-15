@@ -1,5 +1,17 @@
 # Billing and admission activation
 
+> Version 1 contract and retained acceptance evidence. New admissions follow the approved [version 2 scope](PROJECT_SCOPE.md); [implementation progress](agent/MVP_IMPLEMENTATION_PROGRESS.md) records actual verification. Existing episodes keep the original rules described below.
+
+## Version 2 billing entry and settlement
+
+Admin/Billing records consultation, procedure, consumable, lab and radiology services already performed outside the software. Each line pins the active configured tariff, quantity and unit to a named department/issuer, actual performed time, external invoice and unique line reference, evidence and staff recorder. The price is calculated deterministically; a duplicate external line, stale bill/tariff, wrong role or source-less native charge is rejected. This does not create a clinical order, diagnostic result or professional seal.
+
+Pharmacy records patient medicine charges and accepted unused returns at the original price, separately from actual Cashier refunds. Existing receipts, deposit allocations and linked ledger reversals remain available. Changed diagnostic/consumable work reopens only the relevant department check and dependent finance; all changed money requires current financial review. Source evidence and earlier decisions remain retained.
+
+Ordinary final finance requires completed applicable checks, actual vacancy and settled patient responsibility. Externally accepted insurer responsibility may remain a receivable. Late insurer cash uses the original accepted source and current corrected balance, retaining exit and PDF bytes. Closed exceptional obligations require their recorded authority; initially unknown insurance responsibility needs the exact later Admin-authorized allocation amendment before collection. No arbitrary later payer amount can erase or rewrite the original debt.
+
+Sources: `web/src/server/mvp/{services,commands,exceptions}.ts`; migrations0056–0060. The sections below retain the original version1 contract.
+
 The billing workspace records hospital charges and money staff received through existing hospital channels. It does not contact a bank, insurer or payment service. Receipt references are staff-entered evidence, not bank verification. Current acceptance evidence is in [build handoff](agent/BUILD_HANDOFF.md).
 
 ## Configuration and activation

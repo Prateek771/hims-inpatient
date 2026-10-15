@@ -1,3 +1,4 @@
+// Historical workflow-v1 coverage: create legacy episodes explicitly; current intake uses MVP v2.
 import { afterEach, describe, expect, it } from "vitest";
 import { withTestDatabase } from "../../scripts/test-database";
 import { loadLocalEnvironment } from "../../scripts/migrate";
@@ -6,7 +7,7 @@ import { billingFixture } from "../support/billing-fixture";
 import { staffContext } from "../../src/server/access";
 import * as exceptions from "../../src/server/discharge/exceptions";
 import { exceptionWorkspace } from "../../src/server/discharge/exception-workspace";
-import { activateAdmission, createBed, cancelAdmission, createAdmission, getAdmission } from "../../src/server/admissions/commands";
+import { activateAdmission, createBed, cancelAdmission, createLegacyAdmission, getAdmission } from "../../src/server/admissions/commands";
 import * as clinical from "../../src/server/clinical/commands";
 import * as discharge from "../../src/server/discharge/commands";
 import * as nursing from "../../src/server/nursing/commands";
@@ -560,7 +561,7 @@ describe("accountable administrator exceptions", () => {
     const bed = await createBed(staffContext(f.admin, "synthetic"), {
       label: "Unknown urgent", category: "GENERAL", reason: "Urgent intake bed"
     }), c = f.deskCtx();
-    const created = await createAdmission(c, {
+    const created = await createLegacyAdmission(c, {
       patientDetails: {
         identityStatus: "TEMPORARY", identityProvenance: "Brought by ambulance; identity and age unknown", sex: "UNKNOWN"
       }, admittingDoctorId: f.doctor.id, clinicianAssessment: {

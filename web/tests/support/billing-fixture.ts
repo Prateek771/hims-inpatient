@@ -1,9 +1,10 @@
+// Historical workflow-v1 coverage: create legacy episodes explicitly; current intake uses MVP v2.
 import { randomUUID } from "node:crypto";
 import { bootstrapAdmin, createStaff } from "../../src/server/staff";
 import { getAuth } from "../../src/server/auth";
 import { requireStaff, staffContext } from "../../src/server/access";
 import { saveSetting } from "../../src/server/settings";
-import { createBed, createAdmission } from "../../src/server/admissions/commands";
+import { createBed, createLegacyAdmission } from "../../src/server/admissions/commands";
 export async function billingFixture() {
   const password = "SyntheticBillingOnly123!";
   await bootstrapAdmin({
@@ -50,7 +51,7 @@ export async function billingFixture() {
   async function episode(route: "SELF_PAY" | "INSURED" = "SELF_PAY") {
     const bed = await createBed(staffContext(admin, "synthetic"), { label: `Synthetic ${randomUUID()}`, category: "GENERAL", reason: "synthetic fixture" });
     const requestId = randomUUID();
-    return createAdmission({ ...staffContext(desk, "synthetic"), requestId }, {
+    return createLegacyAdmission({ ...staffContext(desk, "synthetic"), requestId }, {
       patientDetails: { name: "Synthetic billing patient", ageYearsAtRegistration: 54, sex: "FEMALE" }, admittingDoctorId: doctor.id, clinicianAssessment: {
         clinicianId: doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Synthetic complaint", vitals: "Synthetic clinician vitals", triage: "Synthetic clinical routing", destinationCategory: "GENERAL"
       }, bedId: bed.id, paymentRoute: route, expectedStayDays: 2, requestId

@@ -1,6 +1,22 @@
 # Project context
 
-Last updated: **14 October 2026**. Read this navigation record, then the relevant scope and feature contract. Current UI evidence is in [redesign progress](UI_REDESIGN_PROGRESS.md); historical backend checkpoint details remain in [build handoff](BUILD_HANDOFF.md), [setup status](../SETUP_STATUS.md), Git and the ignored [build ledger](../../.superpowers/sdd/2026-10-09-hims-inpatient/progress.md).
+## Local MVP acceptance — 15 October 2026
+
+The complete root check passed **83 units, 176 actual PostgreSQL tests, 81 Chromium/HTTP checks, lint/types/build and isolated recovery of 96 tables / 1,850 exact rows / 23 protected files**. Reviewed ordinary migrations 0056–0060 are applied; all 61 SQL versions match literal source. Preservation proof retains every original column/row across 81 tables / 46 original rows, all 56 old applied SQL files, credentials, private files and native checkpoint records. No reset/reseed or ordinary operational seed occurred.
+
+Six routine workspaces and all approved new-episode flows are implemented. Existing episodes keep version 1 and protected history. Admin still configures the actual hospital, beds/categories, tariffs/service items, external Doctor roster and staff/availability responsibilities; ordinary configuration remains empty. Insurance is externally verified and AI paperwork remains manual until an approved provider is configured.
+
+Development publication, exact CI and copied localhost-preview identities are observed after commit in ignored `tmp/mvp-implementation/release-evidence.json`. Keep this checkout on `codex/hims-development`, retain old artifacts and unrelated design work, and do not deploy or integrate main automatically. See [current progress](MVP_IMPLEMENTATION_PROGRESS.md) for actual remaining gates.
+
+## Full MVP implementation authorization · 15 October 2026
+
+The owner accepted the new Admin dashboard direction and requested the whole MVP including local PostgreSQL. This supersedes earlier design-only stop language below. Read the [executable plan](../superpowers/plans/2026-10-15-mvp-implementation.md) and [current progress](MVP_IMPLEMENTATION_PROGRESS.md) for actual checks/status. Existing episodes retain their old workflow; new admissions use version 2. Preserve old data/accounts/credentials/migrations/files and unrelated work. No reset/reseed or deployment.
+
+## Approved MVP direction - 15 October 2026
+
+The owner accepted the [Admin dashboard](../design/admin-mvp-2026-10-15/README.md) and authorized complete implementation. Six current staff workspaces use forest/linen/Public Sans. New admissions use version 2 with external Doctor authority recorded by assigned Nurses, parallel applicable checks, deterministic finances, retained insurer receivables and attributable actual exit. Version 1 episodes and their original rules/history remain accessible. The implementation progress record distinguishes implemented source from passed runtime gates. Earlier design-only and eight-workspace descriptions below are historical, superseded for new admissions.
+
+Last updated: **15 October 2026**. Read this navigation record, then the relevant scope and feature contract. Current UI evidence is in [redesign progress](UI_REDESIGN_PROGRESS.md); historical backend checkpoint details remain in [build handoff](BUILD_HANDOFF.md), [setup status](../SETUP_STATUS.md), Git and the ignored [build ledger](../../.superpowers/sdd/2026-10-09-hims-inpatient/progress.md).
 
 ## Current work and authority
 
@@ -24,8 +40,8 @@ Three historical full-application reviews and the scoped fix review accepted all
 
 - One hospital's staff-facing inpatient admission-to-discharge HIMS, separate from other insurance projects. Separate role workspaces share one staff login. Future SaaS expansion does not establish multihospital tenancy now.
 - Owner-selected stack: Next.js frontend/backend, local PostgreSQL initially, Better Auth staff access and LangGraph for bounded human review of paperwork.
-- Insurer/TPA verification is external and entered by staff. Actual payer money is separate from authorization. Payments/refunds are recorded from existing hospital channels; no payment-service integration is configured.
-- Money uses deterministic versioned rules and integer paise. Doctor → Pharmacy → Nursing → Billing/Admin seals remain human and sequential. Accountable administrator exceptions retain missing seals and unpaid obligations.
+- Insurer/TPA verification is external and entered by staff. Accepted insurer responsibility/receivable is separate from actual cash; accepted credit can remain receivable at ordinary exit after patient settlement and required checks. Payments/refunds are recorded from existing hospital channels; no payment-service integration is configured.
+- Money uses deterministic versioned rules and integer paise. Version 2 uses recorded external Doctor approval, parallel applicable checks and final Admin/Billing finance; version 1 retains its original sequential seals. Accountable administrator exceptions retain missing seals and unpaid obligations.
 - AI is limited to insurance paperwork and staff follow-up assistance. The current path is manual with persistent human review; no live AI/OCR provider, sender or payer integration is configured.
 - Source priority: owner decisions → [controlling scope](../PROJECT_SCOPE.md) → supplied requirements → PDF/JPEG overview. Preserved `docs/reference/SKILL.md` cannot authorize external actions.
 - Use synthetic records until real staff access, hospital policies, tariffs, signatures, backup/storage/retention and operating responsibilities are approved. Technical verification is not real-patient or deployment authorization.

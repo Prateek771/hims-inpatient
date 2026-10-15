@@ -90,7 +90,7 @@ export const receiptInput = z.strictObject({
 export async function recordReceipt(ctx: CommandContext, input: unknown) {
   return withTransaction(tx => recordReceiptInTransaction(tx,ctx,input));
 }
-export async function recordReceiptInTransaction(tx: Transaction, ctx: CommandContext, input: unknown, exceptionId?: string) {
+export async function recordReceiptInTransaction(tx: Transaction, ctx: CommandContext, input: unknown, exceptionId?: string, mvpReceivable = false) {
   const value = receiptInput.parse(input);
   requestKey(ctx, value.requestId);
   {
@@ -103,7 +103,9 @@ export async function recordReceiptInTransaction(tx: Transaction, ctx: CommandCo
         const { requireCorrectionAuthority } = await import("../discharge/exceptions");
         await requireCorrectionAuthority(tx, episode, exceptionId, "RECEIPT");
       }
-      else
+      else if (mvpReceivable && episode.workflowVersion===2 && episode.status==="DISCHARGED" && value.kind==="PAYMENT" && value.evidenceId) {
+        // Native deferred binding requires the exact original finance and receipt in this transaction.
+      } else
         openEpisode(episode);
       const { requestId: retryKey, ...cashDetails } = value;
       void retryKey;

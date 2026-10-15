@@ -7,7 +7,7 @@ test.use({ timezoneId: "America/Los_Angeles" });
 test("billing shows real ledger history and records/allocates manual top-ups", async ({ page }, testInfo) => {
   await useStaffSession(page, "BILLING");
   await expect(page.getByRole("main")).toBeVisible();
-  await page.getByRole("link", { name: "Billing", exact: true }).click();
+  await page.goto("/billing?legacy=1");
   await expect(page.getByRole("heading", { name: "Billing", exact: true })).toBeVisible();
   await page.getByRole("link", { name: /Synthetic E2E billing patient/ }).first().click();
   await page.waitForURL(/\/billing\?admissionId=/, { waitUntil: "load" });

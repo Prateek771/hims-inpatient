@@ -15,7 +15,7 @@ const field = (form: FormData, key: string) => String(form.get(key) ?? "");
 function failure(error: unknown): BillingActionState {
   return { error: true, message: error instanceof DomainError ? error.message : error instanceof ZodError ? "Check the fields and try again." : "Unable to save. Refresh and try again." };
 }
-function refresh(admissionId: string) { revalidatePath("/billing"); revalidatePath(`/patients/${admissionId}`); revalidatePath("/admissions"); }
+function refresh(admissionId: string) { revalidatePath("/billing"); revalidatePath(`/patients/${admissionId}`); revalidatePath(`/mvp/${admissionId}`); revalidatePath("/overview"); revalidatePath("/admissions"); }
 export async function saveManualReceipt(admissionId: string, requestId: string, _previous: BillingActionState, form: FormData): Promise<BillingActionState> {
   try {
     const staff = await requireStaff();

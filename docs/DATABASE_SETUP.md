@@ -1,5 +1,17 @@
 # Local HIMS database setup
 
+## MVP v2 checkpoint — 15 October 2026
+
+**Verified local acceptance:** the complete root check passed 83 unit/176 actual PostgreSQL/81 Chromium tests, lint/types/build and isolated recovery of 96 tables / 1,850 exact rows / 23 protected files. The five additive migrations 0056–0060 are now applied to the ordinary database (61 SQL versions total). Before/after proof preserves all 81 original tables / 46 original rows, all 56 old migration bytes, credentials, private files and native checkpoint records. No reset/reseed or ordinary patient/policy seed occurred. Exact development CI and copied-preview observations are recorded after publication in ignored `tmp/mvp-implementation/release-evidence.json`; see [current progress](agent/MVP_IMPLEMENTATION_PROGRESS.md).
+
+Five additive migrations, **0056–0060**, are implemented and source-reviewed. The complete local gate and ordinary additive application passed as recorded above. Preserve existing v1 rows, staff accounts, private files and applied migration bytes; do not reset, reseed or bootstrap the existing installation.
+
+The six routine workspaces are Admin, Admission, Nurse, Pharmacy, Billing and Insurance. Ordinary hospital settings, beds/categories, tariffs/service items and the external Doctor roster remain empty; no operational seed was introduced. Admin must configure these and assign the Doctor-availability Nurse owner/backup and operational staff responsibilities. Doctor/Lab accounts and authorized historical reads are preserved without routine v2 dashboards.
+
+The assigned Nurse records external Doctor authority and evidence, with separate authorizer/source and recorder times; applicable checks run in parallel. Accepted insurer responsibility/receivable remains distinct from cash. Configured externally performed service billing requires performed time, named department/issuer, unique external bill/line references and evidence; prices come from configured tariffs. Insurance verification remains external, and AI paperwork remains manual until an approved provider is configured and live processing separately authorized. This checkpoint makes no real-patient or production-readiness claim. See [current scope](PROJECT_SCOPE.md) and [MVP handoff](agent/MVP_DASHBOARD_HANDOFF.md).
+
+## Provisioning a new installation
+
 Run from the approved `INS` folder on Windows:
 
 ```powershell
@@ -31,7 +43,7 @@ npm --prefix web run test:integration
 
 The integration helper may recreate the HIMS schema only in the explicitly named synthetic test database. It checks the actual connected database/account and rejects the application database. Never place hospital records in `hims_test`.
 
-`paperwork:setup` explicitly prepares the official persistent checkpointer in the fixed `hims_paperwork_checkpoints` schema under the dedicated migration owner. It checks library migration versions0–4 and grants runtime scoped access without CREATE or DELETE. Application requests/imports never perform this setup. Preserve existing checkpoint rows if setup is retried; see [paperwork contracts](PAPERWORK.md). Future authorized backup/restore must preserve this schema along with HIMS records and protected file storage.
+`paperwork:setup` explicitly prepares the official persistent checkpointer in the fixed `hims_paperwork_checkpoints` schema under the dedicated migration owner. It checks library migration versions 0–4 and grants runtime scoped access without CREATE or DELETE. Application requests/imports never perform this setup. Preserve existing checkpoint rows if setup is retried; see [paperwork contracts](PAPERWORK.md). Future authorized backup/restore must preserve this schema along with HIMS records and protected file storage.
 
 `storage:setup` explicitly prepares the protected project directories before startup. Readiness never creates them; authorized document publication/upload retains its existing directory preparation. Set an explicit private auth secret of at least 32 characters and app origin in the private environment file. HTTP is accepted only on loopback; a remote staff origin requires HTTPS. See [staff access](STAFF_ACCESS.md) and [local pilot](LOCAL_PILOT.md) for new-installation initialization and the unresolved real-hospital responsibilities.
 

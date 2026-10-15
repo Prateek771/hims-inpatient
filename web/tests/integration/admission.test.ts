@@ -1,3 +1,4 @@
+// Historical workflow-v1 coverage: create legacy episodes explicitly; current intake uses MVP v2.
 import { describe, expect, it } from "vitest";
 import { randomUUID } from "node:crypto";
 import { withTestDatabase } from "../../scripts/test-database";
@@ -15,7 +16,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
     await withTestDatabase(async ({ runtime, owner }) => {
       process.env.DATABASE_URL = testRuntimeUrl;
       const {
-        createAdmission,
+        createLegacyAdmission,
         cancelAdmission,
         createBed,
         disableBed,
@@ -167,7 +168,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
       const episodes = await Promise.all(
         Array.from({ length: 20 }, (_, i) => {
           const data = input(i);
-          return createAdmission(
+          return createLegacyAdmission(
             { ...context(), requestId: data.requestId },
             data,
           );
@@ -191,7 +192,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
       const race = await Promise.allSettled(
         [20, 21].map((i) => {
           const data = { ...input(i), bedId: beds[20].id };
-          return createAdmission(
+          return createLegacyAdmission(
             { ...context(), requestId: data.requestId },
             data,
           );
@@ -204,14 +205,14 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
       const retry = input(22);
       const retryCtx = { ...context(), requestId: retry.requestId };
       const repeated = await Promise.all([
-        createAdmission(retryCtx, retry),
-        createAdmission(retryCtx, retry),
+        createLegacyAdmission(retryCtx, retry),
+        createLegacyAdmission(retryCtx, retry),
       ]);
       expect(repeated[0]).toEqual(repeated[1]);
       await expect(
-        createAdmission(retryCtx, { ...retry, expectedStayDays: 3 }),
+        createLegacyAdmission(retryCtx, { ...retry, expectedStayDays: 3 }),
       ).rejects.toMatchObject({ code: "CONFLICT" });
-      await expect(createAdmission(context(), input(23))).rejects.toMatchObject(
+      await expect(createLegacyAdmission(context(), input(23))).rejects.toMatchObject(
         { code: "VALIDATION" },
       );
       await expect(
@@ -233,7 +234,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
             bedId: beds[i].id,
             requestId: randomUUID(),
           };
-          return createAdmission(
+          return createLegacyAdmission(
             { ...context(), requestId: data.requestId },
             data,
           );
@@ -307,7 +308,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
       ).rows[0].count;
       const bad = { ...input(25), admittingDoctorId: desk.id };
       await expect(
-        createAdmission({ ...context(), requestId: bad.requestId }, bad),
+        createLegacyAdmission({ ...context(), requestId: bad.requestId }, bad),
       ).rejects.toMatchObject({ code: "VALIDATION" });
       expect(
         (
@@ -329,7 +330,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
       try {
         const failed = input(25);
         await expect(
-          createAdmission(
+          createLegacyAdmission(
             { ...context(), requestId: failed.requestId },
             failed,
           ),
@@ -363,7 +364,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
       });
       const disabled = input(25);
       await expect(
-        createAdmission(
+        createLegacyAdmission(
           { ...context(), requestId: disabled.requestId },
           disabled,
         ),
@@ -390,7 +391,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
       };
       expect(
         (
-          await createAdmission(
+          await createLegacyAdmission(
             { ...context(), requestId: overflow.requestId },
             overflow,
           )
@@ -414,7 +415,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
         },
       };
       await expect(
-        createAdmission(
+        createLegacyAdmission(
           { ...context(), requestId: override.requestId },
           override,
         ),
@@ -426,7 +427,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
           overrideReason: "Synthetic clinician-directed destination change",
         },
       };
-      const overridden = await createAdmission(
+      const overridden = await createLegacyAdmission(
         { ...context(), requestId: reasonedOverride.requestId },
         reasonedOverride,
       );
@@ -454,7 +455,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
               name: `Synthetic volume patient ${i}`,
             },
           };
-          return createAdmission(
+          return createLegacyAdmission(
             { ...context(), requestId: data.requestId },
             data,
           );
@@ -470,7 +471,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
       });
       for (let i = 0; i < 51; i++) {
         const data = { ...input(0), bedId: historyBed.id };
-        const episode = await createAdmission(
+        const episode = await createLegacyAdmission(
           { ...context(), requestId: data.requestId },
           data,
         );
@@ -484,7 +485,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
         bedId: historyBed.id,
         admittingDoctorId: otherDoctor.id,
       };
-      const otherEpisode = await createAdmission(
+      const otherEpisode = await createLegacyAdmission(
         { ...context(), requestId: otherData.requestId },
         otherData,
       );

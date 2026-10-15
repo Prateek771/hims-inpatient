@@ -9,6 +9,7 @@ import { formatINR } from "@/server/billing/money";
 import { ActivationForm, ReceiptForm } from "@/components/billing-forms";
 import { HospitalTimestamp } from "@/components/hospital-timestamp";
 import { WorkflowTabs } from "@/components/workflow-tabs";
+import { isMvpEpisode } from "@/server/mvp/workspace";
 
 export default async function PatientAdmissionPage({ params }: {
   params: Promise<{ admissionId: string }>;
@@ -23,6 +24,7 @@ export default async function PatientAdmissionPage({ params }: {
     throw error;
   }
   const operator = ["ADMISSION", "ADMIN"].includes(staff.role);
+  const mvp = await isMvpEpisode(admissionId);
   const pending = record.status === "PENDING";
   const canReceive = operator && (pending || (staff.role === "ADMISSION" && record.status === "ADMITTED"));
   const deposit = operator ? await getDepositSummary(staffContext(staff, "deposit-summary"), admissionId) : null;
@@ -37,6 +39,7 @@ export default async function PatientAdmissionPage({ params }: {
     <Link href={staff.role === "ADMIN" ? "/admin/beds" : staff.role === "ADMISSION" ? "/admissions" : "/clinical"}>Back to {staff.role === "ADMIN" ? "Beds" : staff.role === "ADMISSION" ? "Admissions" : "Patients"}</Link>
     <h1>{record.name}</h1>
     <p className="page-description">Patient admission record · permanent UHID and separate admission episode.</p>
+    {mvp && <Link className="button secondary" href={`/mvp/${admissionId}`}>Open patient coordination, papers & exit</Link>}
     <section className="care-patient-context" aria-label="Current admission context">
       <div><strong>{record.uhid} · {record.ipCode}</strong><p>{record.bedLabel} · <span className="status">{record.status}</span></p></div>
       <div><strong>{record.identityStatus === "TEMPORARY" ? "Temporary identity" : "Recorded patient identity"}</strong><p>{pending ? "Bed reserved. Room charges have not started." : record.admittedAt ? <>Actual admission <HospitalTimestamp value={record.admittedAt.toISOString()} /></> : "No actual admission recorded."}</p></div>

@@ -202,7 +202,7 @@ export async function getOverview(ctx: CommandContext, input: { asOf: Date; bedC
         disabled: group.filter(bed => !bed.active).length };
     });
     const day = hospitalDate(value.asOf, work.timezone);
-    const exits = (await tx.execute(sql`select d.id from (select id,admission_id,departed_at from hims.departures union all select id,admission_id,departed_at from hims.exceptional_departures) d join hims.admissions a on a.id=d.admission_id join hims.beds b on b.id=a.bed_id where (d.departed_at at time zone ${work.timezone})::date=${day}::date ${value.bedCategory ? sql`and b.category=${value.bedCategory}` : sql``}`)).rows;
+    const exits = (await tx.execute(sql`select d.id from (select id,admission_id,departed_at from hims.departures union all select id,admission_id,departed_at from hims.exceptional_departures union all select id,admission_id,departed_at from hims.mvp_exceptional_departures) d join hims.admissions a on a.id=d.admission_id join hims.beds b on b.id=a.bed_id where (d.departed_at at time zone ${work.timezone})::date=${day}::date ${value.bedCategory ? sql`and b.category=${value.bedCategory}` : sql``}`)).rows;
     return { ...work, bedOccupancy, physicalBeds: physical.map(bed => ({ id: bed.id, category: bed.category,
       occupied: bed.occupied, reserved: !!bed.holdId && !bed.occupied, cleaning: bed.cleaning,
       ready: bed.active && !bed.holdId && !bed.occupied && !bed.cleaning, disabled: !bed.active })),

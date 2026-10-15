@@ -1,3 +1,4 @@
+// Historical workflow-v1 coverage: create legacy episodes explicitly; current intake uses MVP v2.
 import { afterEach, describe, expect, it } from "vitest";
 import { withTestDatabase } from "../../scripts/test-database";
 import { loadLocalEnvironment } from "../../scripts/migrate";
@@ -364,11 +365,11 @@ describe("human discharge gates", () => {
     expect((await runtime.query("select count(*)::int n from hims.bed_turnovers where admission_id=$1",[f.admissionId])).rows[0].n).toBe(1);
     expect((await runtime.query("select ended_at from hims.room_stays where admission_id=$1",[f.admissionId])).rows[0].ended_at.toISOString()).toBe(vacatedAt);
     const t=(await runtime.query("select id,bed_id from hims.bed_turnovers where admission_id=$1",[f.admissionId])).rows[0];
-    const {createAdmission}=await import("../../src/server/admissions/commands");
+    const {createLegacyAdmission}=await import("../../src/server/admissions/commands");
     const fresh=f.deskCtx(),newAdmission={patientDetails:{name:"Synthetic next patient",ageYearsAtRegistration:40,sex:"FEMALE"},admittingDoctorId:f.doctor.id,clinicianAssessment:{clinicianId:f.doctor.id,assessedAt:new Date().toISOString(),chiefComplaint:"Synthetic complaint",vitals:"Synthetic vitals",triage:"Synthetic route",destinationCategory:"GENERAL"},bedId:t.bed_id,paymentRoute:"SELF_PAY",expectedStayDays:1,requestId:fresh.requestId};
-    await expect(createAdmission(fresh,newAdmission)).rejects.toMatchObject({code:"CONFLICT"});
+    await expect(createLegacyAdmission(fresh,newAdmission)).rejects.toMatchObject({code:"CONFLICT"});
     const clean=staffContext(f.admin,"synthetic-cleaning");await discharge.completeBedTurnover(clean,{turnoverId:t.id,completedAt:new Date().toISOString(),evidence:"Housekeeping staff confirmed cleaned bed",requestId:clean.requestId});
-    expect((await createAdmission(fresh,newAdmission)).admissionId).toBeTruthy();
+    expect((await createLegacyAdmission(fresh,newAdmission)).admissionId).toBeTruthy();
   }));
   it("retains the approved 11500000 paise sample, with insurer cash and the actual linked 500000 refund", async () => withTestDatabase(async ({ runtime,owner }) => {
     const f = await fixture("INSURED");

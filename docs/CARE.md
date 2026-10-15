@@ -1,5 +1,7 @@
 # Clinical care and nursing
 
+> Version 1 contract and retained acceptance evidence. New admissions follow the approved [version 2 scope](PROJECT_SCOPE.md); [implementation progress](agent/MVP_IMPLEMENTATION_PROGRESS.md) records actual verification. Existing episodes keep the original rules described below.
+
 Doctor and nursing work belongs to the admission episode. The recorded admitting doctor owns clinical care; a nurse needs a current persisted assignment. Administrator scheduling authority can grant or revoke assignments but does not confer clinical chart access or professional signing authority. All protected server commands recheck current staff identity and episode access, including completed request retries.
 
 ## Doctor workflow
