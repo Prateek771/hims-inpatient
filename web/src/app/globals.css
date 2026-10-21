@@ -164,6 +164,9 @@ main { padding: 24px; min-width: 0; }
 .login { max-width: 520px; margin: 48px auto; }
 .fields { display: grid; gap: 16px; max-width: 640px; margin-top: 16px; }
 .fields label { display: grid; gap: 6px; font-weight: 500; }
+.searchable-select { display: grid; gap: 8px; min-width: 0; }
+.searchable-select label { display: grid; gap: 6px; }
+.searchable-select input, .searchable-select select { min-width: 0; max-width: 100%; width: 100%; }
 input, select { min-width: 0; width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; background: white; color: var(--navy); font: inherit; }
 button { border: 0; cursor: pointer; font: inherit; }
 button:disabled { opacity: .6; cursor: wait; }

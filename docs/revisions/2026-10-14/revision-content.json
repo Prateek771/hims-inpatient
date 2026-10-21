@@ -1,0 +1,190 @@
+{
+  "title": "HIMS inpatient coordination revision",
+  "date": "14 October 2026",
+  "pages": [
+    {
+      "title": "Patient admission and the hospital stay",
+      "intro": "Review draft for Prateek. This product coordinates admission, beds, money, discharge checks and patient exit. Detailed treatment, pharmacy inventory and diagnostic work stay in the hospital's existing records. The six choices you confirmed are incorporated; the full proposal still needs your approval before Figma or application changes.",
+      "sections": [
+        {
+          "title": "1 Find the patient and create the admission",
+          "bullets": [
+            "Admission staff search by permanent patient ID or current IP number, confirm identity and reuse an existing patient record. New patients receive a server-generated patient ID; every stay receives a separate unique IP number.",
+            "Record contact details, admitting doctor, clinician-provided admission instruction, payment route and admission time. Give the patient a printed ID slip. An ID locates records; it does not grant access to them."
+          ]
+        },
+        {
+          "title": "2 Assign the right physical bed",
+          "bullets": [
+            "Authorized staff search Ward > Room > Bed, with ICU capability, isolation needs, category, AC/non-AC and the applicable tariff. Isolation is a suitability requirement, not automatically an ICU or private-room label.",
+            "Admission/Admin records administrative acceptance and actual arrival/bed activation against the clinician's destination instruction, current reservation, tariff and required admission deposit. An urgent authorized exception retains the deposit obligation. Registration/reservation starts no room charge; pending-admission cancellation retains the IP and releases only its reservation. Transfers retain instructions, actual times, handover and charge boundaries; do not promise future bed readiness."
+          ]
+        },
+        {
+          "title": "3 Coordinate the stay without duplicating clinical work",
+          "bullets": [
+            "The hospital continues its own treatment charts, prescribing, medicine administration, inventory and lab reports. HIMS retains the responsible doctor, basic stay status, necessary source references and documents needed for charges and discharge.",
+            "Departments record or confirm patient-linked charges and accepted returns from their existing systems or papers. These are manual records with evidence, not a newly assumed integration. Pharmacy does not automatically spend deposits or block medicines for insufficient cash."
+          ]
+        },
+        {
+          "title": "4 Review money throughout the stay",
+          "bullets": [
+            "Cashier/Billing records deposits, top-ups and receipts through existing payment channels; allocates deposits to charges and handles authorized refunds. A deposit allocation is not another payment. Returns reduce the bill; they do not automatically prove a cash refund.",
+            "A printable as-of statement shows total bill, actual receipts, refunds, patient dues, insurer authorization and insurer receivable separately, with dated charge/payment history. Staff verify insurance externally and record approvals, partial cover, exclusions and follow-up owners."
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Doctor approval through final patient exit",
+      "sections": [
+        {
+          "title": "5 Record the doctor's clinical discharge approval",
+          "bullets": [
+            "Doctor route: the responsible authorized doctor logs in and approves clinical discharge. Paper route: the authorized assigned nurse verifies this patient's signed approval from the responsible doctor, uploads/captures it and records the approval.",
+            "Keep doctor authorship and nurse verification separate, with source and recording times; unclear evidence stays pending. Retain diagnosis, signed summary/prescription and follow-up papers. Authorized staff may deliver these clinical papers after doctor approval even while financial/exit clearance is pending; they do not imply permission to exit."
+          ]
+        },
+        {
+          "title": "6 Give the patient a nursing checklist",
+          "bullets": [
+            "Doctor approval opens a discharge case. The nurse checks readiness, handover, unused medicines, pending items and applicable departments, then publishes the checklist and prints the patient's copy.",
+            "Route tasks to Pharmacy, Billing/Admin, Insurance and applicable departments. Nursing coordinates readiness; it does not make the doctor's clinical decision or financial approval."
+          ]
+        },
+        {
+          "title": "7 Complete department checks in parallel",
+          "bullets": [
+            "After doctor approval, Pharmacy reconciles medicines/accepted returns/charges; Nursing confirms readiness/handover; Insurance records verified cover/credit evidence; other applicable departments clear pending reports, equipment, valuables or services.",
+            "Record each department's user, time, status and remarks. Billing prepares concurrently; final authorization waits for required checks. Changes reopen only affected checks and dependent approvals."
+          ]
+        },
+        {
+          "title": "8 Authorize the final financial position",
+          "bullets": [
+            "Before final authorization, the assigned nurse records real bed vacancy, waiting location and handover after applicable checks. Reconcile room charges to that factual cutoff; estimates while the bed is occupied remain provisional. Admin/Billing then reviews current clearances, patient responsibility, receipts/refunds and obligations. Patient dues require settlement or an authorized exception.",
+            "Verified insurer authorization or hospital-approved credit permits ordinary exit with insurer money still receivable. Record amount, evidence, hospital acceptance, collection owner and due date. Authorization is not cash; uncovered shortfalls remain obligations."
+          ]
+        },
+        {
+          "title": "9 Deliver approved papers before exit",
+          "bullets": [
+            "Nurse/Admin prints the authorized packet: identity/IP, clinical papers, department statuses, financial authorization, receipts/refunds and insurer receivable or exception. Pharmacy prints only its own reconciliation report.",
+            "Deliver current authorized papers before physical departure. Draft/as-of statements stay printable. Missing checks block an ordinary exit-authorized copy, not already approved clinical papers. An exception copy shows its actual status."
+          ]
+        },
+        {
+          "title": "10 Nurse confirms actual exit and the bed is cleaned",
+          "bullets": [
+            "The assigned nurse verifies current final authorization, papers and handover, then records actual hospital exit. Care continues under clinical instructions until appropriate handover/exit; financial clearance does not stop care.",
+            "Close on actual exit; retain history and a closed document version. Keep the bed held until exit and turnover requirements are met; authorized bed staff confirm cleaning before Available. Delays or changed room facts require relevant review, never invented times."
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Role control and what leaves the core product",
+      "sections": [
+        {
+          "title": "Who controls each action",
+          "bullets": [
+            "Admission staff: identity lookup, registration, admission records and bed reservation within assigned permissions. They cannot approve clinical discharge, clear another department or invent a payment.",
+            "Doctor: admission/transfer clinical instructions and clinical discharge authorization. The optional portal focuses on approval; a full doctor-operated treatment dashboard is not required.",
+            "Assigned nurse: verify signed doctor paper, prepare/print the checklist, confirm nursing readiness, record factual vacancy/handover and final exit. No prescribing, doctor impersonation or financial settlement authority.",
+            "Pharmacy and other department staff: confirm their own patient-linked evidence, charges, returns and clearance. No hospital-wide final seal or unrestricted chart access. Lab becomes an optional department-clearance participant, not a diagnostic production system.",
+            "Insurance staff: verified payer decisions, required documents, queries and collection follow-up. They cannot approve coverage on behalf of the insurer or count an approval as cash.",
+            "Cashier/Billing: ledger, receipts, deposit allocation, reconciliation, authorized refunds and final financial authorization. Admin manages staff, configuration, credit/exception authority and oversight; neither supplies a doctor's clinical approval."
+          ]
+        },
+        {
+          "title": "Remove from routine use and retain the history",
+          "bullets": [
+            "Hide detailed doctor rounds/orders, nursing vitals/MAR/consumable charts, pharmacy stock/batch/expiry/procurement and native lab collection/scan/report production from the revised core menus. Preserve their existing records and previously signed versions.",
+            "Retain minimal doctor evidence, patient-linked service/medicine charges, accepted returns, relevant report references and discharge clearance. Move final document actions into the discharge case; keep retained versions accessible without a duplicate top-level workflow.",
+            "Defer outpatient care, patient accounts, mandatory Aadhaar/KYC, live hospital/payer/payment integrations, automated email/SMS and expanded clinical modules. A simple staff-maintained doctor availability register is optional later; session login does not prove attendance."
+          ]
+        },
+        {
+          "title": "Small and larger hospitals",
+          "bullets": [
+            "Keep one patient journey in one hospital deployment. Small hospitals can combine reception/admission/cashier tasks under explicitly authorized named staff; larger hospitals assign separate desks and applicable departments. Hospital size must not grant clinical powers to reception staff.",
+            "Proposed defaults: Doctor approval, Nursing readiness/exit and final financial authorization cannot be Not Applicable. Nursing proposes applicability; Admin confirms optional-department N/A with a recorded reason only if no relevant service or pending work exists. N/A is not a professional clearance and is reconsidered if relevant work appears."
+          ]
+        },
+        {
+          "title": "Keep the status dimensions separate",
+          "bullets": [
+            "Admission: Registered > Approved > Bed Assigned > Admitted > Closed. Care: Active > Under Review > Clinically Ready. Bed: Available > Reserved > Occupied > Vacated but Held > Cleaning > Available; blocked rooms remain unavailable.",
+            "Discharge: Requested > Doctor Approved > Checks Pending > Financially Authorized > Exit Confirmed > Closed. Patient settlement and insurer receivable stay separate; a closed admission may still have insurer money pending."
+          ]
+        }
+      ]
+    },
+    {
+      "title": "Figma UI and backend revision list",
+      "sections": [
+        {
+          "title": "Figma and application screens",
+          "bullets": [
+            "After document approval, duplicate the current two-page, 96-view Figma file into a new revision workspace. Preserve the original, editable components/tokens, styles, fictional data and prototype links; verify copied links and role access before simplifying the duplicate.",
+            "Rename Admin Home to Dashboard. Core navigation becomes Dashboard, Patients/Admissions, Beds, Billing/Insurance, Discharge, Exceptions and Settings, shown by permission. Role views show the specific job, not a universal Discharge approval button.",
+            "Add shared UHID/IP lookup and View/Print where appropriate; a Ward > Room > Bed selector with suitability/status; and a clear financial statement with actual paid amounts, patient dues and insurer receivable.",
+            "Replace the full Doctor/Nurse chart entry points with clinical approval/evidence and ward checklist/exit views. Replace stock and diagnostic production screens with medicine reconciliation and optional department clearance views.",
+            "Add camera/file evidence capture, printable nursing checklist, parallel clearance table, precise missing-item alerts, authorized financial review, pre-exit packet and nurse exit confirmation. Use pending/blocked colours consistently; colour never replaces a status label.",
+            "Show daily/as-of, pre-exit-authorized and closed document versions distinctly. Use one consistent fictional patient's timeline across roles, including returns, pending insurer receipt and a successful authorized exit."
+          ]
+        },
+        {
+          "title": "Backend changes needed before this can work",
+          "bullets": [
+            "Add versioned discharge cases and hospital-specific applicable departments. Replace the current strict predecessor chain with doctor approval plus independent required department checks, then final financial authorization. Preserve prior sequential seals as historical evidence.",
+            "Add two clinical-approval sources: doctor digital approval, or assigned-nurse-attested signed paper. Store patient/IP, clinical authorizer, recorder/verifier, evidence hash/version, stated approval time and server recording time. Enforce both routes and all permissions on the server.",
+            "Separate authorization, credit, responsibility and actual receipts. Allow exit against verified authorization/accepted credit plus patient settlement; keep partial/denied cover and debt explicit. Add a routine post-exit insurer collection path: current normal receipts reject closed admissions. Do not require an exception merely to collect an approved receivable.",
+            "Add externally sourced patient charge/return records without requiring native prescribing, stock batches or lab orders. Deduplicate by source reference; use deterministic amounts and linked corrections. Preserve current ledger, room-charge, refund and deposit-allocation controls.",
+            "Permit an immutable pre-exit-authorized packet and a later closed version; grant purpose-limited nurse delivery access. Move actual exit confirmation to the authorized nursing workflow while retaining Admin/Billing financial authority and separate vacancy/cleaning facts.",
+            "Add necessary ward/room/suitability fields and protected evidence delivery. Retain existing permanent IDs and IP numbers; any shorter new display format needs agreement and must not rewrite old identities.",
+            "Apply an additive workflow version to new episodes; retain old chains and already issued PDFs/hashes. Migrate active episodes only through an explicit reviewed transition. Keep registered doctor identities even without routine portal use. Record login/logout and expiry/revocation, separately from attendance; proposed access is own history plus authorized audit readers. Test forged actors, N/A misuse, stale approvals, duplicate sources, beds and changed bills."
+          ]
+        }
+      ]
+    },
+    {
+      "title": "One week example and approval boundaries",
+      "sections": [
+        {
+          "title": "Illustrative insured admission",
+          "bullets": [
+            "Day 1: fictional patient Meera receives an IP episode, a suitable bed and a recorded INR 30,000 deposit. Days 2 to 6: care remains in the hospital's clinical system; HIMS records bed moves, confirmed charges and insurance paperwork follow-up.",
+            "Day 7: doctor approves discharge digitally or on signed paper verified by the assigned nurse. The nurse publishes/prints the checklist. Pharmacy accepts returns; Nursing and other applicable departments complete their checks in parallel.",
+            "Example bill: INR 120,000 gross less INR 5,000 accepted medicine returns = INR 115,000 net. Patient responsibility is INR 25,000; INR 30,000 deposit less INR 5,000 recorded refund settles that portion. Verified insurer responsibility/authorization is INR 90,000; receipt is still zero.",
+            "Admin/Billing accepts the verified authorization/credit evidence and records the INR 90,000 receivable, owner and follow-up date. The papers show patient settled and insurer payment pending, not a zero total outstanding balance. Nurse confirms exit; later payer receipts settle the receivable without rewriting the original discharge record."
+          ]
+        },
+        {
+          "title": "Operational rules retained",
+          "bullets": [
+            "Factual bed vacancy remains the room-charge cutoff. If the patient stays in the bed after a bill estimate, recalculate and review the changed financial snapshot before exit authorization; do not mark the bed ready based on a forecast.",
+            "An exception is needed when ordinary requirements remain unmet, or for exceptional clinical/disposition events: unpaid/unapproved patient shortfall, absent acceptable authorization/credit, missing mandatory evidence, early/against-advice exit, external hospital transfer or death. Partial cover with settled patient responsibility, or denial followed by settled self-pay conversion, can be ordinary. No exception fabricates approval or erases debt.",
+            "Print the clinical discharge summary/prescription from the doctor's authoritative record with the financial/exit clearance papers. This is one patient packet with clearly identified component documents, not a new duplicate medical chart."
+          ]
+        },
+        {
+          "title": "What is confirmed and what still needs approval",
+          "bullets": [
+            "Confirmed in your six answers: simplified coordination scope; both doctor approval routes; assigned nurse verifies paper; parallel department checks; authorization/approved credit can permit insured exit; cashier-managed deposit allocation without a pharmacy cash gate.",
+            "The concrete defaults in this draft still need your full-document approval: mandatory versus optional checks, print/audit permissions, identity preservation and document/bed timing. Real hospital tariffs, credit limits, verification practice and local operating policy remain hospital configuration decisions.",
+            "Approval of this document permits the new Figma revision phase only. After you review that prototype, application UI/backend work starts only on your explicit go-ahead. No Figma duplication/edit, application change, migration, data reset, deployment or staff-account change was performed for this review."
+          ]
+        },
+        {
+          "title": "Source and review basis",
+          "bullets": [
+            "Read all 3 pages of Hospital Management System-HIMS.pdf, all 7 pages of hims-conversation-and-app-review.pdf and all 274 lines of the supplied transcript. The review PDF refers to two earlier transcripts; those original recordings/texts were not separately supplied here.",
+            "Compared current scope and relevant admission, discharge, money, pharmacy and document sources; inspected the live Figma inventory read-only. The review PDF's page 5 is an older empty-data inspection, and pages 6 to 7 contain proposals, not automatic approvals. Your six newer answers resolve the major source conflicts."
+          ]
+        }
+      ]
+    }
+  ]
+}

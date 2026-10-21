@@ -134,5 +134,5 @@ export async function downloadDischargeDocument(ctx: CommandContext, documentId:
 }); }
 export async function documentWorkspace(ctx: CommandContext) { return withTransaction(async tx => {
   await documentOperator(tx, ctx);
-  return tx.select({ id: admissions.id, ipCode: admissions.ipCode }).from(admissions).where(eq(admissions.status, "DISCHARGED")).orderBy(desc(admissions.admittedAt));
+  return tx.select({ id: admissions.id, ipCode: admissions.ipCode, workflowVersion: admissions.workflowVersion }).from(admissions).where(eq(admissions.status, "DISCHARGED")).orderBy(desc(admissions.admittedAt));
 }); }

@@ -1,0 +1,194 @@
+<div id="ins-product-map">
+  <h2>One patient. Two parallel journeys.</h2>
+  <div class="viz-controls" aria-label="Explore the product">
+    <button type="button" class="btn" data-view="journey" aria-pressed="true">A seven-day stay</button>
+    <button type="button" class="btn" data-view="system" aria-pressed="false">What we built</button>
+    <button type="button" class="btn" data-view="people" aria-pressed="false">Who needs to use it?</button>
+  </div>
+
+  <section data-panel="journey" aria-label="Illustrative Indian cashless inpatient journey">
+    <div class="text-small caption">Fictional pneumonia admission · seven days chosen for illustration · clinicians decide actual care and duration</div>
+    <div class="journey-head"><span>When</span><span>Patient care inside the hospital</span><span>Insurance desk ↔ external insurer / TPA</span></div>
+    <div class="journey-row">
+      <div class="when"><span class="step-number">1</span><span>Admission<br><span class="text-small">Day 0</span></span></div>
+      <div class="track care"><span class="mobile-lane text-small">Care</span><i data-lucide="bed-single" aria-hidden="true"></i><span>Doctor advises admission<br><span class="text-small">Desk creates patient / admission ID and assigns bed</span></span></div>
+      <div class="track insurance"><span class="mobile-lane text-small">Insurance</span><i data-lucide="file-check" aria-hidden="true"></i><span>Policy check + initial request<br><span class="text-small">Identity, diagnosis, reports and cost estimate → payer</span></span></div>
+    </div>
+    <div class="flow-mark" aria-hidden="true">↓</div>
+    <div class="journey-row">
+      <div class="when"><span class="step-number">2</span><span>During stay<br><span class="text-small">Days 1–5</span></span></div>
+      <div class="track care"><span class="mobile-lane text-small">Care</span><i data-lucide="heart-pulse" aria-hidden="true"></i><span>Rounds, nursing, medicines, tests<br><span class="text-small">Actual care records + department charges accumulate</span></span></div>
+      <div class="track insurance"><span class="mobile-lane text-small">Insurance</span><i data-lucide="messages-square" aria-hidden="true"></i><span>Approval or document queries<br><span class="text-small">Desk obtains missing records and replies through portal / email</span></span></div>
+    </div>
+    <div class="flow-mark" aria-hidden="true">↓</div>
+    <div class="journey-row">
+      <div class="when"><span class="step-number">3</span><span>If costs rise<br><span class="text-small">During stay</span></span></div>
+      <div class="track care"><span class="mobile-lane text-small">Care</span><i data-lucide="clipboard-list" aria-hidden="true"></i><span>Updated clinical evidence + estimate<br><span class="text-small">Doctor explains the need; Billing updates actual costs</span></span></div>
+      <div class="track insurance"><span class="mobile-lane text-small">Insurance</span><i data-lucide="file-plus" aria-hidden="true"></i><span>Request higher authorization<br><span class="text-small">Payer approves, queries, partially approves or declines</span></span></div>
+    </div>
+    <div class="flow-mark" aria-hidden="true">↓</div>
+    <div class="journey-row">
+      <div class="when"><span class="step-number">4</span><span>Ready to leave<br><span class="text-small">Around day 7</span></span></div>
+      <div class="track care"><span class="mobile-lane text-small">Care</span><i data-lucide="clipboard-check" aria-hidden="true"></i><span>Doctor signs summary; departments reconcile<br><span class="text-small">Final bill, medicine returns, instructions and patient share</span></span></div>
+      <div class="track insurance"><span class="mobile-lane text-small">Insurance</span><i data-lucide="stamp" aria-hidden="true"></i><span>Final bill + summary → final authorization<br><span class="text-small">Patient settles applicable copay / excluded expenses</span></span></div>
+    </div>
+    <div class="flow-mark" aria-hidden="true">↓</div>
+    <div class="journey-row">
+      <div class="when"><span class="step-number">5</span><span>Departure<br><span class="text-small">Then follow-up</span></span></div>
+      <div class="track care"><span class="mobile-lane text-small">Care</span><i data-lucide="house" aria-hidden="true"></i><span>Patient leaves with records and instructions<br><span class="text-small">Bed cleaning / reuse; follow-up as directed</span></span></div>
+      <div class="track insurance"><span class="mobile-lane text-small">Insurance</span><i data-lucide="landmark" aria-hidden="true"></i><span>Insurer payment + hospital reconciliation<br><span class="text-small">Payment may arrive later, under the hospital–payer agreement</span></span></div>
+    </div>
+    <hr>
+    <div class="boundary"><i data-lucide="flag" aria-hidden="true"></i><span>Current product difference: ordinary insured exit waits for actual insurer money. This rule needs hospital review.</span></div>
+  </section>
+
+  <section data-panel="system" aria-label="Current inpatient system map" hidden>
+    <div class="text-small caption">Built today: one hospital’s inpatient system · eight role workspaces · shared admission record</div>
+    <div class="hub"><i data-lucide="contact" aria-hidden="true"></i><span>Patient identity (UHID)<br>↓<br>One admission episode (IP number)</span></div>
+    <div class="branches">
+      <section class="branch"><h3>Register and care</h3>
+        <button class="btn btn-ghost btn-block" type="button" data-node="admission"><i data-lucide="bed-single" aria-hidden="true"></i>Admission &amp; beds</button>
+        <button class="btn btn-ghost btn-block" type="button" data-node="doctor"><i data-lucide="stethoscope" aria-hidden="true"></i>Doctor</button>
+        <button class="btn btn-ghost btn-block" type="button" data-node="nurse"><i data-lucide="heart-pulse" aria-hidden="true"></i>Nursing</button>
+        <button class="btn btn-ghost btn-block" type="button" data-node="pharmacy"><i data-lucide="pill" aria-hidden="true"></i>Pharmacy</button>
+        <button class="btn btn-ghost btn-block" type="button" data-node="lab"><i data-lucide="flask-conical" aria-hidden="true"></i>Laboratory</button>
+      </section>
+      <section class="branch"><h3>Claim and money</h3>
+        <button class="btn btn-ghost btn-block" type="button" data-node="insurance"><i data-lucide="files" aria-hidden="true"></i>Insurance desk</button>
+        <button class="btn btn-ghost btn-block" type="button" data-node="paperwork"><i data-lucide="file-pen-line" aria-hidden="true"></i>Reviewed paperwork</button>
+        <button class="btn btn-ghost btn-block" type="button" data-node="billing"><i data-lucide="receipt" aria-hidden="true"></i>Billing &amp; receipts</button>
+        <div class="external"><i data-lucide="external-link" aria-hidden="true"></i><span>Insurer / TPA<br><span class="text-small">External decisions<br>Staff send and chase manually</span></span></div>
+      </section>
+      <section class="branch"><h3>Clear and retain</h3>
+        <button class="btn btn-ghost btn-block" type="button" data-node="exit"><i data-lucide="door-open" aria-hidden="true"></i>Discharge clearances</button>
+        <button class="btn btn-ghost btn-block" type="button" data-node="admin"><i data-lucide="settings" aria-hidden="true"></i>Admin oversight</button>
+        <button class="btn btn-ghost btn-block" type="button" data-node="history"><i data-lucide="history" aria-hidden="true"></i>Documents &amp; history</button>
+      </section>
+    </div>
+    <hr>
+    <div id="ins-node-detail" class="text-small" aria-live="polite">Select a module to see its job.</div>
+    <div class="text-small caption">Shared foundation: staff permissions · linked evidence · versioned money rules · retained corrections</div>
+  </section>
+
+  <section data-panel="people" aria-label="Staff participation by product scope" hidden>
+    <div class="viz-controls" aria-label="Product scope">
+      <button class="btn" type="button" data-scope="hims" aria-pressed="true">Current inpatient system</button>
+      <button class="btn" type="button" data-scope="insurance" aria-pressed="false">Insurance layer — proposed</button>
+    </div>
+    <div id="ins-role-caption" class="text-small caption">Each department records its own work in this system.</div>
+    <div class="role-map" id="ins-role-map" aria-live="polite"></div>
+    <hr>
+    <div class="text-small">Clinical evidence remains essential in both options. Daily use of a separate insurance tool depends on scope.</div>
+  </section>
+</div>
+
+<style>
+  #ins-product-map { color: var(--foreground); }
+  #ins-product-map h2 { margin: 0 96px 16px 0; }
+  #ins-product-map h3 { margin: 0 0 10px; font-weight: 500; }
+  #ins-product-map [hidden] { display: none !important; }
+  #ins-product-map .caption { margin: 14px 0; color: var(--muted-foreground); }
+  #ins-product-map .journey-head, #ins-product-map .journey-row { display: grid; grid-template-columns: 112px minmax(0,1fr) minmax(0,1fr); gap: 18px; }
+  #ins-product-map .journey-head { padding: 6px 0 12px; color: var(--muted-foreground); }
+  #ins-product-map .journey-row { padding: 13px 0; border-bottom: 1px solid var(--border); }
+  #ins-product-map .when { display: flex; align-items: flex-start; gap: 9px; }
+  #ins-product-map .step-number { color: var(--muted-foreground); }
+  #ins-product-map .track { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
+  #ins-product-map .track svg, #ins-product-map .boundary svg, #ins-product-map .hub svg, #ins-product-map .external svg { flex: 0 0 auto; }
+  #ins-product-map .care > svg { color: var(--viz-series-1); }
+  #ins-product-map .insurance > svg { color: var(--viz-series-2); }
+  #ins-product-map .track .text-small { color: var(--muted-foreground); }
+  #ins-product-map .flow-mark { text-align: center; color: var(--muted-foreground); margin: 1px 0; }
+  #ins-product-map .mobile-lane { display: none; }
+  #ins-product-map .boundary { display: flex; gap: 10px; align-items: flex-start; }
+  #ins-product-map .hub { text-align: center; display: flex; gap: 10px; align-items: flex-start; justify-content: center; margin: 20px 0 0; padding-bottom: 20px; }
+  #ins-product-map .branches { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 18px; border-top: 1px solid var(--border); }
+  #ins-product-map .branch { border-left: 1px solid var(--border); padding: 16px 0 0 12px; min-width: 0; }
+  #ins-product-map .external { display: flex; gap: 8px; margin: 14px 0; color: var(--muted-foreground); }
+  #ins-product-map #ins-node-detail { margin: 14px 0; }
+  #ins-product-map .role-map { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 0 24px; }
+  #ins-product-map .role-item { display: grid; grid-template-columns: 110px minmax(0,1fr); gap: 12px; border-bottom: 1px solid var(--border); padding: 16px 0; }
+  #ins-product-map .role-name { font-weight: 500; }
+  #ins-product-map .role-duty { color: var(--muted-foreground); }
+  @media (max-width: 580px) {
+    #ins-product-map .journey-head { display: none; }
+    #ins-product-map .journey-row { grid-template-columns: 88px minmax(0,1fr); gap: 14px; }
+    #ins-product-map .when { grid-row: span 2; }
+    #ins-product-map .track { grid-column: 2; flex-wrap: wrap; }
+    #ins-product-map .track > span:last-child { flex-basis: 100%; }
+    #ins-product-map .mobile-lane { display: inline; }
+    #ins-product-map .branches { grid-template-columns: 1fr; gap: 10px; }
+    #ins-product-map .role-map { grid-template-columns: 1fr; }
+  }
+</style>
+<script>
+(() => {
+  const root = document.getElementById('ins-product-map');
+  const details = {
+    admission: 'Admission: patient identity, one episode, reservation, actual arrival, bed stays and transfers.',
+    doctor: 'Doctor: signed clinical notes, orders, clinical discharge readiness, summary and prescription.',
+    nurse: 'Nursing: observations, actual medicine administration, shift handover and bedside discharge evidence.',
+    pharmacy: 'Pharmacy: medicine issues, returns, stock-linked charges and discharge reconciliation.',
+    lab: 'Laboratory: assigned tests, specimens, barcode tracking and human-signed reports.',
+    insurance: 'Insurance: verified policy facts, external decisions, current documents and accountable follow-ups.',
+    paperwork: 'Paperwork: manual source text and human-reviewed local packets; live AI/OCR and sending are unconfigured.',
+    billing: 'Billing: source-linked charges, payer/patient responsibility, recorded actual receipts, adjustments and refunds.',
+    exit: 'Current clearance order: Doctor → Pharmacy → Nursing → Billing/Admin; ordinary insured exit also needs payer cash.',
+    admin: 'Admin: staff access, hospital settings, beds, oversight and accountable exceptions retaining unpaid amounts.',
+    history: 'History: protected document versions, retained signatures, clinical addenda and linked financial corrections.'
+  };
+  const roles = [
+    ['Admission', 'Daily: identity, arrival and beds', 'Core input: admission and patient identity'],
+    ['Insurance', 'Daily: documents, decisions and follow-ups', 'Primary daily user: claims coordination'],
+    ['Billing', 'Daily: charges, responsibility and money', 'Primary daily user: bills and reconciliation'],
+    ['Doctor', 'Direct user: notes, orders and clinical seals', 'Selected input: clinical evidence and clarification'],
+    ['Nursing', 'Direct user: bedside care, MAR and handover', 'Evidence source: existing care chart; occasional clarification'],
+    ['Pharmacy', 'Direct user: issues, returns and reconciliation', 'Evidence source: medicine invoices and returns'],
+    ['Laboratory', 'Direct user: specimens and signed reports', 'Evidence source: results from existing lab system'],
+    ['Admin', 'Oversight: access, policies and exceptions', 'Oversight: queues, permissions and exceptions']
+  ];
+  const validViews = ['journey','system','people'];
+  let state = {view:'journey',scope:'hims',node:null};
+  function restore(saved) {
+    const value = saved?.privateContent;
+    if (!value || value.kind !== 'ins-product-map-v1') return;
+    state = {
+      view: validViews.includes(value.view) ? value.view : 'journey',
+      scope: value.scope === 'insurance' ? 'insurance' : 'hims',
+      node: Object.hasOwn(details,value.node) ? value.node : null
+    };
+  }
+  function render() {
+    root.querySelectorAll('[data-view]').forEach(button => button.setAttribute('aria-pressed',String(button.dataset.view === state.view)));
+    root.querySelectorAll('[data-panel]').forEach(panel => panel.hidden = panel.dataset.panel !== state.view);
+    root.querySelectorAll('[data-scope]').forEach(button => button.setAttribute('aria-pressed',String(button.dataset.scope === state.scope)));
+    root.querySelectorAll('[data-node]').forEach(button => button.setAttribute('aria-pressed',String(button.dataset.node === state.node)));
+    root.querySelector('#ins-node-detail').textContent = state.node ? details[state.node] : 'Select a module to see its job.';
+    root.querySelector('#ins-role-caption').textContent = state.scope === 'hims' ? 'Each department records its own work in this system.' : 'Proposed focus: draw evidence from existing hospital records; avoid duplicate clinical charting. Connections are not built today.';
+    const roleMap = root.querySelector('#ins-role-map');
+    roleMap.replaceChildren(...roles.map(role => {
+      const item = document.createElement('div'); item.className = 'role-item';
+      const name = document.createElement('span'); name.className = 'role-name'; name.textContent = role[0];
+      const duty = document.createElement('span'); duty.className = 'role-duty'; duty.textContent = role[state.scope === 'hims' ? 1 : 2];
+      item.append(name,duty); return item;
+    }));
+  }
+  function save() {
+    if (typeof window.openai?.setWidgetState !== 'function') return;
+    Promise.resolve(window.openai.setWidgetState({modelContent:{view:state.view,scope:state.scope,module:state.node},privateContent:{kind:'ins-product-map-v1',...state}})).catch(() => {});
+  }
+  root.addEventListener('click',event => {
+    const button = event.target.closest('button');
+    if (!button || !root.contains(button)) return;
+    if (button.dataset.view) state.view = button.dataset.view;
+    if (button.dataset.scope) state.scope = button.dataset.scope;
+    if (button.dataset.node) state.node = button.dataset.node;
+    render(); save();
+  });
+  window.addEventListener('openai:set_globals',event => {
+    const saved = event.detail?.globals?.widgetState;
+    if (saved) { restore(saved); render(); }
+  });
+  restore(window.openai?.widgetState); render();
+})();
+</script>

@@ -1,22 +1,26 @@
 import { HospitalTimestamp } from "@/components/hospital-timestamp";
 import { Fragment } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { requireStaff, staffContext } from "@/server/access";
 import { documentWorkspace, getDischargeDocumentReview } from "@/server/documents/commands";
 import { DomainError } from "@/server/contracts";
 import { CareForm } from "@/components/care-forms";
 import { WorkflowTabs } from "@/components/workflow-tabs";
 import { createDocumentAction } from "./actions";
+import { isMvpEpisode } from "@/server/mvp/workspace";
 export default async function DocumentsPage({ searchParams }: { searchParams: Promise<{ admissionId?: string }> }) {
   const staff = await requireStaff(); if (!["ADMIN", "BILLING"].includes(staff.role)) notFound();
-  const ctx = staffContext(staff, "final-document-workspace"), episodes = await documentWorkspace(ctx), { admissionId } = await searchParams;
+  const { admissionId } = await searchParams;
+  if (admissionId && await isMvpEpisode(admissionId)) redirect(`/mvp/${admissionId}?tab=exit`);
+  const ctx = staffContext(staff, "final-document-workspace"), episodes = await documentWorkspace(ctx);
+  const mvpEpisodes = new Set(episodes.filter(episode => episode.workflowVersion === 2).map(episode => episode.id));
   let review: Awaited<ReturnType<typeof getDischargeDocumentReview>> | undefined;
   if (admissionId) try { review = await getDischargeDocumentReview(ctx, admissionId); } catch (e) { if (e instanceof DomainError && e.code === "FORBIDDEN") notFound(); throw e; }
   return <><p className="eyebrow">Final documents · Admin / Billing</p><h1>Final documents</h1><p className="page-description">Immutable signed versions, verified PDF downloads, print copies and authenticated verification.</p>
     <details className="card discharge-worklist" open={!review}><summary>{review ? "Choose another recorded departure" : "Recorded hospital departures"}</summary>
-      <p className="caption">A final copy follows actual hospital departure. Creating it supplies no new professional clearance or payment.</p>
-      {episodes.length ? <div className="table-scroll" tabIndex={0} role="region" aria-label="Recorded departures for documents"><table><thead><tr><th>Admission</th><th>Next work</th></tr></thead><tbody>{episodes.map(e => <tr key={e.id}><td>{e.ipCode}</td><td><Link href={`/documents?admissionId=${e.id}`}>Review sources and retained versions</Link></td></tr>)}</tbody></table></div> : <p>No hospital departures are recorded.</p>}
+      <p className="caption">Ordinary MVP exit requires authorized final papers delivered first. Exceptional departures retain any missing-paper obligations. Open the episode for exact retained versions; earlier workflows keep their original document review.</p>
+      {episodes.length ? <div className="table-scroll" tabIndex={0} role="region" aria-label="Recorded departures for documents"><table><thead><tr><th>Admission</th><th>Next work</th></tr></thead><tbody>{episodes.map(e => <tr key={e.id}><td>{e.ipCode}</td><td><Link href={mvpEpisodes.has(e.id) ? `/mvp/${e.id}?tab=exit` : `/documents?admissionId=${e.id}`}>{mvpEpisodes.has(e.id) ? "Open retained episode papers" : "Review sources and retained versions"}</Link></td></tr>)}</tbody></table></div> : <p>No hospital departures are recorded.</p>}
     </details>
     {review && <>
       <section className="care-patient-context"><div><h2>{review.name} · {review.ipCode}</h2><p className="caption">{review.departureKind === "EXCEPTIONAL" ? "Exceptional departure · actual approvals and remaining obligations retained" : "Ordinary departure · four actual historical human clearances retained"}</p></div><div><strong>Current bill version {review.input.billVersion}</strong><p className="caption">{review.versions.length} saved {review.versions.length === 1 ? "version" : "versions"}</p></div></section>

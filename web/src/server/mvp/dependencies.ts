@@ -1,4 +1,5 @@
 import "server-only";
+import { medicineLines } from "@/lib/mvp-medicine-lines";
 import { asc, desc, eq, sql } from "drizzle-orm";
 import type { Transaction } from "../db";
 import { admissions } from "../admissions/schema";
@@ -24,7 +25,8 @@ export async function mvpState(tx: Transaction, episode: typeof admissions.$infe
   const exceptions=await tx.select().from(mvpExceptionEvents).where(eq(mvpExceptionEvents.admissionId,episode.id)).orderBy(desc(mvpExceptionEvents.recordedAt),desc(mvpExceptionEvents.id));
   const returns=await tx.select().from(mvpRoomReturns).where(eq(mvpRoomReturns.admissionId,episode.id));
   const bill = await billProjection(tx,episode,new Date()), financial = await financialResponsibilityInTransaction(tx,episode,bill);
-  const medicine = await tx.select().from(mvpMedicineSources).where(eq(mvpMedicineSources.admissionId,episode.id)).orderBy(asc(mvpMedicineSources.recordedAt),asc(mvpMedicineSources.id));
+  const medicineSources = await tx.select().from(mvpMedicineSources).where(eq(mvpMedicineSources.admissionId,episode.id)).orderBy(asc(mvpMedicineSources.recordedAt),asc(mvpMedicineSources.id));
+  const medicine = medicineLines(medicineSources, bill.charges, bill.reversals);
   const assignments = (await tx.execute(sql`select a.id,a.nurse_id from hims.nurse_assignments a where a.admission_id=${episode.id} and not exists(select 1 from hims.nurse_assignment_revocations r where r.assignment_id=a.id) order by a.id`)).rows;
   const shifts = (await tx.execute(sql`select s.id,s.nurse_id,s.started_at,e.ended_at from hims.nursing_shifts s left join hims.effective_shift_ends e on e.shift_id=s.id where s.admission_id=${episode.id} order by s.started_at desc`)).rows;
   const blockers: string[] = [];

@@ -1,0 +1,32 @@
+{
+  "frameCount": 24,
+  "nodeCount": 1900,
+  "countsByType": {
+    "FRAME": 518,
+    "TEXT": 1128,
+    "INSTANCE": 254
+  },
+  "fontFamilies": [
+    "IBM Plex Sans"
+  ],
+  "imageFilledNodes": [],
+  "horizontalEscapes": [],
+  "oldNodeIdsMissing": [
+    "I2009:4982;2:75",
+    "I2009:4984;2:77",
+    "I2009:5044;2:75",
+    "I2009:5046;2:77"
+  ],
+  "receiptShells": [
+    {
+      "id": "2009:4977",
+      "name": "Billing · Record a post-exit payer receipt"
+    },
+    {
+      "id": "2009:5039",
+      "name": "Billing · Post-exit receipt: receivable settled"
+    }
+  ],
+  "closedV1Texts": [],
+  "unsupportedPatientCreditTexts": []
+}

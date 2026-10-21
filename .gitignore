@@ -23,6 +23,7 @@ coverage/
 *.backup
 
 # Local tooling and temporary files
+.impeccable/
 .worktrees/
 .vercel/
 *.log

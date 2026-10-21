@@ -7,9 +7,10 @@ import { getMvpEpisode } from "./commands";
 import { admissions } from "../admissions/schema";
 import { z } from "zod";
 
-export type MvpQueueSource = { id: string; name: string; uhid: string; ipCode: string; status: string; billRevision:number; vacant:boolean; caseId:string|null; bedLabel: string; nurseName: string | null; insuranceOwner: string | null; registeredBy: string | null };
+export type MvpQueueSource = { id: string; name: string; uhid: string; ipCode: string; status: string; billRevision:number; vacant:boolean; caseId:string|null; bedLabel: string; nurseName: string | null; insuranceOwner: string | null; registeredBy: string | null; temporaryIdentity?: boolean; intakeException?: boolean; insuranceCorrection?: boolean; medicineCount?: number };
+export type MvpCoordination = { clinical: boolean; checklist: boolean; pendingChecks: string[]; finance: boolean; finalDelivered: boolean; exception: boolean };
 export type MvpReview = Awaited<ReturnType<typeof getMvpEpisode>>;
-export type MvpQueueRow = MvpQueueSource & { stage: string; action: string; detail: string; owner: string; ownerRole: string; needsAction: boolean };
+export type MvpQueueRow = MvpQueueSource & { stage: string; action: string; detail: string; owner: string; ownerRole: string; needsAction: boolean; coordination?: MvpCoordination };
 
 export async function getMvpWorkspace(ctx: CommandContext) {
   return db.transaction(async tx => {
@@ -23,7 +24,11 @@ export async function getMvpWorkspace(ctx: CommandContext) {
     : staff.role === "INSURANCE" ? sql`ic.assigned_staff_id=${staff.id}` : sql`true`;
   const rows = (await tx.execute(sql`with scoped as (select a.id,p.name,p.uhid,a.ip_code as "ipCode",a.status,a.registered_at as "registeredAt",a.bill_revision as "billRevision",ic.id as "caseId",exists(select 1 from hims.effective_room_vacations v where v.admission_id=a.id) as vacant,b.label as "bedLabel",creator.name as "registeredBy",
     (select string_agg(distinct s.name, ', ' order by s.name) from hims.nurse_assignments n join hims.staff_user s on s.id=n.nurse_id where n.admission_id=a.id and not exists(select 1 from hims.nurse_assignment_revocations r where r.assignment_id=n.id)) as "nurseName",
-    ins.name as "insuranceOwner" from hims.admissions a join hims.effective_patients p on p.id=a.patient_id join hims.beds b on b.id=a.bed_id
+    ins.name as "insuranceOwner",p.identity_status='TEMPORARY' as "temporaryIdentity",
+    exists(select 1 from hims.admin_exceptions x where x.admission_id=a.id) as "intakeException",
+    exists(select 1 from hims.admin_exceptions x where x.admission_id=a.id and x.type='POST_DISCHARGE_CORRECTION' and x.correction_kind='INSURANCE_DECISION' and not exists(select 1 from hims.post_discharge_amendments m where m.exception_id=x.id)) as "insuranceCorrection",
+    (select count(*)::int from hims.mvp_medicine_sources m where m.admission_id=a.id) as "medicineCount"
+    from hims.admissions a join hims.effective_patients p on p.id=a.patient_id join hims.beds b on b.id=a.bed_id
     left join hims.staff_user creator on creator.id=a.created_by left join hims.insurance_cases ic on ic.admission_id=a.id left join hims.staff_user ins on ins.id=ic.assigned_staff_id
     where a.workflow_version=2 and ${scope} ${staff.role === "PHARMACY" ? sql`and (a.status in ('PENDING','ADMITTED') or exists(select 1 from hims.mvp_medicine_sources m where m.admission_id=a.id))` : sql``})
     select * from scoped where status in ('PENDING','ADMITTED') or id in (select id from scoped where status in ('DISCHARGED','CANCELLED') order by "registeredAt" desc,id desc limit 50) order by "registeredAt" desc,id desc`)).rows as unknown as MvpQueueSource[];
@@ -66,7 +71,7 @@ export async function getMvpWorkspace(ctx: CommandContext) {
       stage = "Exception follow-up"; action = "Review exception authority and obligations"; detail = "External clinical instruction, factual movement, papers and unpaid obligations remain separate"; needsAction = true;
       ownerRole = authority || !row.vacant ? "Assigned Nurse" : "Admin"; owner = ownerRole === "Admin" ? "Unassigned · Admin" : row.nurseName ?? "Unassigned · Nursing";
     }
-    return { ...row, stage, action, detail, owner, ownerRole, needsAction };
+    return { ...row, stage, action, detail, owner, ownerRole, needsAction, coordination: { clinical: !!clinical, checklist: !!checklist, pendingChecks: pending, finance: financeCurrent, finalDelivered: history.some(event => event.action === "deliver" && event.paperKind === "FINAL" && event.billVersion === row.billRevision && !event.invalid), exception: exceptional.length > 0 } };
   });
   const [hospital] = await tx.select({ id: hospitalSettings.id, timezone: hospitalSettings.timezone }).from(hospitalSettings).limit(1);
   const physical = (await tx.execute(sql`select b.id,b.active,

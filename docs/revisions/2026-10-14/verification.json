@@ -1,0 +1,30 @@
+{
+  "status": "review-draft-not-approved",
+  "documentPages": 5,
+  "contentStringsVerified": 86,
+  "docxPdfContentMatches": true,
+  "exampleReconciles": true,
+  "sources": [
+    {
+      "path": "C:\\Users\\prate\\Downloads\\Hospital Management System-HIMS.pdf",
+      "pages": 3,
+      "sha256": "2eb6cbcd805fb2e3d2e937d2e5fb568fec89e898203b75c8fe754bbfeb213ff1"
+    },
+    {
+      "path": "C:\\Users\\prate\\Downloads\\hims-conversation-and-app-review.pdf",
+      "pages": 7,
+      "sha256": "f186f422863ce53bbb3bb43a43d66ff4a24af74e27de0ae6dedbb11b684c7c28"
+    },
+    {
+      "path": "C:\\Users\\prate\\.codex\\attachments\\5ccfaed1-ef51-4cac-8475-17542a4dd60f\\Pasted text.txt",
+      "lines": 274,
+      "sha256": "3829bbf3f307b10f6e33254a55de30a00bb383443d9837b6c738b612ba74dd89"
+    }
+  ],
+  "figmaReadOnly": true,
+  "applicationModified": false,
+  "databaseModified": false,
+  "independentReview": "All material findings resolved; minor wording clarified",
+  "docxSha256": "67694b47af699fab9f4a8bdbe2d599bf2c004719ff9b2f6cc451a94ff8c12749",
+  "pdfSha256": "b594d1cf98681031e2e5cbd385a85178611e3ddc339e485b4b67225198fec5a3"
+}

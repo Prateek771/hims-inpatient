@@ -14,6 +14,7 @@ import { InsuranceUpload } from "@/components/insurance-upload";
 import { InsurancePaperwork } from "@/components/insurance-paperwork";
 import { saveInsurance } from "./actions";
 import { MvpWorkspace } from "@/components/mvp-workspace";
+import { isMvpEpisode } from "@/server/mvp/workspace";
 function Provenance(){return <><CareField name="verifiedBy" label="External verifier / hospital staff"/><CareField name="verifiedAt" label="Verified at (UTC)" type="datetime-local"/><CareField name="reference" label="External reference"/></>;}
 function WorkKind(){return <label>Request type<select name="kind"><option value="PREAUTH">Pre-authorization</option><option value="ENHANCEMENT">Enhancement</option><option value="APPEAL">Appeal</option></select></label>;}
 export default async function InsurancePage({searchParams}:{searchParams:Promise<{caseId?:string;admissionId?:string;tab?:string;legacy?:string;q?:string;view?:string;selected?:string}>}){
@@ -23,8 +24,14 @@ export default async function InsurancePage({searchParams}:{searchParams:Promise
   const ctx=staffContext(staff,"insurance-view");
   const [workspace,worklist]=await Promise.all([insuranceWorkspace(ctx),getStaffWorklist(ctx)]);
   const caseId=requestedCase??workspace.rows.find(item=>item.admissionId===admissionId)?.id;
+  if(caseId&&staff.role==="ADMISSION"){
+    const saved=workspace.rows.find(item=>item.id===caseId);
+    if(!saved)notFound();
+    const owner=workspace.staffList.find(item=>item.id===saved.assignedStaffId)?.name;
+    return <><h1>Insurance handoff</h1><section className="card" aria-label="Recorded insurance case"><h2>Insurance case is recorded</h2><p>{saved.name} · {saved.ipCode} · {saved.bedLabel}</p><p>{saved.assignedStaffId?`Assigned Insurance desk: ${owner??"Assigned insurance staff"}`:"Awaiting Insurance assignment. Ask Admin or Billing to assign the responsible desk."}</p><p>Insurance staff owns external verification, policy decisions, protected documents and follow-up. Continue admission here; the saved case does not need to be recreated.</p><div className="actions"><Link className="button" href={`/patients/${saved.admissionId}`}>Return to admission</Link><Link className="button secondary" href="/insurance">View insurance handoffs</Link></div></section></>;
+  }
   let review:Awaited<ReturnType<typeof getInsuranceCase>>|undefined;
-  if(caseId){if(staff.role==="ADMISSION")notFound();try{review=await getInsuranceCase(ctx,caseId);}catch(e){if(e instanceof DomainError&&e.code==="FORBIDDEN")notFound();throw e;}}
+  if(caseId){try{review=await getInsuranceCase(ctx,caseId);}catch(e){if(e instanceof DomainError&&e.code==="FORBIDDEN")notFound();throw e;}}
   const action=(op:Parameters<typeof saveInsurance>[3])=>saveInsurance.bind(null,caseId??"",review?.case.version??0,crypto.randomUUID(),op);
   const financial=["ADMIN","BILLING"].includes(staff.role),latest=review?.decisions[0],r=review?.responsibility;
   const files=review?.documents??[],currentFiles=files.filter(d=>!files.some(n=>n.replacesDocumentId===d.id));
@@ -32,6 +39,7 @@ export default async function InsurancePage({searchParams}:{searchParams:Promise
   const billBinding=review&&<><input type="hidden" name="billRevision" value={review.money.revision}/><input type="hidden" name="netBillPaise" value={review.money.netPaise.toString()}/><p className="caption">Reviewed posted bill {formatINR(review.money.netPaise)} · revision {review.money.revision}</p></>;
   const work=review?.events.filter(e=>e.kind==="FOLLOWUP").filter((e,i,all)=>all.findIndex(n=>n.payload.workId===e.payload.workId)===i)??[];
   const episodeOpen=!!review&&["PENDING","ADMITTED"].includes(review.episode.status),insuredOpen=episodeOpen&&review?.episode.paymentRoute==="INSURED";
+  const ownReadiness=staff.role==="INSURANCE"&&review?.episode.status==="ADMITTED"&&await isMvpEpisode(review.episode.id);
   const activeIds=new Set(worklist.episodes.filter(e=>["PENDING","ADMITTED"].includes(e.status)).map(e=>e.id));
   const currentCases=workspace.rows.filter(row=>activeIds.has(row.admissionId)),retainedCases=workspace.rows.filter(row=>!activeIds.has(row.admissionId));
   function caseTable(rows:typeof workspace.rows){return <div className="table-scroll" tabIndex={0} role="region" aria-label="Authorized insurance cases"><table><thead><tr><th>Patient / admission</th><th>Assigned desk</th><th>Next staff work</th><th>State</th></tr></thead><tbody>{rows.map(row=>{
@@ -43,10 +51,11 @@ export default async function InsurancePage({searchParams}:{searchParams:Promise
     <details className="staff-alerts-compact"><summary>Attention needed · {worklist.alerts.length} current source alerts</summary><StaffAlerts work={worklist}/></details>
     <section className="card"><h2>{staff.role==="INSURANCE"?"My assigned cases":"Current insurance cases"}</h2><details open={!review}><summary>{review?"Choose another case":"Choose an insurance case"}</summary>{currentCases.length?caseTable(currentCases):<p>No open insurance cases are currently assigned here.</p>}</details>
     {staff.role==="ADMISSION"&&<p className="caption">Admission creates and initially assigns cases. Policy, decisions, protected files and review belong to the Insurance desk, Billing or Admin.</p>}
-    {staff.role!=="INSURANCE"&&workspace.unassigned.length>0&&<details><summary>Create and assign an insured case</summary><CareForm action={action("create")} button="Create insurance case" testId="insurance-create"><label>Insured admission<select name="admissionId">{workspace.unassigned.map(e=><option key={e.id} value={e.id}>{e.name} · {e.ipCode}</option>)}</select></label><label>Insurance staff<select name="assignedStaffId"><option value="">Awaiting assignment</option>{workspace.staffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label><CareField name="reason" label="Assignment reason"/></CareForm></details>}</section>
+    {staff.role!=="INSURANCE"&&workspace.unassigned.length>0&&<details open={workspace.unassigned.some(e=>e.id===admissionId)}><summary>Create and assign an insured case</summary><CareForm action={action("create")} button="Create insurance case" testId="insurance-create"><label>Insured admission<select name="admissionId" required defaultValue={workspace.unassigned.some(e=>e.id===admissionId)?admissionId:""}><option value="">Choose an insured admission</option>{workspace.unassigned.map(e=><option key={e.id} value={e.id}>{e.name} · {e.ipCode}</option>)}</select></label><label>Insurance staff<select name="assignedStaffId"><option value="">Awaiting assignment</option>{workspace.staffList.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</select></label><CareField name="reason" label="Assignment reason"/></CareForm></details>}</section>
     {retainedCases.length>0&&<details className="card work-history"><summary>Retained case history · {retainedCases.length} cases</summary>{caseTable(retainedCases)}</details>}
     {review&&<>
       <section className="care-patient-context" aria-label="Selected insurance case"><div><h2>{review.episode.name} · {review.episode.uhid}</h2><p className="caption">{review.episode.ipCode} · {review.episode.bedLabel} · {review.episode.status}</p></div><div><strong>{review.episode.paymentRoute==="INSURED"?"Insurance recorded":"Converted to self-pay"}</strong><p className="caption">Case version {review.case.version} · document set {review.case.documentSetRevision} · current purpose access</p></div></section>
+      {ownReadiness&&<section className="notice"><p>Record external verification and accepted responsibility in Decision, attach evidence in Documents, and review local drafts in Paperwork. Your Insurance discharge check is a separate staff confirmation after the Doctor instruction and patient checklist.</p><Link className="button secondary" href={`/mvp/${review.episode.id}?tab=readiness`}>Review Insurance discharge check</Link></section>}
       {!episodeOpen&&<div className="notice"><strong>Retained history</strong><p>This episode is closed. Material corrections require attributable exception authority.</p><Link href={`/exceptions?admissionId=${review.episode.id}`}>Open authorized source review</Link></div>}
       <WorkflowTabs key={caseId} id="insurance-case" initialTab={tab??"case"} items={[
         {id:"case",label:"Case",children:<div className="financial-work-columns"><section className="card"><h2>Current insurance case</h2><p className="caption">One case · original policy and decision versions retained</p>

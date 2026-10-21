@@ -1,5 +1,9 @@
 # Local HIMS database setup
 
+## Current fictional training setup — 15 October 2026
+
+At the owner's explicit request, the existing ordinary database now contains **Lotus Grove Demo Hospital**, 12 sample beds, three categories, six priced catalogue items, three external Doctors and six staged fictional patients. Existing accounts, passwords, original records, protected files and migrations are preserved. No reset/bootstrap was performed. A fresh pre-setup backup and before/after preservation proof are retained privately. Use the [six-dashboard walkthrough](FICTIONAL_HOSPITAL_TESTING.md); earlier empty-configuration statements below describe the pre-training checkpoint. These illustrative policies do not establish real hospital policy.
+
 ## MVP v2 checkpoint — 15 October 2026
 
 **Verified local acceptance:** the complete root check passed 83 unit/176 actual PostgreSQL/81 Chromium tests, lint/types/build and isolated recovery of 96 tables / 1,850 exact rows / 23 protected files. The five additive migrations 0056–0060 are now applied to the ordinary database (61 SQL versions total). Before/after proof preserves all 81 original tables / 46 original rows, all 56 old migration bytes, credentials, private files and native checkpoint records. No reset/reseed or ordinary patient/policy seed occurred. Exact development CI and copied-preview observations are recorded after publication in ignored `tmp/mvp-implementation/release-evidence.json`; see [current progress](agent/MVP_IMPLEMENTATION_PROGRESS.md).

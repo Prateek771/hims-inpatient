@@ -1,0 +1,30 @@
+import Link from "next/link";
+import type { MvpReview } from "@/server/mvp/workspace";
+import type { PurposeRow, WorkspacePurpose } from "@/lib/mvp-workspace-purpose";
+import { formatINR } from "@/server/billing/money";
+import { MvpSummary } from "./mvp-summary";
+import { HospitalTimestamp } from "./hospital-timestamp";
+import { mvpPaperStatus } from "@/lib/mvp-paper-status";
+import type { StaffRole } from "@/server/contracts";
+const record = (value: unknown): Record<string, unknown> => value && typeof value === "object" ? value as Record<string, unknown> : {};
+const money = (value: unknown) => typeof value === "string" || typeof value === "number" || typeof value === "bigint" ? formatINR(BigInt(value)) : "Awaiting review";
+export function MvpWorkspaceSummary({ identity, review, purpose, showMoney, role }: { identity: PurposeRow; review: MvpReview; purpose: WorkspacePurpose; showMoney: boolean; role: StaffRole }) {
+  if (purpose === "patients") return <MvpSummary identity={identity} review={review} showMoney={showMoney} />;
+  const bill = record(review.bill), financial = record(review.financial), responsibility = record(financial.responsibility);
+  const paperStatus = mvpPaperStatus(review);
+  const financialRows = purpose === "insurance" ? [["Accepted insurer responsibility", responsibility.insurerPaise ?? financial.insurerAuthorizedPaise], ["Insurer receivable", responsibility.insurerOutstandingPaise], ["Insurer cash received", bill.insurerCashPaise]] : [["Net bill", bill.netPaise], ["Patient responsibility", responsibility.patientPaise], ["Actual patient money received", bill.patientReceivedPaise], ["Actual refunds", bill.refundedPaise], ["Patient still due", responsibility.patientOutstandingPaise], ["Accepted insurer responsibility", responsibility.insurerPaise ?? financial.insurerAuthorizedPaise], ["Insurer receivable", responsibility.insurerOutstandingPaise], ["Insurer cash received", bill.insurerCashPaise]];
+  const checks = (review.checks ?? []).filter(check => purpose === "discharge" && (showMoney || role === "PHARMACY" && check.check === "PHARMACY" || role === "NURSE" && ["NURSING", "DIAGNOSTICS"].includes(check.check)) || purpose === "medicine" && check.check === "PHARMACY" || purpose === "insurance" && check.check === "INSURANCE" || purpose === "nursing" && ["NURSING", "DIAGNOSTICS"].includes(check.check));
+  return <aside className="mvp-detail" aria-label="Selected patient episode">
+    <section><h2>{identity.name}</h2><p className="caption">{identity.uhid} · {identity.ipCode}</p><p className="caption">{identity.bedLabel}</p><p><strong>{identity.action}</strong></p><p>{identity.detail}</p><p className="caption">Responsible desk: {identity.owner}</p></section>
+    {purpose === "medicine" && <section><h3>Patient medicine sources</h3><p>{(review.medicine ?? []).filter(line => line.kind === "CHARGE").length} charges · {(review.medicine ?? []).filter(line => line.kind === "RETURN").length} accepted returns</p><p className="caption">Pharmacy records medicine bills and credits. Billing records actual cash refunds.</p></section>}
+    {["payments", "insurance"].includes(purpose) && showMoney && <section><h3>{purpose === "insurance" ? "Accepted responsibility & receipts" : "Money & settlement"}</h3><dl className="mvp-money">{financialRows.map(([label, amount]) => <div key={String(label)}><dt>{String(label)}</dt><dd>{money(amount)}</dd></div>)}</dl>{identity.caseId && purpose === "payments" && <Link href={`/insurance?caseId=${identity.caseId}`}>Review exact insurance case</Link>}</section>}
+    {checks.length > 0 && <section><h3>{purpose === "discharge" ? "Applicable discharge checks" : "Own readiness work"}</h3>{checks.map(check => <p className={`caption ${check.current ? "mvp-success" : "mvp-warning"}`} key={check.check}>{check.check.toLowerCase()} · {check.current ? check.status === "NA" ? "N/A confirmed" : "Complete" : "Review pending"}</p>)}</section>}
+    {purpose === "nursing" && <section><h3>External clinical instruction</h3><p>{review.clinical ? "Doctor instruction recorded" : "Await external Doctor instruction"}</p>{review.clinical && <p className="caption">{String(review.clinical.payload.authorizerName)} · source <HospitalTimestamp value={String(review.clinical.payload.sourceTime)} /></p>}</section>}
+    {purpose === "discharge" && role !== "PHARMACY" && <section><h3>Vacancy, papers & actual exit</h3><p>{paperStatus.exited ? "Actual exit recorded" : review.vacancy ? "Bed vacant; held through exit and turnover" : "Bed use continues"}</p><p className="caption">Final finance: {paperStatus.financeLabel}. Final papers: {paperStatus.finalPapers}. {(review.documents ?? []).length} retained paper versions; {(review.deliveries ?? []).length} recorded deliveries.</p></section>}
+    {purpose === "discharge" && role === "PHARMACY" && <section><h3>Departure status</h3><p>{identity.status === "DISCHARGED" ? "Episode closed" : "Patient remains admitted"}</p><p className="caption">Pharmacy reconciliation remains separate from final financial authority and paper delivery.</p></section>}
+    {purpose === "exceptions" && <section><h3>Recorded source & follow-up</h3><p>{identity.temporaryIdentity ? "Temporary identity requires verified identification follow-up." : identity.intakeException ? "Recorded administrator authority is available in the source history." : "Recorded exceptional disposition and authority remain available for review."}</p><p className="caption">Authority, actual movement and remaining obligations retain their own history.</p></section>}
+    {purpose === "admission" && <section><h3>Intake status</h3><p>{identity.status === "PENDING" ? "Reserved; review deposits and actual arrival." : "Arrival history retained; Nursing owns ongoing coordination."}</p></section>}
+    <Link className="button" href={identity.href}>{identity.action}</Link>
+    {purpose === "payments" && identity.status === "ADMITTED" && <Link className="button secondary" href={`/mvp/${identity.id}?tab=exit`}>Review final financial authorization</Link>}
+  </aside>;
+}

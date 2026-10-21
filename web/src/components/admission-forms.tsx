@@ -1,4 +1,6 @@
 "use client";
+
+import { SearchableSelect } from "./searchable-select";
 import { useActionState, useState } from "react";
 import Link from "next/link";
 
@@ -150,12 +152,9 @@ export function AdmissionForm({
           )}
           <h3>Admission responsibility</h3>
           <div className="fields admission-fields">
-            <label>Named treating Doctor
-              <select name="externalDoctorId" required defaultValue="">
-                <option value="" disabled>Select Doctor from the hospital directory</option>
-                {doctors.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-              </select>
-            </label>
+            <SearchableSelect name="externalDoctorId" label="Named treating Doctor" required
+              placeholder="Select Doctor from the hospital directory"
+              options={doctors.map(doctor => ({ value: doctor.id, label: doctor.name }))} />
             <p className="caption">Doctor availability is maintained by the designated shift Nurse. This records the treating Doctor; clinical approval is recorded separately.</p>
           </div>
           <div className="notice admission-code">
@@ -192,24 +191,9 @@ export function AdmissionForm({
                 <option value="INSURED">Insurance</option>
               </select>
             </label>
-            <label>
-              Bed assignment
-              <select
-                name="bedId"
-                required
-                value={selectedBed}
-                onChange={(event) => setSelectedBed(event.target.value)}
-              >
-                <option value="" disabled>
-                  Select available bed
-                </option>
-                {available.map((b) => (
-                  <option key={b.id} value={b.id}>
-                    {b.label} · {b.category} · Available
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SearchableSelect name="bedId" label="Bed assignment" required value={selectedBed}
+              onValueChange={setSelectedBed} placeholder="Select available bed"
+              options={available.map(bed => ({ value: bed.id, label: `${bed.label} · ${categories.find(c => c.code === bed.category)?.name ?? bed.category} · Available` }))} />
             <label>
               Expected stay (days)
               <input

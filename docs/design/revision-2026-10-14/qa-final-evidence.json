@@ -1,0 +1,105 @@
+{
+  "date": "2026-10-14",
+  "fileKey": "IuHawGiBaoUkOQsz7gtrdK",
+  "activePage": "2004:2248",
+  "verdict": "PASS: no unresolved blocking design defect",
+  "geometry": {
+    "frames": 65,
+    "nodes": 4193,
+    "texts": 2438,
+    "instances": 643,
+    "issues": [],
+    "overlaps": [],
+    "fonts": [
+      "IBM Plex Sans"
+    ],
+    "images": [],
+    "departmentIdentity": [
+      {
+        "id": "2021:2883",
+        "visible": true,
+        "parentVisible": true,
+        "box": {
+          "x": 1904,
+          "y": 19631,
+          "width": 1156,
+          "height": 76
+        }
+      }
+    ]
+  },
+  "links": {
+    "frames": 65,
+    "reactionNodes": 461,
+    "nodeActions": 454,
+    "validDestinations": 454,
+    "issues": [],
+    "unreachable": [],
+    "roleEntryLinks": [
+      {
+        "name": "Start here",
+        "node": "2007:2248",
+        "valid": true
+      },
+      {
+        "name": "Graphical patient journey",
+        "node": "2008:2401",
+        "valid": true
+      },
+      {
+        "name": "Admin",
+        "node": "2007:2386",
+        "valid": true
+      },
+      {
+        "name": "Admission",
+        "node": "2021:186",
+        "valid": true
+      },
+      {
+        "name": "Doctor",
+        "node": "2021:645",
+        "valid": true
+      },
+      {
+        "name": "Nurse",
+        "node": "2021:876",
+        "valid": true
+      },
+      {
+        "name": "Billing / Cashier",
+        "node": "2021:1803",
+        "valid": true
+      },
+      {
+        "name": "Pharmacy",
+        "node": "2021:2583",
+        "valid": true
+      },
+      {
+        "name": "Insurance",
+        "node": "2021:2662",
+        "valid": true
+      },
+      {
+        "name": "Other department",
+        "node": "2021:2865",
+        "valid": true
+      }
+    ],
+    "openOverlays": 95,
+    "roleHandoffs": 73,
+    "unexpectedDirectRoleEditors": []
+  },
+  "scope": "Read-only Figma QA; no application/database/Git/original-file mutation by QA",
+  "originalPreservation": {
+    "source": "Controller before/after comparison supplied to reviewer",
+    "rolePageFingerprint": "2ee1df3a2d92b89c",
+    "componentPageFingerprint": "d1b2a3c4c03a3184",
+    "result": "exactly unchanged"
+  },
+  "limitations": [
+    "Prototype does not prove working server authorization, uploads, forms, printing or clinical/financial commands.",
+    "Full-frame Department screenshot delivery was stale/partial; native identity-banner screenshot and live geometry confirm current visible patient/IP context."
+  ]
+}

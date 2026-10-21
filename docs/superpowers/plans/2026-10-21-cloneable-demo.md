@@ -23,7 +23,7 @@
 
 - [x] Add pure target/emptiness guards with tests for wrong host/role/database, missing schema, existing records, and nonprivileged runtime identity.
 - [x] Add CLI wrapper and domain-command seed for categories/tariffs/deposits, beds, external Doctors, catalogue and staged fictional patients. Generate private per-installation credentials; refuse replay.
-- [ ] Document fresh installation and six-role exercises; integrate seed into existing fresh CI setup, test isolated initialization/replay refusal and publication secret checks, review and push scoped commit.
+- [x] Document fresh installation and six-role exercises; integrate seed into existing fresh CI setup, test isolated initialization/replay refusal and publication secret checks, review and push scoped commit.
 
 ## Verification
 
@@ -38,3 +38,4 @@ Run guard units, complete unit suite, lint/types; run actual seed on a fresh iso
 - Seed bundled against55 committed server-source files without depending on uncommitted local UI helpers. The GitHub package deliberately excludes unrelated local UI/doc work.
 - Independent GPT-6.1 Sol review's linked-bundle-output finding fixed using in-memory build plus unique exclusive file creation; re-review found no remaining blocker.
 - Private logs, cluster, generated test logins, summary and browser evidence remain ignored. Fresh-install instructions are in docs/CLONE_DEMO.md; GitHub publication/CI outcome is reported in the final task response.
+- Published9scoped files in commit8a41f5572909a08e94f695c235e40c2de4523e60 on codex/hims-development. Exact CI run39574772583 passed fresh seed, all unit/PostgreSQL checks, lint/types/runtime audit, build, browser checks and isolated recovery. Main and unrelated working changes remain untouched. This completion annotation is local handoff bookkeeping after the verified publication.

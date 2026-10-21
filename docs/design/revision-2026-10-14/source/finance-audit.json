@@ -1,0 +1,177 @@
+{
+  "frames": [
+    {
+      "id": "2009:3485",
+      "name": "Billing · Find a patient episode",
+      "bodyHeight": 828,
+      "scroll": "VERTICAL",
+      "textCount": 46
+    },
+    {
+      "id": "2009:3566",
+      "name": "Billing · As-of financial statement",
+      "bodyHeight": 923,
+      "scroll": "VERTICAL",
+      "textCount": 63
+    },
+    {
+      "id": "2009:3668",
+      "name": "Billing · Patient charges and accepted returns",
+      "bodyHeight": 827,
+      "scroll": "VERTICAL",
+      "textCount": 59
+    },
+    {
+      "id": "2009:3762",
+      "name": "Billing · Cashier: deposit, allocation and refund",
+      "bodyHeight": 779,
+      "scroll": "VERTICAL",
+      "textCount": 57
+    },
+    {
+      "id": "2009:3853",
+      "name": "Billing · Final review: required items pending",
+      "bodyHeight": 892,
+      "scroll": "VERTICAL",
+      "textCount": 56
+    },
+    {
+      "id": "2009:3945",
+      "name": "Billing · Final financial authorization",
+      "bodyHeight": 844,
+      "scroll": "VERTICAL",
+      "textCount": 51
+    },
+    {
+      "id": "2009:4033",
+      "name": "Billing · Discharge case: documents and versions",
+      "bodyHeight": 955,
+      "scroll": "VERTICAL",
+      "textCount": 58
+    },
+    {
+      "id": "2009:4128",
+      "name": "Pharmacy · Pharmacy reconciliation and clearance",
+      "bodyHeight": 839,
+      "scroll": "VERTICAL",
+      "textCount": 45
+    },
+    {
+      "id": "2009:4200",
+      "name": "Insurance · Insurance authorization and claim documents",
+      "bodyHeight": 981,
+      "scroll": "VERTICAL",
+      "textCount": 54
+    },
+    {
+      "id": "2009:4290",
+      "name": "Insurance · Post-exit insurer collections",
+      "bodyHeight": 731,
+      "scroll": "VERTICAL",
+      "textCount": 44
+    },
+    {
+      "id": "2009:4364",
+      "name": "Department · Department coordination: independent checks",
+      "bodyHeight": 943,
+      "scroll": "VERTICAL",
+      "textCount": 64
+    },
+    {
+      "id": "2009:4457",
+      "name": "Admin · Optional department applicability",
+      "bodyHeight": 876,
+      "scroll": "VERTICAL",
+      "textCount": 49
+    },
+    {
+      "id": "2009:4543",
+      "name": "Billing · Print preview: as-of statement",
+      "bodyHeight": 981,
+      "scroll": "VERTICAL",
+      "textCount": 60
+    },
+    {
+      "id": "2009:4638",
+      "name": "Billing · Source evidence and document references",
+      "bodyHeight": 741,
+      "scroll": "VERTICAL",
+      "textCount": 47
+    },
+    {
+      "id": "2009:4717",
+      "name": "Billing · Record an external charge or accepted return",
+      "bodyHeight": 734,
+      "scroll": "VERTICAL",
+      "textCount": 35
+    },
+    {
+      "id": "2009:4787",
+      "name": "Billing · Allocation and refund recorded",
+      "bodyHeight": 741,
+      "scroll": "VERTICAL",
+      "textCount": 39
+    },
+    {
+      "id": "2009:4857",
+      "name": "Pharmacy · Print preview: pharmacy reconciliation",
+      "bodyHeight": 741,
+      "scroll": "VERTICAL",
+      "textCount": 33
+    },
+    {
+      "id": "2009:4915",
+      "name": "Insurance · Verified decision recorded",
+      "bodyHeight": 741,
+      "scroll": "VERTICAL",
+      "textCount": 35
+    },
+    {
+      "id": "2009:4977",
+      "name": "Insurance · Record a post-exit payer receipt",
+      "bodyHeight": 734,
+      "scroll": "VERTICAL",
+      "textCount": 31
+    },
+    {
+      "id": "2009:5039",
+      "name": "Insurance · Post-exit receipt: receivable settled",
+      "bodyHeight": 779,
+      "scroll": "VERTICAL",
+      "textCount": 48
+    },
+    {
+      "id": "2009:5117",
+      "name": "Department · Own department clearance recorded",
+      "bodyHeight": 693,
+      "scroll": "VERTICAL",
+      "textCount": 31
+    },
+    {
+      "id": "2009:5172",
+      "name": "Admin · Admin confirmed optional N/A",
+      "bodyHeight": 741,
+      "scroll": "VERTICAL",
+      "textCount": 38
+    },
+    {
+      "id": "2009:5240",
+      "name": "Billing · Print preview: pre-exit authorized packet",
+      "bodyHeight": 854,
+      "scroll": "VERTICAL",
+      "textCount": 43
+    },
+    {
+      "id": "2009:5316",
+      "name": "Billing · Partial cover, denial and patient shortfall",
+      "bodyHeight": 666,
+      "scroll": "VERTICAL",
+      "textCount": 42
+    }
+  ],
+  "horizontal": [],
+  "textClips": [],
+  "empty": [],
+  "fontBad": [],
+  "overlaps": []
+}

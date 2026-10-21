@@ -1,0 +1,64 @@
+{
+  "page": "2004:2248",
+  "frames": 66,
+  "nodeCounts": {
+    "FRAME": 1114,
+    "TEXT": 2444,
+    "INSTANCE": 644
+  },
+  "fontFamilies": [
+    "IBM Plex Sans"
+  ],
+  "imageFilledNodes": [],
+  "danglingDestinations": [],
+  "horizontalEscapes": [],
+  "frameOverlaps": [],
+  "validNodeConnections": 454,
+  "reachableFromStart": 64,
+  "unreachableKeys": [
+    "HDoctor",
+    "FReceiptRecord"
+  ],
+  "startingPoints": [
+    {
+      "nodeId": "2007:2248",
+      "name": "Start here"
+    },
+    {
+      "nodeId": "2008:2401",
+      "name": "Graphical patient journey"
+    },
+    {
+      "nodeId": "2007:2386",
+      "name": "Admin"
+    },
+    {
+      "nodeId": "2021:186",
+      "name": "Admission"
+    },
+    {
+      "nodeId": "2021:645",
+      "name": "Doctor"
+    },
+    {
+      "nodeId": "2021:876",
+      "name": "Nurse"
+    },
+    {
+      "nodeId": "2021:1803",
+      "name": "Billing / Cashier"
+    },
+    {
+      "nodeId": "2021:2583",
+      "name": "Pharmacy"
+    },
+    {
+      "nodeId": "2021:2662",
+      "name": "Insurance"
+    },
+    {
+      "nodeId": "2021:2865",
+      "name": "Other department"
+    }
+  ]
+}

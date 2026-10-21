@@ -1,0 +1,206 @@
+{
+  "date": "2026-10-14",
+  "authorization": "Owner-approved revision document; new Figma duplicate and prototype only. Actual application implementation is not authorized.",
+  "original": {
+    "fileKey": "SHtJNa3gp1oqOpNm8VzcmQ",
+    "finalPreservation": [
+      {
+        "pageId": "0:1",
+        "nodeCount": 7477,
+        "viewCount": 96,
+        "connectionCount": 854,
+        "fingerprint": "2ee1df3a2d92b89c",
+        "unchanged": true
+      },
+      {
+        "pageId": "2:2",
+        "nodeCount": 39,
+        "viewCount": 0,
+        "connectionCount": 0,
+        "fingerprint": "d1b2a3c4c03a3184",
+        "unchanged": true
+      }
+    ]
+  },
+  "revision": {
+    "fileKey": "IuHawGiBaoUkOQsz7gtrdK",
+    "title": "HIMS · Inpatient Coordination — Revision Prototype",
+    "activePage": "2004:2248",
+    "nativeDuplicate": {
+      "rolePageNodes": 7477,
+      "originalViews": 96,
+      "originalConnections": 854,
+      "componentPageNodes": 39
+    },
+    "active": {
+      "frames": 65,
+      "nodeCounts": {
+        "FRAME": 1112,
+        "TEXT": 2438,
+        "INSTANCE": 643
+      },
+      "validNodeConnections": 454,
+      "dangling": [],
+      "reachableFromStart": 65,
+      "unreachableFrames": [],
+      "fontFamilies": [
+        "IBM Plex Sans"
+      ],
+      "flowStartingPoints": [
+        {
+          "nodeId": "2007:2248",
+          "name": "Start here"
+        },
+        {
+          "nodeId": "2008:2401",
+          "name": "Graphical patient journey"
+        },
+        {
+          "nodeId": "2007:2386",
+          "name": "Admin"
+        },
+        {
+          "nodeId": "2021:186",
+          "name": "Admission"
+        },
+        {
+          "nodeId": "2021:645",
+          "name": "Doctor"
+        },
+        {
+          "nodeId": "2021:876",
+          "name": "Nurse"
+        },
+        {
+          "nodeId": "2021:1803",
+          "name": "Billing / Cashier"
+        },
+        {
+          "nodeId": "2021:2583",
+          "name": "Pharmacy"
+        },
+        {
+          "nodeId": "2021:2662",
+          "name": "Insurance"
+        },
+        {
+          "nodeId": "2021:2865",
+          "name": "Other department"
+        }
+      ]
+    },
+    "frames": {
+      "RStart": "2007:2248",
+      "RJourney": "2007:2315",
+      "RAdmin": "2007:2386",
+      "RBeds": "2007:2463",
+      "RTurnover": "2007:2536",
+      "RBedAvailable": "2007:2588",
+      "RStaff": "2007:2624",
+      "RAudit": "2007:2687",
+      "RExceptions": "2007:2746",
+      "RExceptionCopy": "2007:2811",
+      "RSettings": "2007:2862",
+      "RTransfer": "2007:2925",
+      "RMap": "2008:2401",
+      "HAdmin": "2015:170",
+      "HAdmission": "2015:181",
+      "HNurse": "2015:203",
+      "HBilling": "2015:214",
+      "HPharmacy": "2015:225",
+      "HInsurance": "2015:236",
+      "HDepartment": "2015:247",
+      "WPatientSearch": "2021:186",
+      "WIntake": "2021:258",
+      "WBedSuitability": "2021:371",
+      "WActivation": "2021:504",
+      "WIDSlip": "2021:635",
+      "WDoctorApproval": "2021:645",
+      "WClinicalPapers": "2021:729",
+      "WPaperVerification": "2021:753",
+      "WChecklist": "2021:876",
+      "WNursingReadiness": "2021:978",
+      "WVacancy": "2021:1075",
+      "WAwaitFinance": "2021:1170",
+      "WActualExit": "2021:1263",
+      "WClosedTurnover": "2021:1370",
+      "WChecklistPrint": "2021:1457",
+      "WEvidenceCapture": "2021:1493",
+      "WFinancialStatus": "2021:1539",
+      "WAsOfPrint": "2021:1625",
+      "WPacketPrint": "2021:1666",
+      "WClosedPacketPrint": "2021:1730",
+      "WChangedFacts": "2021:1771",
+      "FLookup": "2021:1803",
+      "FStatement": "2021:1899",
+      "FCharges": "2021:2025",
+      "FCashier": "2021:2139",
+      "FFinalPending": "2021:2252",
+      "FFinalReady": "2021:2364",
+      "FPacket": "2021:2476",
+      "FPharmacy": "2021:2583",
+      "FInsurance": "2021:2662",
+      "FCollections": "2021:2774",
+      "FDepartments": "2021:2865",
+      "FApplicability": "2021:2964",
+      "FPrintAsOf": "2021:3065",
+      "FEvidence": "2021:3169",
+      "FChargeEntry": "2021:3259",
+      "FCashierConfirm": "2021:3353",
+      "FPharmacyReport": "2021:3433",
+      "FInsuranceSaved": "2021:3495",
+      "FReceiptRecord": "2021:3563",
+      "FReceiptSaved": "2021:3645",
+      "FDepartmentSaved": "2021:3741",
+      "FApplicabilitySaved": "2021:3800",
+      "FPacketPrint": "2021:3877",
+      "FFinancialCases": "2021:3963"
+    },
+    "geometry": {
+      "horizontalTextEscapes": 0,
+      "internalAncestorEscapes": 0,
+      "frameOverlaps": 0,
+      "imageFilledNodes": 0,
+      "independentReviewer": "figma_revision_qa"
+    },
+    "browser": {
+      "prototypeLoaded": true,
+      "clickedStartToGraphicalMap": true,
+      "observedDestination": "2008:2401"
+    }
+  },
+  "application": {
+    "head": "8ffa9691ca2bf8acfcd8e8a58ba8141ad56c2e54",
+    "branch": "codex/hims-development",
+    "sourceChanges": false,
+    "databaseCommandsRun": false,
+    "credentialsChanged": false,
+    "testsRun": false,
+    "reason": "Design-only task; no application changes"
+  },
+  "fictionalCase": {
+    "name": "Meera Shah",
+    "UHID": "MGH-00127",
+    "IP": "IP-2026-00108",
+    "gross": 120000,
+    "acceptedReturns": 5000,
+    "netBill": 115000,
+    "patientDeposit": 30000,
+    "actualRefund": 5000,
+    "patientSettled": 25000,
+    "insurerReceivableAtExit": 90000,
+    "insurerReceiptAtExit": 0,
+    "doctorTime": "10:00",
+    "paperRecordingTime": "10:03",
+    "pharmacyCheck": "10:08",
+    "labCheck": "10:09",
+    "insuranceDischargeCheck": "10:11",
+    "nursingCheck": "10:12",
+    "vacancy": "10:15",
+    "finance": "10:25",
+    "exit": "10:45",
+    "cleaning": "11:05",
+    "preExitPacket": "v1",
+    "closedPacket": "v2"
+  }
+}

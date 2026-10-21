@@ -1,6 +1,7 @@
 import "server-only";
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getTableColumns, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { mvpTransferTimeline } from "@/lib/mvp-transfer-timeline";
 import { admissionOperator, transferAdmissionInTransaction } from "../admissions/commands";
 import { admissions, beds, effectiveRoomStays } from "../admissions/schema";
 import { admissionTransfers, mvpTransferAuthorities, mvpTransferCancellations } from "../admissions/transfer-schema";
@@ -9,6 +10,7 @@ import { careEpisode, careRequest } from "../clinical/commands";
 import { DomainError, type CommandContext } from "../contracts";
 import { withTransaction, type Transaction } from "../db";
 import { settingVersions } from "../schema/core";
+import { user } from "../schema/auth";
 import { doctorDirectoryVersions } from "./staff-schema";
 
 const note = z.string().trim().min(3).max(500);
@@ -100,15 +102,16 @@ export async function getMvpTransferState(ctx: CommandContext, admissionId: stri
     const [episode] = await tx.select().from(admissions).where(eq(admissions.id, z.uuid().parse(admissionId)));
     if (!episode || episode.workflowVersion !== 2) throw new DomainError("FORBIDDEN", "MVP transfer access denied");
     if (staff.role === "NURSE" && !(await tx.execute(sql`select hims.mvp_assigned(${episode.id}::uuid,${staff.id}) allowed`)).rows[0]?.allowed) throw new DomainError("FORBIDDEN", "Current episode Nurse assignment required");
-    const [currentStay] = await tx.select().from(effectiveRoomStays).where(and(eq(effectiveRoomStays.admissionId, episode.id), isNull(effectiveRoomStays.endedAt)));
+    const stays = await tx.select().from(effectiveRoomStays).where(eq(effectiveRoomStays.admissionId, episode.id));
+    const currentStay = stays.find(stay => stay.endedAt === null);
     const sources = await tx.select().from(mvpTransferAuthorities).where(eq(mvpTransferAuthorities.admissionId, episode.id)).orderBy(desc(mvpTransferAuthorities.version));
     const cancellations = await tx.select().from(mvpTransferCancellations).where(eq(mvpTransferCancellations.admissionId, episode.id));
-    const history = await tx.select().from(admissionTransfers).where(eq(admissionTransfers.admissionId, episode.id)).orderBy(desc(admissionTransfers.transferredAt));
+    const history = await tx.select({ ...getTableColumns(admissionTransfers), recorderName: user.name }).from(admissionTransfers).leftJoin(user, eq(user.id, admissionTransfers.signedBy)).where(eq(admissionTransfers.admissionId, episode.id)).orderBy(desc(admissionTransfers.transferredAt));
     const authorities = sources.map((source, i) => ({ ...source, status: history.some(h => h.mvpAuthorityId === source.id) ? "COMPLETED" as const : cancellations.some(c => c.authorityId === source.id) ? "CANCELLED" as const : i === 0 && episode.status === "ADMITTED" && currentStay?.id === source.sourceStayId ? "PENDING" as const : "SUPERSEDED" as const }));
     const targets = await tx.select({ id: beds.id, label: beds.label, category: beds.category, available: sql<boolean>`${beds.active} and not exists(select 1 from hims.bed_holds h where h.bed_id=${beds.id}) and not exists(select 1 from hims.effective_bed_turnovers t where t.bed_id=${beds.id} and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id))` }).from(beds).orderBy(asc(beds.label));
     const versions = await tx.select().from(settingVersions).where(eq(settingVersions.hospitalId, episode.hospitalId)).orderBy(desc(settingVersions.version));
     const seen = new Set<string>();
     const categories = versions.filter(v => { if (v.payload.type !== "bed-category" || typeof v.payload.code !== "string" || seen.has(v.payload.code)) return false; seen.add(v.payload.code); return v.payload.active === true; }).map(v => ({ code: String(v.payload.code), name: String(v.payload.name) }));
-    return { episodeVersion: episode.version, currentStay: currentStay ?? null, authorities, cancellations, history, beds: targets, categories };
+    return { episodeVersion: episode.version, currentStay: currentStay ?? null, timeline: mvpTransferTimeline(stays, targets, history), authorities, cancellations, history, beds: targets, categories };
   });
 }

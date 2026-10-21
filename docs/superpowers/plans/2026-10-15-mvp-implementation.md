@@ -88,9 +88,9 @@ Interfaces: Consume Task2/3 strict public APIs. Workspace projection has current
 - [x] Fresh full `npm --prefix web run check`: units, actual PostgreSQL, lint/types/build, Chromium/HTTP and isolated synthetic recovery; fix root causes without removing old requirements.
 - [x] Runtime `npm --prefix web audit --omit=dev`; report full `npm --prefix web audit` separately.
 - [x] Apply only reviewed additive ordinary migrations under dedicated limited owner; verify original columns/rows, old applied SQL bytes, private files/credentials and checkpoint history against fresh baseline.
-- [ ] Start the new verified local copied preview without removing old artifacts, exercise actual readiness/login and new synthetic journey in isolated fixture context. Do not seed ordinary patients or replace credentials.
+- [x] Start the new verified local copied preview without removing old artifacts, exercise actual readiness/login and new synthetic journey in isolated fixture context. Do not seed ordinary patients or replace credentials.
 - [x] Independent final source/security/workflow review, applicable current primary docs, fresh source-specific validation evidence, local links and `git diff --check`.
-- [ ] Commit/push only verified authorized checkpoint on development when ready, preserve unrelated assets; exact CI before any authorized main integration. No deployment.
+- [x] Commit/push only verified authorized checkpoint on development when ready, preserve unrelated assets; exact CI before any authorized main integration. No deployment.
 
 ## Readiness conclusion
 
@@ -98,3 +98,6 @@ Scope, approved visual direction, chosen stack, existing PostgreSQL, credentials
 
 
 Local acceptance: complete83/176/81 gate and isolated96-table1850-row23-file recovery passed. Reviewed ordinary 0056–0060 applied with exact81-table46-row historical/56-SQL/private-file preservation. Actual post-commit CI/preview identities live in ignored `tmp/mvp-implementation/release-evidence.json`; publication/preview boxes are closed only after those observations.
+
+
+Release complete: implementation0b99b436374a85c41f7530a7d4de02b6e150e301 pushed; exact CI38718891980 passed; copied task19 preview BUILD_ID DCQnVTOklKN1DGW4SyifJ runs on localhost:3000 with readiness/login HTTP200. Final ordinary preservation remains81 tables/46 original rows exact and61 migration/source hashes current. These post-commit observations are saved locally and in ignored release-evidence.json; application source matches the pushed checkpoint. Admin real-hospital setup remains required, with no seed/provider integration/deployment.

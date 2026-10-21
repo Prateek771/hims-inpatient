@@ -9,7 +9,17 @@ The owner accepted the new Admin dashboard direction and requested the whole MVP
 The owner accepted the new Admin dashboard and authorized the whole MVP including local PostgreSQL. [Controlling scope](PROJECT_SCOPE.md); [executable plan](superpowers/plans/2026-10-15-mvp-implementation.md); [actual verification and pending work](agent/MVP_IMPLEMENTATION_PROGRESS.md). Six routine staff workspaces use the forest/linen/Public Sans design. New admissions use version 2; existing episodes retain version 1. Earlier design-only stops and eight-role descriptions below are historical. No repeated design approval is required. Preserve accounts, data, credentials, private files, old designs/builds and applied migrations.
 
 
+## New coordination prototype · 14 October 2026
+
+The owner approved the [inpatient coordination revision document](revisions/2026-10-14/README.md) and requested a new editable Figma duplicate, using subagents, with the original and actual application unchanged. [New revision workspace](https://www.figma.com/design/IuHawGiBaoUkOQsz7gtrdK) is **HIMS · Inpatient Coordination — Revision Prototype**. Its simplified clinical evidence, nursing checklist, parallel department checks, final financial authorization and insurer receivable behavior are a design proposal for prototype review, not implemented application behavior. The earlier original remains available unchanged at its link below. [Revision source and verification](design/revision-2026-10-14/README.md) records the new role entries and review evidence.
+
 ## Current approval · 11 October 2026
+
+### Fictional hospital data · 14 October 2026
+
+The owner requested fuller hypothetical data in this same Figma prototype. All eight roles retain the approved menus, editable native layers and existing screen IDs. Concrete fictional intake, care, insurance, stock, diagnostic, financial and configuration examples replace generic data-entry copy; 19 additional worklist rows illustrate multiple patients and workflow states. The 80-bed morning overview retains 64 occupied, 8 ready, 3 reserved and 5 cleaning beds. Later screens illustrate earlier transfer and completed discharge stages rather than one live instant. Meera's INR 115,000 bill reconciles to INR 90,000 insurer receipt plus INR 30,000 patient deposit minus INR 5,000 refund.
+
+The reusable [fictional dataset](design/demo/hospital-demo-data.json), [native Figma population script](design/demo/populate-figma.js) and [verification record](design/demo/verification.json) are design source only. No ordinary app fixtures, credentials, hospital policies or real clinical records were changed. The prototype remains 96 linked views: 854 connections have valid destinations, all text uses IBM Plex Sans, and final structural checks found no text clipping, canvas overflow, frame overlap or image-filled UI. Representative screens from every role and the longer orders/discharge/settings views were visually checked. Six canvases were extended to fit their content, with canvas rows shifted to retain separation; in-screen styling remains unchanged.
 
 The owner approved **HIMS · Final Product — Role Workflows** and authorized actual implementation in one next chat in this same INS folder, with parallel subagents and a dedicated illustrated patient-journey guide agent. This replaces the older visual layout below; existing Tasks 1–16 business behavior and server authority remain controlling.
 

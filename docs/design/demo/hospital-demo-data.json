@@ -1,0 +1,847 @@
+{
+  "fileKey": "SHtJNa3gp1oqOpNm8VzcmQ",
+  "date": "2026-10-14",
+  "hospital": "Lotus Hospital — fictional demonstration",
+  "scope": "Existing Figma prototype only. No application or database fixtures.",
+  "baseline": {
+    "frames": 96,
+    "nodes": 7394,
+    "texts": 3936,
+    "links": 854
+  },
+  "replacements": {
+    "LOTUS HOSPITAL": "LOTUS · DEMO HOSPITAL",
+    "Prateek Yadav": "Anil Deshmukh",
+    "Prateek Yadav ▾": "Anil Deshmukh ▾",
+    "Prateek Yadav · Admin": "Anil Deshmukh · Admin",
+    "11 Oct · 10:30 IST": "Demo · 14 Oct 2026",
+    "Current hospital operations · 11 Oct 2026, 10:30 IST.": "Fictional hospital snapshot · 14 Oct 2026, 09:30 IST.",
+    "Current v3 · Prateek Yadav\n11 Oct 2026 · reviewed hospital configuration": "Demo v3 · Anil Deshmukh\n14 Oct 2026 · fictional configuration",
+    "Recorded hospital address": "18 Demo Avenue, Pune · fictional address",
+    "Named hospital policy owner’s instruction": "Demo policy approved by Anil Deshmukh",
+    "New hospital staff member": "Kiran Joshi",
+    "staff@hospital.example": "kiran.joshi@lotus.example",
+    "Select the assigned hospital role": "Nurse · General ward",
+    "Named administrator reason": "Add evening-shift General ward cover",
+    "UHID or known patient details": "Riya Verma · UHID-00495",
+    "Known DOB / explicitly reported age": "12 Jun 1988 · 38 years",
+    "As actually recorded": "Female · patient-reported",
+    "Record known contact or mark unavailable": "Contact withheld in this fictional demo",
+    "Clinician who supplied the assessment": "Dr Kavita Menon · intake note INTAKE-0051",
+    "Record the actual clinician-provided complaint, vitals and destination.": "Fictional intake: fever and cough; clinician advised inpatient assessment.",
+    "Clinician / hospital recorded estimate": "3 days · fictional planning estimate",
+    "Insured / Self-pay": "Insured · fictional employer policy",
+    "Named hospital paperwork responsibility": "Sana Khan · preauthorization documents",
+    "Record actual reason; UHID and IP code stay retained": "Patient deferred planned admission · 14 Oct 09:20",
+    "Record actual reason; identity and IP code stay retained": "Patient deferred admission · identity retained",
+    "Temporary identity · reserved": "Temporary identity · SP-10 reserved",
+    "Record identification work and the next owner": "Aditi: identification pending; Admin owns urgent approval.",
+    "Name from verified identification": "Aman Sethi · fictional later identification",
+    "Record only known facts": "Age 46 · explicitly reported by relative",
+    "Known contact or explicitly unavailable": "Contact unavailable · retained as unknown",
+    "Source reference and accountable identification reason": "ID-DEMO-0052 · later identity supplied by relative",
+    "Recorded validity dates": "01 Jan 2026 – 31 Dec 2026 · demo policy",
+    "Externally verified insurer and TPA": "Sahyadri Assurance / Lotus TPA · fictional",
+    "POL-0042 · MEM-00482": "DEMO-POL-0042 · DEMO-MEM-00482",
+    "Named verifier · 11 Oct 09:15 IST · AUTH-0042": "Sana Khan · 14 Oct 09:15 · AUTH-0042 (demo)",
+    "Approved · external evidence retained": "Final approved · AUTH-0042 · demo evidence",
+    "Document completeness · FOLLOW-0021": "FOLLOW-0021 · final summary and bill checked",
+    "Record actual staff work and evidence": "Sana: final bill v7 matched to AUTH-0042 · demo",
+    "approval-example.pdf": "meera-final-approval-demo.pdf",
+    "Record the reason for this human decision": "Quoted reference matched to DOC-0043 · demo review",
+    "Enter the externally verified result and source reference": "Final approval ₹90,000 · AUTH-0042 · demo",
+    "Assigned Insurance staff · actual manual work": "Sana Khan · verify receipt INS-0042 by 11:00",
+    "Confirm required evidence and the current patient responsibility before accepting the local packet.": "Final bill v7 and summary v3 attached; patient share ₹25,000 reviewed.",
+    "Reviewed at the bedside. Current findings and clinician instructions are recorded with this round.": "Fictional round: symptoms improving. CBC reviewed; existing orders retained by Dr Menon.",
+    "Clinician-recorded diagnosis": "Community-acquired pneumonia · fictional case",
+    "Recorded treatment, procedures and significant events.": "Demo stay 7–14 Oct: assessment, monitored care, laboratory review and recovery.",
+    "As assessed by the doctor": "Clinician documented fit for discharge · demo",
+    "As instructed by the doctor": "Review on 21 Oct 2026 with treating team · demo",
+    "Recorded clinical advice": "Discharge instructions reviewed with patient · demo",
+    "As signed by the doctor": "Retained signed demonstration order",
+    "Enter the correction": "Demo addendum: morning review time corrected to 09:10.",
+    "Correct a recorded fact": "Correct documented review time",
+    "Doctor’s clinical review of the current sources.": "Demo: summary v3 and current prescription reviewed.",
+    "Clinician-recorded destination and required handover instructions.": "Demo historical transfer: monitored ICU care; hand over current orders.",
+    "Reason for reconsideration": "Demo: proposed move withdrawn before handover",
+    "Actual clinician instructions for the selected work": "CBC and observations as per retained demo order",
+    "Record only performed work": "Demo source PROC-003 completed · 08 Oct 11:20",
+    "Actual reason to stop ongoing work": "Demo: clinician cancelled unperformed work",
+    "Record the factual completion": "Demo: prescribed diet served at 09:00",
+    "Record the factual reason when applicable": "HELD · patient declined dose · clinician informed (demo)",
+    "GIVEN / HELD / REFUSED": "GIVEN · occurrence signed by Priya Das",
+    "Record the actual specimen and collection details": "Demo: EDTA sample collected 14 Oct 09:20",
+    "Actual department processing record": "Demo: barcode verified; CBC processed at 09:30",
+    "Record the corrected human finding, retaining the original report.": "Demo correction: corrected unit to ×10³/µL; numeric result unchanged.",
+    "Resolve the original recorded price source": "Demo: attach CBC item LAB-CBC v3 to LAB-0042",
+    "Record the factual move, care handed over and pending tasks.": "Demo: G-12 → ICU-02 at 10:20; current orders handed over.",
+    "Record what happened, the destination and care actually handed over.": "Demo witness: G-12 → ICU-02; handover to Farah Ali.",
+    "Record the actual care arrangement": "Demo: Priya retains monitoring in discharge lounge.",
+    "Recorded source reconciliation": "Demo: chart, MAR, handover and consumables reconciled.",
+    "Recorded care task": "Demo: gloves used for documented bedside care",
+    "Source USE-0043 · attach the permitted fee identity": "USE-0043 · DRESS-PACK v3 · demo fee review",
+    "Actual ward responsibility": "General ward · Priya Das · 06:00–14:00 demo shift",
+    "Record completed shift/handover before revocation": "Handover to Farah Ali completed · demo",
+    "Named hospital authority and actual reason": "Anil Deshmukh · urgent arrival; deposit deferred (demo)",
+    "Retained proper professional sources": "INTAKE-0052 · clinician source retained · demo",
+    "IP-2026-00151 · urgent arrival": "IP-2026-00152 · urgent arrival",
+    "IP-2026-00151 · urgent no-deposit activation": "IP-2026-00152 · urgent no-deposit activation",
+    "Billing · actual configured deposit still owed": "Neha Gupta · collect ₹10,000 deferred deposit (demo)",
+    "Actual completion time and housekeeping evidence": "14 Oct 09:00 · HK-DEMO-0038 · housekeeping log",
+    "Configured medicine · MED-002": "Ceftriaxone · CEF-2609-B",
+    "Retained expired batch": "Amoxicillin · AMX-2508-X",
+    "Configured source alerts": "Expiry and reorder review · demo",
+    "−2 tablets · actual stock-count reason": "−2 tablets · damaged pack · COUNT-DEMO-0042",
+    "BATCH-0042 · book / document / line": "BATCH-0042 · GRN-DEMO-0068 · line 1",
+    "Recorded actual fulfilment and source review": "Arjun: signed Rx v3, issues and returns reconciled · demo",
+    "Original batch, unit, quantity and accountable reason": "ISS-0042 · 2 tablets returned unused · demo",
+    "Attach the correct source configuration": "ROUND-0104 · CONS-001 v3 confirmed · demo",
+    "Linked source and accountable reason": "ISS-0042 · linked return at original rate · demo",
+    "Original source amount and accountable correction reason": "CHG-DEMO-0140 · duplicate ₹500 reversal · demo",
+    "EX-0028 · original ledger / receipt ID": "EX-0044 · CHG-DEMO-0140 · demo authority",
+    "Record actual staff work and reference": "Neha: receipt evidence checked · FOLLOW-DEMO-0044",
+    "Record actual staff work and the next owner": "Demo source checked; named owner retains follow-up",
+    "Record completed work and the next owner": "Dr Menon: source reviewed; next owner Neha Gupta",
+    "Record the actual clinical decision and advice given.": "Alternate demo: patient declined continued care; Doctor evidence retained.",
+    "Keep the original event and named next owner": "Priya: original witness retained; Billing reviews rate source.",
+    "Attributable human addendum or permitted diagnostic fee reconciliation": "Nikhil: corrected report unit; original report retained · demo",
+    "Clinician-supplied intake and current source": "INTAKE-DEMO-0051 · Dr Kavita Menon",
+    "Required deposit ₹10,000\nActual patient deposits ₹15,000": "Demo required ₹10,000\nPatient deposit recorded ₹15,000",
+    "Record actual sources reconciled against current bill v7": "Demo: bill v7, receipts and refund reconciled",
+    "Actual sources reconciled against current bill v7": "Demo: bill v7, receipts and refund reconciled",
+    "Actual payment source, actor, time and evidence": "Demo hospital receipt book · retained reference",
+    "Recorded by Aditi Shah. This intake provenance is not the clinician’s electronic clearance signature.": "Demo intake recorded by Aditi Shah; the clinician’s own signature remains separate.",
+    "Open the patient chart for signed clinical records and current work.": "Showing 8 of 12 fictional assigned patients · open Meera’s staged care example.",
+    "Meera Shah · G-12  /  Rohan Mehta · G-18\nAsha Das · G-21  /  Nita Rao · G-20": "Meera · G-12 / Rohan · G-18 / Asha · G-21 / Nita · G-20\nFarhan · G-06 / Leela · G-08 / Suman · G-10 / Aarav · G-01",
+    "Grace is deducted once per half-open stay. An explicit zero tariff is different from a missing tariff.": "Demo daily tariffs: General ₹3,000; ICU ₹15,000; Private ₹6,000; Semi-private ₹4,000.",
+    "Insurer limit · alternative: patient deposit": "Insurer authorization limit · demo policy",
+    "₹10,000 · zero when not required": "₹10,000 · required fictional insured deposit",
+    "24-hours · alternative: hour": "24 hours · fictional room tariff",
+    "Exact · alternative: started-unit": "Exact elapsed stay",
+    "Insured · alternative: self-pay": "Insured · demo route",
+    "Required · alternative: not-required": "Required · demo policy",
+    "Approved · not cash": "Approved · receipt recorded",
+    "Reservations before actual activation": "3 reserved · 1 awaiting a bed"
+  },
+  "mainCase": {
+    "name": "Meera Shah",
+    "uhid": "UHID-00482",
+    "ip": "IP-2026-00140",
+    "admitted": "2026-10-07 10:25 IST",
+    "vacancy": "2026-10-14 10:25 IST",
+    "departure": "2026-10-14 10:35 IST",
+    "diagnosis": "Fictional pneumonia",
+    "netBill": 115000,
+    "insurerShare": 90000,
+    "patientShare": 25000,
+    "patientDeposit": 30000,
+    "patientRefund": 5000,
+    "insurerReceipt": 90000,
+    "roomCharges": {
+      "generalDays": 5,
+      "generalDaily": 3000,
+      "icuDays": 2,
+      "icuDaily": 15000,
+      "total": 45000
+    },
+    "note": "Views show illustrative stages of the same stay, including earlier transfer and later discharge snapshots. These are not medical advice, real policies or live records.",
+    "billItems": {
+      "room": 45000,
+      "doctorAndProcedures": 25000,
+      "medicinesGross": 20000,
+      "medicineReturns": 5000,
+      "diagnostics": 30000
+    }
+  },
+  "addedWorklistRows": [
+    {
+      "frame": "3:4",
+      "name": "My current patients",
+      "rows": [
+        [
+          "Nita Rao · IP-2026-00144",
+          "G-20",
+          "Review CBC report"
+        ],
+        [
+          "Farhan Ali · IP-2026-00145",
+          "G-06",
+          "Morning clinical round"
+        ],
+        [
+          "Leela Nair · IP-2026-00146",
+          "G-08",
+          "Summary preparation"
+        ],
+        [
+          "Suman Joshi · IP-2026-00147",
+          "G-10",
+          "Review signed results"
+        ]
+      ]
+    },
+    {
+      "frame": "10:957",
+      "name": "Current admission work",
+      "rows": [
+        [
+          "Samar Jain · IP-2026-00154",
+          "Pending · awaiting bed",
+          "Admission · reserve after review"
+        ]
+      ]
+    },
+    {
+      "frame": "12:1852",
+      "name": "My assigned cases",
+      "rows": [
+        [
+          "Rohan Mehta · IP-2026-00131",
+          "Sana Khan",
+          "Enhancement requested",
+          "Payer reply pending"
+        ],
+        [
+          "Asha Das · IP-2026-00143",
+          "Sana Khan",
+          "Record final response",
+          "Partially approved"
+        ]
+      ]
+    },
+    {
+      "frame": "13:1980",
+      "name": "Current case register",
+      "rows": [
+        [
+          "Rohan Mehta · IP-2026-00131",
+          "Sana Khan",
+          "Enhancement requested",
+          "Payer reply pending"
+        ],
+        [
+          "Asha Das · IP-2026-00143",
+          "Sana Khan",
+          "Record final response",
+          "Partially approved"
+        ]
+      ]
+    },
+    {
+      "frame": "9:1232",
+      "name": "Current case register",
+      "rows": [
+        [
+          "Rohan Mehta · IP-2026-00131",
+          "Sana Khan",
+          "Enhancement requested",
+          "Payer reply pending"
+        ],
+        [
+          "Asha Das · IP-2026-00143",
+          "Sana Khan",
+          "Record final response",
+          "Partially approved"
+        ]
+      ]
+    },
+    {
+      "frame": "13:1663",
+      "name": "Current billing work",
+      "rows": [
+        [
+          "Rohan Mehta · IP-2026-00131",
+          "₹68,500 · bill v4",
+          "Enhancement follow-up"
+        ],
+        [
+          "Asha Das · IP-2026-00143",
+          "₹42,000 · bill v3",
+          "Verify patient share"
+        ]
+      ]
+    },
+    {
+      "frame": "12:1392",
+      "name": "Current diagnostic work",
+      "rows": [
+        [
+          "Nita Rao · CBC · LAB-0044",
+          "Processed · report pending",
+          "Sign human report"
+        ],
+        [
+          "Farhan Ali · LAB-0045",
+          "Sample received · SMP-0045",
+          "Scan and process"
+        ]
+      ]
+    },
+    {
+      "frame": "7:836",
+      "name": "Staff accounts",
+      "rows": [
+        [
+          "Farah Ali",
+          "Nurse",
+          "Active · evening shift"
+        ],
+        [
+          "Dr Vivek Rao",
+          "Doctor",
+          "Active · admitting team"
+        ]
+      ]
+    },
+    {
+      "frame": "7:950",
+      "name": "Current nursing responsibility",
+      "rows": [
+        [
+          "Nita Rao · IP-2026-00144",
+          "G-20 · admitted",
+          "Priya Das"
+        ],
+        [
+          "Dev Patel · IP-2026-00109",
+          "P-03 · admitted",
+          "Farah Ali"
+        ]
+      ]
+    }
+  ],
+  "hospitalSnapshot": {
+    "physicalBeds": 80,
+    "occupied": 64,
+    "ready": 8,
+    "reserved": 3,
+    "cleaning": 5,
+    "categories": [
+      {
+        "name": "General",
+        "total": 40,
+        "occupied": 32,
+        "ready": 4,
+        "reserved": 1,
+        "cleaning": 3
+      },
+      {
+        "name": "ICU",
+        "total": 12,
+        "occupied": 10,
+        "ready": 1,
+        "reserved": 0,
+        "cleaning": 1
+      },
+      {
+        "name": "Private",
+        "total": 18,
+        "occupied": 14,
+        "ready": 2,
+        "reserved": 1,
+        "cleaning": 1
+      },
+      {
+        "name": "Semi-private",
+        "total": 10,
+        "occupied": 8,
+        "ready": 1,
+        "reserved": 1,
+        "cleaning": 0
+      }
+    ],
+    "note": "Morning overview is a pre-discharge snapshot; later workflow screens demonstrate completed events."
+  },
+  "roster": [
+    {
+      "name": "Meera Shah",
+      "admission": "IP-2026-00140",
+      "bed": "G-12",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Dev Patel",
+      "admission": "IP-2026-00109",
+      "bed": "P-03",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Rohan Mehta",
+      "admission": "IP-2026-00131",
+      "bed": "G-18",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Asha Das",
+      "admission": "IP-2026-00143",
+      "bed": "G-21",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Nita Rao",
+      "admission": "IP-2026-00144",
+      "bed": "G-20",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Farhan Ali",
+      "admission": "IP-2026-00145",
+      "bed": "G-06",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Leela Nair",
+      "admission": "IP-2026-00146",
+      "bed": "G-08",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Suman Joshi",
+      "admission": "IP-2026-00147",
+      "bed": "G-10",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Aarav Kapoor",
+      "admission": "IP-2026-00208",
+      "bed": "G-01",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Isha Kapoor",
+      "admission": "IP-2026-00209",
+      "bed": "G-02",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Neel Kapoor",
+      "admission": "IP-2026-00210",
+      "bed": "G-03",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Tara Kapoor",
+      "admission": "IP-2026-00211",
+      "bed": "G-04",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Vikram Kapoor",
+      "admission": "IP-2026-00212",
+      "bed": "G-05",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Sana Kapoor",
+      "admission": "IP-2026-00213",
+      "bed": "G-07",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Mohan Kapoor",
+      "admission": "IP-2026-00214",
+      "bed": "G-09",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Ritu Kapoor",
+      "admission": "IP-2026-00215",
+      "bed": "G-11",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Kunal Kapoor",
+      "admission": "IP-2026-00216",
+      "bed": "G-13",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Pooja Kapoor",
+      "admission": "IP-2026-00217",
+      "bed": "G-14",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Anaya Kapoor",
+      "admission": "IP-2026-00218",
+      "bed": "G-15",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Manav Kapoor",
+      "admission": "IP-2026-00219",
+      "bed": "G-16",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Reena Kapoor",
+      "admission": "IP-2026-00220",
+      "bed": "G-17",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Adil Kapoor",
+      "admission": "IP-2026-00221",
+      "bed": "G-19",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Rakesh Kapoor",
+      "admission": "IP-2026-00222",
+      "bed": "G-22",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Divya Kapoor",
+      "admission": "IP-2026-00223",
+      "bed": "G-23",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Aarav Kulkarni",
+      "admission": "IP-2026-00224",
+      "bed": "G-24",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Isha Kulkarni",
+      "admission": "IP-2026-00225",
+      "bed": "G-25",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Neel Kulkarni",
+      "admission": "IP-2026-00226",
+      "bed": "G-26",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Tara Kulkarni",
+      "admission": "IP-2026-00227",
+      "bed": "G-27",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Vikram Kulkarni",
+      "admission": "IP-2026-00228",
+      "bed": "G-28",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Sana Kulkarni",
+      "admission": "IP-2026-00229",
+      "bed": "G-29",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Mohan Kulkarni",
+      "admission": "IP-2026-00230",
+      "bed": "G-30",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Ritu Kulkarni",
+      "admission": "IP-2026-00231",
+      "bed": "G-31",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Kunal Kulkarni",
+      "admission": "IP-2026-00232",
+      "bed": "G-32",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Pooja Kulkarni",
+      "admission": "IP-2026-00233",
+      "bed": "ICU-01",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Anaya Kulkarni",
+      "admission": "IP-2026-00234",
+      "bed": "ICU-02",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Manav Kulkarni",
+      "admission": "IP-2026-00235",
+      "bed": "ICU-03",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Reena Kulkarni",
+      "admission": "IP-2026-00236",
+      "bed": "ICU-04",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Adil Kulkarni",
+      "admission": "IP-2026-00237",
+      "bed": "ICU-05",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Rakesh Kulkarni",
+      "admission": "IP-2026-00238",
+      "bed": "ICU-06",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Divya Kulkarni",
+      "admission": "IP-2026-00239",
+      "bed": "ICU-07",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Aarav Iyer",
+      "admission": "IP-2026-00240",
+      "bed": "ICU-08",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Isha Iyer",
+      "admission": "IP-2026-00241",
+      "bed": "ICU-09",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Neel Iyer",
+      "admission": "IP-2026-00242",
+      "bed": "ICU-10",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Tara Iyer",
+      "admission": "IP-2026-00243",
+      "bed": "P-01",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Vikram Iyer",
+      "admission": "IP-2026-00244",
+      "bed": "P-02",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Sana Iyer",
+      "admission": "IP-2026-00245",
+      "bed": "P-04",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Mohan Iyer",
+      "admission": "IP-2026-00246",
+      "bed": "P-05",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Ritu Iyer",
+      "admission": "IP-2026-00247",
+      "bed": "P-06",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Kunal Iyer",
+      "admission": "IP-2026-00248",
+      "bed": "P-07",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Pooja Iyer",
+      "admission": "IP-2026-00249",
+      "bed": "P-08",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Anaya Iyer",
+      "admission": "IP-2026-00250",
+      "bed": "P-09",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Manav Iyer",
+      "admission": "IP-2026-00251",
+      "bed": "P-10",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Reena Iyer",
+      "admission": "IP-2026-00252",
+      "bed": "P-11",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Adil Iyer",
+      "admission": "IP-2026-00253",
+      "bed": "P-12",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Rakesh Iyer",
+      "admission": "IP-2026-00254",
+      "bed": "P-13",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Divya Iyer",
+      "admission": "IP-2026-00255",
+      "bed": "P-14",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Aarav Bose",
+      "admission": "IP-2026-00256",
+      "bed": "SP-01",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Isha Bose",
+      "admission": "IP-2026-00257",
+      "bed": "SP-02",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Neel Bose",
+      "admission": "IP-2026-00258",
+      "bed": "SP-03",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Tara Bose",
+      "admission": "IP-2026-00259",
+      "bed": "SP-04",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Vikram Bose",
+      "admission": "IP-2026-00260",
+      "bed": "SP-05",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    },
+    {
+      "name": "Sana Bose",
+      "admission": "IP-2026-00261",
+      "bed": "SP-06",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Mohan Bose",
+      "admission": "IP-2026-00262",
+      "bed": "SP-07",
+      "paymentRoute": "Insured",
+      "fictional": true
+    },
+    {
+      "name": "Ritu Bose",
+      "admission": "IP-2026-00263",
+      "bed": "SP-08",
+      "paymentRoute": "Self-pay",
+      "fictional": true
+    }
+  ],
+  "pendingAdmissions": [
+    {
+      "name": "Riya Verma",
+      "ip": "IP-2026-00151",
+      "bed": "G-37",
+      "status": "PENDING",
+      "deposit": 15000
+    },
+    {
+      "name": "Kabir Das",
+      "ip": "IP-2026-00153",
+      "bed": "P-17",
+      "status": "PENDING"
+    },
+    {
+      "name": "Unidentified patient",
+      "ip": "IP-2026-00152",
+      "bed": "SP-10",
+      "status": "PENDING",
+      "laterFictionalIdentity": "Aman Sethi"
+    },
+    {
+      "name": "Samar Jain",
+      "ip": "IP-2026-00154",
+      "bed": null,
+      "status": "PENDING"
+    }
+  ],
+  "verification": {
+    "mutatedNodeIds": [
+      "I10:988;2:102"
+    ],
+    "frames": 96,
+    "nodes": 7476,
+    "texts": 3999,
+    "links": 854,
+    "fontFamilies": [
+      "IBM Plex Sans"
+    ],
+    "issues": [],
+    "syntheticRows": 19
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "designPage": "PAGE_ID",
+  "variables": {
+    "canvas": "VariableID:2:7",
+    "surface": "VariableID:2:9",
+    "ink": "VariableID:2:11",
+    "muted": "VariableID:2:13",
+    "border": "VariableID:2:15",
+    "navBg": "VariableID:2:17",
+    "navInk": "VariableID:2:19",
+    "navMuted": "VariableID:2:21",
+    "accent": "VariableID:2:23",
+    "accentSoft": "VariableID:2:25",
+    "blue": "VariableID:2:27",
+    "blueSoft": "VariableID:2:29",
+    "purple": "VariableID:2:31",
+    "purpleSoft": "VariableID:2:33",
+    "green": "VariableID:2:35",
+    "greenSoft": "VariableID:2:37",
+    "amber": "VariableID:2:39",
+    "amberSoft": "VariableID:2:41",
+    "red": "VariableID:2:43",
+    "redSoft": "VariableID:2:45",
+    "line": "VariableID:2:47"
+  },
+  "geometry": {
+    "space/0": "VariableID:2:48",
+    "space/4": "VariableID:2:49",
+    "space/6": "VariableID:2:50",
+    "space/8": "VariableID:2:51",
+    "space/12": "VariableID:2:52",
+    "space/16": "VariableID:2:53",
+    "space/20": "VariableID:2:54",
+    "space/24": "VariableID:2:55",
+    "space/32": "VariableID:2:56",
+    "radius/8": "VariableID:2:57",
+    "radius/12": "VariableID:2:58"
+  },
+  "styles": {
+    "Heading": "S:3beabf5e440668c64ebbc6e8cc68b21ac0fadc47,",
+    "Title": "S:94d5d73e39da87cb116aeaa922e0ea1903fc9e0a,",
+    "Body": "S:44b3f14ce97d6707aa4912b9f35dee0a37dda8dd,",
+    "Label": "S:8c0d3d65335fc1090d4dd5a8e6c977328b640414,",
+    "Caption": "S:8307ccae27357c55f67938f76210b0426396ea0a,",
+    "Metric": "S:39021965111a38f0de0a6926910515cc2c706167,"
+  },
+  "variants": {
+    "Button": {
+      "Kind=Primary": "2:65",
+      "Kind=Secondary": "2:67",
+      "Kind=Quiet": "2:69",
+      "Kind=Danger": "2:71"
+    },
+    "Navigation": {
+      "State=Default": "2:74",
+      "State=Active": "2:76"
+    },
+    "Field": {
+      "Kind=Single": "2:79",
+      "Kind=Multiline": "2:83"
+    },
+    "Status": {
+      "Tone=Neutral": "2:88",
+      "Tone=Good": "2:90",
+      "Tone=Warning": "2:92",
+      "Tone=Danger": "2:94",
+      "Tone=Info": "2:96"
+    },
+    "Metric": {
+      "Default": "2:99"
+    }
+  }
+}

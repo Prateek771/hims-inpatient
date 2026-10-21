@@ -4,9 +4,10 @@ updates:
     directory: /web
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    # Keep the two working branches tidy; review version updates explicitly.
+    open-pull-requests-limit: 0
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
