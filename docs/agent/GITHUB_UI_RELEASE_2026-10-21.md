@@ -17,6 +17,14 @@ Publish the reviewed six-dashboard UI, supporting server projections and unit te
 - Local unit verification initially passed 175 of 177 tests. Two unchanged child-process import checks exceeded the existing five-second test limit on this Windows installation; a focused serial rerun passed the paperwork import but the room-worker import still timed out. No assertion or timeout is weakened. Exact-commit CI must pass the full suite before integration into `main`.
 - Local lint, TypeScript checks and production build passed. The staged release contains no private runtime paths; source still exactly matches the running preview. Whitespace checks passed after removing three extra blank lines from historical design sources.
 
+## Browser-check alignment after the first CI run
+
+The unchanged full local unit suite subsequently passed all 177 tests with its original settings. UI publication commit `2fdff2a61d7c80cd19654276e2bc35213682f9d8` passed fresh demo initialization, units, PostgreSQL integration, lint, types, runtime audit and build in [CI run 39583226409](https://github.com/Prateek771/hims-inpatient/actions/runs/39583226409), but two browser cases still followed the older UI. Main integration and branch deletion were held.
+
+The test-only repair uses exact searchbox/combobox roles for Admission's new searchable choices, verifies filtering and Enter-key focus, expects the configured category's displayed name, and scopes the reservation status. Pharmacy explicitly opens **Readiness & checks** before its readiness form. Existing cancellation, identity, money, role, paper-version, exit assertions and timeouts remain. The Admin case's retry failure followed the serial suite replaying after Meera's already completed discharge/receipt; its original financial assertions were retained.
+
+All seven cases in the two affected browser files passed locally against a NEW `hims_test` database in the previously owned independent PostgreSQL cluster on 55441, with the browser app on 3100. The clone demo database in that cluster and the ordinary hospital on 5432 were not reset. The isolated cluster was stopped afterward; files remain private. Focused ESLint passed. Product source still matches the running localhost fingerprint above; this repair changes only browser scripts and this evidence. A fresh exact-commit full CI pass is required before proceeding.
+
 ## Preserve commits before removing branches
 
 The four additional remote heads each contain one dependency-only proposal based on the existing main checkpoint. No unique UI implementation needs merging from them. Archive these exact commits with annotated Git tags and retain an ignored verified `git bundle --all` before deletion:

@@ -25,12 +25,17 @@ test("admission desk reserves a pending stay and safely cancels it", async ({
     .getByRole("combobox", { name: "Sex", exact: true })
     .selectOption("FEMALE");
   await page.getByLabel("Contact number").fill("9999999999");
-  await page
-    .getByLabel("Named treating Doctor")
-    .selectOption({ label: "Synthetic external Doctor" });
-  await page
-    .getByLabel("Bed assignment")
-    .selectOption({ label: "Synthetic E2E General bed · GENERAL · Available" });
+  const doctor = page.getByRole("combobox", { name: "Named treating Doctor", exact: true });
+  const doctorSearch = page.getByRole("searchbox", { name: "Search named treating doctor", exact: true });
+  await doctorSearch.fill("Synthetic external Doctor");
+  await expect(doctor.getByRole("option")).toHaveCount(2);
+  await doctorSearch.press("Enter");
+  await expect(doctor).toBeFocused();
+  await doctor.selectOption({ label: "Synthetic external Doctor" });
+  const bed = page.getByRole("combobox", { name: "Bed assignment", exact: true });
+  await page.getByRole("searchbox", { name: "Search bed assignment", exact: true }).fill("Synthetic E2E General bed");
+  await expect(bed.getByRole("option")).toHaveCount(2);
+  await bed.selectOption({ label: "Synthetic E2E General bed · General · Available" });
   await page.getByLabel("Expected stay (days)").fill("2");
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -50,7 +55,7 @@ test("admission desk reserves a pending stay and safely cancels it", async ({
     fullPage: true,
   });
   await page.getByRole("button", { name: "Save pending admission" }).click();
-  await expect(page.getByRole("status")).toContainText("Bed reserved");
+  await expect(page.getByRole("status").filter({ hasText: "Bed reserved" })).toBeVisible();
   await page.getByRole("link", { name: "Open admission record" }).click();
   await expect(page.getByRole("heading", { name })).toBeVisible();
   await expect(page.getByRole("region", { name: "Current admission context" }).getByText("PENDING", { exact: true })).toBeVisible();
