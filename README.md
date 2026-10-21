@@ -1,12 +1,14 @@
 # HIMS — Inpatient Care Workspace
 
+To try a fictional hospital on another computer, follow the [clone-and-run demo guide](docs/CLONE_DEMO.md). It recreates safe sample data with fresh local logins; no working database dump or credentials are published.
+
 A staff-facing Hospital Information Management System for one hospital, connecting admission, clinical work, live charges, insurance paperwork, human discharge clearances and final discharge documents.
 
 Tasks 1–16 and all eleven final runtime review findings are independently accepted: staff access/settings, patient identity/admissions/beds, deterministic billing and manual receipts, signed care/transfers, pharmacy, lab/radiology, staff-entered insurance and protected files, sequential human clearances, exceptions/amendments, immutable discharge documents, persistent manual paperwork review, and all eight role worklists with an administrator overview. Task 16 adds genuine whole-flow checks, isolated database/storage recovery and [synthetic pilot instructions](docs/LOCAL_PILOT.md). The owner authorized final fixes, fresh verification, data-preserving preview/database restarts and main integration only after exact successful development CI. Final whole-check, development/main CI, source and restarted-preview identities are saved in the [build handoff and local ledger](docs/agent/BUILD_HANDOFF.md). The approved hospital design remains the visual reference.
 
 Use synthetic data. Real staff, financial policy, hosting/access, backup ownership, retention and operational sign-off remain unresolved. Live AI/OCR providers, insurer/payment integrations and autonomous sending are unconfigured. This version serves one hospital; multihospital tenancy and production readiness are not claimed.
 
-Private GitHub repository: [Prateek771/hims-inpatient](https://github.com/Prateek771/hims-inpatient). Work only in `C:\Users\prate\OneDrive\Desktop\INS`, on `codex/hims-development`. Verified, reviewed and authorized checkpoints are integrated into `main`; no separate checkout is used.
+GitHub repository: [Prateek771/hims-inpatient](https://github.com/Prateek771/hims-inpatient). Work only in `C:\Users\prate\OneDrive\Desktop\INS`, on `codex/hims-development`. Verified, reviewed and authorized checkpoints are integrated into `main`; no separate checkout is used.
 
 ## Project references
 

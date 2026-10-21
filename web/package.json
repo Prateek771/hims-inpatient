@@ -19,7 +19,8 @@
     "test:recovery": "node scripts/recovery.mjs",
     "test:install": "node scripts/playwright.mjs install chromium",
     "check": "npm run test:unit && npm run test:integration && npm run lint && npm run typecheck && npm run build && npm run test:e2e && npm run test:recovery",
-    "auth:bootstrap": "node scripts/bootstrap-admin.mjs"
+    "auth:bootstrap": "node scripts/bootstrap-admin.mjs",
+    "demo:seed": "node scripts/demo-hospital.mjs"
   },
   "dependencies": {
     "@better-auth/drizzle-adapter": "1.7.7",

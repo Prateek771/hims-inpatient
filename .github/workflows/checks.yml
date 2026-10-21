@@ -69,10 +69,8 @@ jobs:
         run: npm run paperwork:setup
       - name: Prepare protected local storage
         run: npm run storage:setup
-      - name: Verify fresh local staff setup
-        run: npm run auth:bootstrap -- --demo
-        env:
-          HIMS_DEMO_PASSWORD: SyntheticCISetupOnly123!
+      - name: Verify fresh clone demo setup
+        run: npm run demo:seed
       - name: Unit checks
         run: npm run test:unit
       - name: PostgreSQL integration checks
