@@ -1,29 +1,21 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  integer,
-  jsonb,
-  text,
-  timestamp,
-  uniqueIndex,
-  uuid,
-} from "drizzle-orm/pg-core";
-import { hims, settingVersions } from "../schema/core";
+import { check, index, int, json, mysqlTable, text, uniqueIndex } from "drizzle-orm/mysql-core";
+import { uuid, uuidDefault, utc, utcNow, key } from "../schema/columns";
+import { settingVersions } from "../schema/core";
 import { user } from "../schema/auth";
 import { admissions } from "../admissions/schema";
 import type { ClinicalOrderDetails, PrescriptionLine } from "./input";
-const time = (name: string) => timestamp(name, { withTimezone: true });
+const time = (name: string) => utc(name);
 const signed = () => ({
-  signedBy: text("signed_by")
+  signedBy: key("signed_by")
     .notNull()
     .references(() => user.id),
-  signedAt: time("signed_at").notNull().defaultNow(),
+  signedAt: time("signed_at").notNull().default(utcNow),
 });
-export const clinicalRounds = hims.table(
+export const clinicalRounds = mysqlTable(
   "clinical_rounds",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     admissionId: uuid("admission_id")
       .notNull()
       .references(() => admissions.id),
@@ -32,10 +24,10 @@ export const clinicalRounds = hims.table(
   },
   (t) => [index("clinical_rounds_episode_idx").on(t.admissionId)],
 );
-export const clinicalAddenda = hims.table(
+export const clinicalAddenda = mysqlTable(
   "clinical_addenda",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     noteId: uuid("note_id")
       .notNull()
       .references(() => clinicalRounds.id),
@@ -45,10 +37,10 @@ export const clinicalAddenda = hims.table(
   },
   (t) => [index("clinical_addenda_note_idx").on(t.noteId)],
 );
-export const clinicalOrders = hims.table(
+export const clinicalOrders = mysqlTable(
   "clinical_orders",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     admissionId: uuid("admission_id")
       .notNull()
       .references(() => admissions.id),
@@ -57,7 +49,7 @@ export const clinicalOrders = hims.table(
       .references(() => clinicalRounds.id),
     kind: text("kind").notNull(),
     requestedItem: text("requested_item").notNull(),
-    details: jsonb("details").$type<ClinicalOrderDetails>().notNull(),
+    details: json("details").$type<ClinicalOrderDetails>().notNull(),
     medicineItemId: text("medicine_item_id"),
     medicineCatalogVersionId: uuid("medicine_catalog_version_id").references(
       () => settingVersions.id,
@@ -78,10 +70,10 @@ export const clinicalOrders = hims.table(
     ),
   ],
 );
-export const careTasks = hims.table(
+export const careTasks = mysqlTable(
   "care_tasks",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     orderId: uuid("order_id")
       .notNull()
       .unique()
@@ -90,18 +82,18 @@ export const careTasks = hims.table(
       .notNull()
       .references(() => admissions.id),
     ownerRole: text("owner_role").notNull(),
-    createdAt: time("created_at").notNull().defaultNow(),
+    createdAt: time("created_at").notNull().default(utcNow),
   },
   (t) => [index("care_tasks_episode_idx").on(t.admissionId)],
 );
-export const clinicalTaskEvents = hims.table(
+export const clinicalTaskEvents = mysqlTable(
   "clinical_task_events",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     orderId: uuid("order_id")
       .notNull()
       .references(() => clinicalOrders.id),
-    status: text("status").notNull(),
+    status: key("status").notNull(),
     reason: text("reason").notNull(),
     ...signed(),
   },
@@ -111,10 +103,10 @@ export const clinicalTaskEvents = hims.table(
     uniqueIndex("clinical_task_once_idx").on(t.orderId, t.status),
   ],
 );
-export const careOccurrences = hims.table(
+export const careOccurrences = mysqlTable(
   "care_occurrences",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     admissionId: uuid("admission_id")
       .notNull()
       .references(() => admissions.id),
@@ -128,7 +120,7 @@ export const careOccurrences = hims.table(
     index("care_occurrence_episode_idx").on(t.admissionId),
   ],
 );
-export const careBillingEvents = hims.table(
+export const careBillingEvents = mysqlTable(
   "care_billing_events",
   {
     id: uuid("id").primaryKey(),
@@ -146,7 +138,7 @@ export const careBillingEvents = hims.table(
     ),
     resolutionReason: text("resolution_reason"),
     state: text("state", { enum: ["UNRESOLVED", "READY", "POSTED"] }).notNull(),
-    createdAt: time("created_at").notNull().defaultNow(),
+    createdAt: time("created_at").notNull().default(utcNow),
   },
   (t) => [
     index("care_billing_episode_idx").on(t.admissionId),
@@ -159,20 +151,20 @@ export const careBillingEvents = hims.table(
     ),
   ],
 );
-export const clinicalSummaries = hims.table(
+export const clinicalSummaries = mysqlTable(
   "clinical_summaries",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     admissionId: uuid("admission_id")
       .notNull()
       .references(() => admissions.id),
-    version: integer("version").notNull(),
+    version: int("version").notNull(),
     diagnosis: text("diagnosis").notNull(),
     course: text("course").notNull(),
     condition: text("condition").notNull(),
     followUp: text("follow_up").notNull(),
     advice: text("advice").notNull(),
-    prescription: jsonb("prescription").$type<PrescriptionLine[]>().notNull(),
+    prescription: json("prescription").$type<PrescriptionLine[]>().notNull(),
     ...signed(),
   },
   (t) => [

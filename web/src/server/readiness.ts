@@ -1,54 +1,47 @@
 import "server-only";
-import { accessSync, constants } from "node:fs";
 import { is, sql } from "drizzle-orm";
-import { PgTable, PgView, getTableConfig, getViewConfig } from "drizzle-orm/pg-core";
+import { MySqlTable, MySqlView, getTableConfig, getViewConfig } from "drizzle-orm/mysql-core";
 import { getDb } from "./db";
 import * as schema from "./schema";
 import { authConfiguration } from "./auth-configuration";
-import { protectedStorageDirectory } from "./protected-storage";
+import { expectedTriggers } from "./expected-triggers";
+import { rowsOf } from "./sql";
 
 const relations = Object.values(schema).flatMap(value => {
-  if (is(value, PgTable)) { const c = getTableConfig(value); return [{ name: c.name, columns: c.columns.map(x => x.name), table: true }]; }
-  if (is(value, PgView)) { const c = getViewConfig(value); return [{ name: c.name, columns: Object.values(c.selectedFields).map(x => (x as { name: string }).name), table: false }]; }
+  if (is(value, MySqlTable)) { const c = getTableConfig(value); return [{ name: c.name, columns: c.columns.map(x => x.name) }]; }
+  if (is(value, MySqlView)) { const c = getViewConfig(value); return [{ name: c.name, columns: Object.values(c.selectedFields).map(x => (x as { name: string }).name) }]; }
   return [];
 });
-const updates: Record<string, string[]> = {
-  room_stays: ["ended_at", "last_reconciled_at", "posted_paise"],
-  care_billing_events: ["tariff_version_id", "resolution_reason", "state"], pharmacy_batches: ["available_quantity"], insurance_cases: ["assigned_staff_id", "version", "review_revision", "document_set_revision"],
-  paperwork_runs: ["status", "revision", "pending_review_id"],
-};
-const fullUpdates = ["hospital_settings", "staff_user", "staff_account", "staff_session", "staff_verification", "beds", "admissions", "admission_counters"];
-/** Capability only, never policies/patients/provider calls or automatic setup. */
+const expectedRoutines = ["assert_planned_exit_instruction", "invalidate_clearances", "mvp_assigned", "mvp_current", "mvp_current_responsibility", "mvp_delay_allocation_amendment", "mvp_economic_basis", "mvp_finance_guard"];
+/** Privileges the running application needs on its database; DDL rights are not required (and not checked). */
+const requiredPrivileges = ["SELECT", "INSERT", "UPDATE", "DELETE", "EXECUTE"];
+
+/** Capability only, never policies/patients/provider calls or automatic setup. Protected files are database rows (protected_files). */
 export async function assertCoreReadiness() {
   authConfiguration();
-  for (const kind of ["insurance", "discharge"] as const) accessSync(protectedStorageDirectory(kind), constants.R_OK | constants.W_OK);
   const database = getDb();
-  const result = await database.execute<{ name: string; columns: string[]; readable: boolean; insertable: boolean }>(sql`
-    select c.relname name,array_agg(a.attname order by a.attnum) columns,
-      bool_and(has_column_privilege(c.oid,a.attname,'SELECT')) readable,has_table_privilege(c.oid,'INSERT') insertable
-    from pg_class c join pg_namespace n on n.oid=c.relnamespace join pg_attribute a on a.attrelid=c.oid and a.attnum>0 and not a.attisdropped
-    where n.nspname='hims' and c.relname in (${sql.join(relations.map(r => sql`${r.name}`), sql`,`)}) group by c.oid,c.relname`);
+
+  const columns = rowsOf<{ name: string; column: string }>(await database.execute(sql`
+    select table_name as name, column_name as \`column\` from information_schema.columns
+    where table_schema = database() and table_name in (${sql.join(relations.map(r => sql`${r.name}`), sql`,`)})`));
+  const present = new Map<string, Set<string>>();
+  for (const row of columns) present.set(row.name, (present.get(row.name) ?? new Set()).add(row.column));
   for (const required of relations) {
-    const actual = result.rows.find(row => row.name === required.name);
-    if (!actual?.readable || (required.table && !actual.insertable) || required.columns.some(column => !actual.columns.includes(column))) throw new Error("Core schema unavailable");
+    const actual = present.get(required.name);
+    if (!actual || required.columns.some(column => !actual.has(column))) throw new Error("Core schema unavailable");
   }
-  const checks = Object.entries(updates).flatMap(([table, columns]) => columns.map(column => sql`has_column_privilege(current_user,${`hims.${table}`},${column},'UPDATE')`));
-  for (const table of fullUpdates) checks.push(sql`has_table_privilege(current_user,${`hims.${table}`},'UPDATE')`);
-  for (const table of ["staff_session", "staff_verification", "bed_holds"]) checks.push(sql`has_table_privilege(current_user,${`hims.${table}`},'DELETE')`);
-  const permissions = await database.execute<{ available: boolean }>(sql`select (${sql.join(checks, sql` and `)}) and
-    has_schema_privilege(current_user,'hims','USAGE') and not has_schema_privilege(current_user,'hims','CREATE') and not has_schema_privilege(current_user,'public','CREATE') and
-    current_user in ('hims_runtime','hims_test_runtime') and not rolsuper and not rolcreatedb and not rolcreaterole and not rolbypassrls available from pg_roles where rolname=current_user`);
-  if (!permissions.rows[0]?.available) throw new Error("Core privileges unavailable");
-  const destructive = await database.execute<{ unsafe: boolean }>(sql`select exists(
-    select 1 from pg_class c join pg_namespace n on n.oid=c.relnamespace
-    join pg_attribute a on a.attrelid=c.oid and a.attnum>0 and not a.attisdropped
-    where n.nspname='hims' and c.relkind in ('r','p') and (
-      has_table_privilege(c.oid,'TRUNCATE') or
-      (has_table_privilege(c.oid,'DELETE') and c.relname not in ('staff_session','staff_verification','bed_holds')) or
-      (has_column_privilege(c.oid,a.attname,'UPDATE') and not (
-        c.relname in (${sql.join(fullUpdates.map(name => sql`${name}`), sql`,`)}) or
-        ${sql.join(Object.entries(updates).map(([table, columns]) => sql`(c.relname=${table} and a.attname in (${sql.join(columns.map(column => sql`${column}`), sql`,`)}))`), sql` or `)}
-      ))
-    )) unsafe`);
-  if (destructive.rows[0]?.unsafe) throw new Error("Core privileges unavailable");
+
+  // Through a definer-rights function: restricted accounts cannot see information_schema.triggers (migration 0006).
+  const triggers = new Set((rowsOf<{ names: string | null }>(await database.execute(sql`select hims_installed_triggers() as names`))[0]?.names ?? "").split(","));
+  if (expectedTriggers.some(name => !triggers.has(name))) throw new Error("Core integrity rules unavailable");
+  const routines = new Set(rowsOf<{ name: string }>(await database.execute(sql`select routine_name as name from information_schema.routines where routine_schema = database()`)).map(row => row.name));
+  if (expectedRoutines.some(name => !routines.has(name))) throw new Error("Core integrity rules unavailable");
+
+  // Schema-level grants (Hostinger gives one database user; per-table roles do not exist). USAGE-only grants carry none of these.
+  const granted = new Set(rowsOf<{ privilege: string }>(await database.execute(sql`
+    select privilege_type as privilege from information_schema.schema_privileges
+    where table_schema = database() and grantee = concat(char(39), substring_index(current_user(), '@', 1), char(39), '@', char(39), substring_index(current_user(), '@', -1), char(39))
+    union select privilege_type from information_schema.user_privileges
+    where grantee = concat(char(39), substring_index(current_user(), '@', 1), char(39), '@', char(39), substring_index(current_user(), '@', -1), char(39))`)).map(row => row.privilege));
+  if (!granted.has("ALL PRIVILEGES") && requiredPrivileges.some(privilege => !granted.has(privilege))) throw new Error("Core privileges unavailable");
 }

@@ -9,6 +9,7 @@ import { nursingAddenda, nursingConsumables, nursingObservations, nursingShifts,
 import { labReportAddenda, labReports } from "../lab/schema";
 import { allocateDepositInTransaction, cancelAllocationInTransaction, refundReceiptInTransaction, billingRequest, recordReceiptInTransaction, reverseChargeInTransaction } from "../billing/commands";
 import { appendAudit } from "../audit";
+import { insertReturning, rowsOf } from "../sql";
 export const correctionKinds = ["RECEIPT", "REFUND", "ALLOCATE", "CANCEL_ALLOCATION", "INSURANCE_DECISION", "DISPOSITION_REVIEW", "CLINICAL_ADDENDUM", "NURSING_ADDENDUM", "LAB_ADDENDUM", "LAB_REPORT", "LAB_BILLING", "SELF_PAY_REVIEW", "REVERSE_CHARGE", "CARE_BILLING"] as const;
 export type CorrectionKind = typeof correctionKinds[number];
 export function correctionRoles(kind: CorrectionKind): readonly StaffRole[] {
@@ -26,22 +27,22 @@ export function correctionRoles(kind: CorrectionKind): readonly StaffRole[] {
 /** Exact retained source, checked when routing and again before applying. */
 export async function validateCorrectionSource(tx: Transaction, admissionId: string, kind: CorrectionKind, sourceId: string) {
   const queries = {
-    REVERSE_CHARGE: sql`select id from hims.charges where id=${sourceId} and admission_id=${admissionId} and category<>'room' and source_event_id not like 'room:%'`,
-    CARE_BILLING: sql`select b.id from hims.care_billing_events b where b.id=${sourceId} and b.admission_id=${admissionId} and ((b.category='consultation' and exists(select 1 from hims.clinical_rounds r where r.id=b.round_id and r.admission_id=b.admission_id)) or (b.category='consumable' and exists(select 1 from hims.nursing_consumables n where n.id=b.id and n.admission_id=b.admission_id)))`,
-    DISPOSITION_REVIEW: sql `select id from hims.exceptional_departures where id=${sourceId} and admission_id=${admissionId}`,
-    INSURANCE_DECISION: sql `select id from hims.insurance_cases where id=${sourceId} and admission_id=${admissionId}`,
-    REFUND: sql `select id from hims.receipts where id=${sourceId} and admission_id=${admissionId}`,
-    ALLOCATE: sql `select id from hims.receipts where id=${sourceId} and admission_id=${admissionId} and party='PATIENT' and kind<>'PAYMENT'`,
-    CANCEL_ALLOCATION: sql `select a.id from hims.receipt_allocations a join hims.receipts r on r.id=a.receipt_id where a.id=${sourceId} and r.admission_id=${admissionId}`,
-    RECEIPT: sql `select id from hims.departures where id=${sourceId} and admission_id=${admissionId} union all select id from hims.exceptional_departures where id=${sourceId} and admission_id=${admissionId}`,
-    CLINICAL_ADDENDUM: sql `select id from hims.clinical_rounds where id=${sourceId} and admission_id=${admissionId}`,
-    NURSING_ADDENDUM: sql `select id from hims.nursing_shifts where id=${sourceId} and admission_id=${admissionId} union all select id from hims.nursing_observations where id=${sourceId} and admission_id=${admissionId} union all select id from hims.medication_administrations where id=${sourceId} and admission_id=${admissionId} union all select id from hims.nursing_consumables where id=${sourceId} and admission_id=${admissionId}`,
-    LAB_ADDENDUM: sql `select id from hims.lab_reports where id=${sourceId} and admission_id=${admissionId}`,
-    LAB_BILLING: sql `select r.order_id from hims.lab_reports r join hims.lab_processing p on p.order_id=r.order_id where r.order_id=${sourceId} and r.admission_id=${admissionId}`,
-    SELF_PAY_REVIEW: sql `select c.id from hims.insurance_conversions c join hims.insurance_cases i on i.id=c.case_id where c.id=${sourceId} and i.admission_id=${admissionId}`,
-    LAB_REPORT: sql `select o.id from hims.clinical_orders o join hims.lab_processing p on p.order_id=o.id where o.id=${sourceId} and o.admission_id=${admissionId} and o.kind in ('LAB','RADIOLOGY')`,
+    REVERSE_CHARGE: sql`select id from charges where id=${sourceId} and admission_id=${admissionId} and category<>'room' and source_event_id not like 'room:%'`,
+    CARE_BILLING: sql`select b.id from care_billing_events b where b.id=${sourceId} and b.admission_id=${admissionId} and ((b.category='consultation' and exists(select 1 from clinical_rounds r where r.id=b.round_id and r.admission_id=b.admission_id)) or (b.category='consumable' and exists(select 1 from nursing_consumables n where n.id=b.id and n.admission_id=b.admission_id)))`,
+    DISPOSITION_REVIEW: sql `select id from exceptional_departures where id=${sourceId} and admission_id=${admissionId}`,
+    INSURANCE_DECISION: sql `select id from insurance_cases where id=${sourceId} and admission_id=${admissionId}`,
+    REFUND: sql `select id from receipts where id=${sourceId} and admission_id=${admissionId}`,
+    ALLOCATE: sql `select id from receipts where id=${sourceId} and admission_id=${admissionId} and party='PATIENT' and kind<>'PAYMENT'`,
+    CANCEL_ALLOCATION: sql `select a.id from receipt_allocations a join receipts r on r.id=a.receipt_id where a.id=${sourceId} and r.admission_id=${admissionId}`,
+    RECEIPT: sql `select id from departures where id=${sourceId} and admission_id=${admissionId} union all select id from exceptional_departures where id=${sourceId} and admission_id=${admissionId}`,
+    CLINICAL_ADDENDUM: sql `select id from clinical_rounds where id=${sourceId} and admission_id=${admissionId}`,
+    NURSING_ADDENDUM: sql `select id from nursing_shifts where id=${sourceId} and admission_id=${admissionId} union all select id from nursing_observations where id=${sourceId} and admission_id=${admissionId} union all select id from medication_administrations where id=${sourceId} and admission_id=${admissionId} union all select id from nursing_consumables where id=${sourceId} and admission_id=${admissionId}`,
+    LAB_ADDENDUM: sql `select id from lab_reports where id=${sourceId} and admission_id=${admissionId}`,
+    LAB_BILLING: sql `select r.order_id from lab_reports r join lab_processing p on p.order_id=r.order_id where r.order_id=${sourceId} and r.admission_id=${admissionId}`,
+    SELF_PAY_REVIEW: sql `select c.id from insurance_conversions c join insurance_cases i on i.id=c.case_id where c.id=${sourceId} and i.admission_id=${admissionId}`,
+    LAB_REPORT: sql `select o.id from clinical_orders o join lab_processing p on p.order_id=o.id where o.id=${sourceId} and o.admission_id=${admissionId} and o.kind in ('LAB','RADIOLOGY')`,
   };
-  if (!(await tx.execute(queries[kind])).rows.length)
+  if (!rowsOf(await tx.execute(queries[kind])).length)
     throw new DomainError("VALIDATION", "Correction requires this episode's retained original source");
 }
 export async function applyCorrectionEffect(tx: Transaction, ctx: CommandContext, staff: {
@@ -119,18 +120,18 @@ export async function applyCorrectionEffect(tx: Transaction, ctx: CommandContext
     let id: string;
     if (v.kind === "DISPOSITION_REVIEW") {
       const { exceptionEvidence } = await import("./exception-schema");
-      const [record] = await tx.insert(exceptionEvidence).values({
+      const [record] = await insertReturning(tx, exceptionEvidence, {
         admissionId: v.admissionId, exceptionId: v.exceptionId, sourceId: v.sourceId, kind: "PROFESSIONAL_REVIEW", role: "DOCTOR", actualAt: signature.signedAt, notes: data.text, ...signature
-      }).returning();
+      });
       id = record.id;
     }
     else if (v.kind === "CLINICAL_ADDENDUM") {
       const [source] = await tx.select().from(clinicalRounds).where(and(eq(clinicalRounds.id, v.sourceId), eq(clinicalRounds.admissionId, v.admissionId)));
       if (!source)
         throw new DomainError("FORBIDDEN", "Original clinical note access denied");
-      const [record] = await tx.insert(clinicalAddenda).values({
+      const [record] = await insertReturning(tx, clinicalAddenda, {
         noteId: source.id, text: data.text, reason: data.reason, ...signature
-      }).returning();
+      });
       id = record.id;
     }
     else if (v.kind === "NURSING_ADDENDUM") {
@@ -142,18 +143,18 @@ export async function applyCorrectionEffect(tx: Transaction, ctx: CommandContext
       const [source] = await tx.select({ id: table.id }).from(table).where(and(eq(table.id, v.sourceId), eq(table.admissionId, v.admissionId)));
       if (!source)
         throw new DomainError("FORBIDDEN", "Original nursing source type does not match");
-      const [record] = await tx.insert(nursingAddenda).values({
+      const [record] = await insertReturning(tx, nursingAddenda, {
         admissionId: v.admissionId, recordId: source.id, recordType: data.recordType, text: data.text, reason: data.reason, ...signature
-      }).returning();
+      });
       id = record.id;
     }
     else {
       const [source] = await tx.select().from(labReports).where(and(eq(labReports.id, v.sourceId), eq(labReports.admissionId, v.admissionId)));
       if (!source)
         throw new DomainError("FORBIDDEN", "Original diagnostic report access denied");
-      const [record] = await tx.insert(labReportAddenda).values({
+      const [record] = await insertReturning(tx, labReportAddenda, {
         reportId: source.id, text: data.text, reason: data.reason, ...signature
-      }).returning();
+      });
       id = record.id;
     }
     await appendAudit(tx, ctx, {

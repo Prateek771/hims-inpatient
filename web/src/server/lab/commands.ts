@@ -12,13 +12,15 @@ import { actorColumns, billingRequest, bumpBillRevision, lockBillingAdmission, p
 import { chargeFinalizations, chargeReversals, charges } from "../billing/schema";
 import { appendAudit } from "../audit";
 import { labDispositions, labProcessing, labReportAddenda, labReports, labSamples } from "./schema";
+import { acquireTxLock } from "../locks";
+import { insertOrNothing, insertReturning } from "../sql";
 const barcode=z.string().trim().regex(/^SMP-[A-F0-9]{32}$/,"Scan an actual sample label");
 const base={orderId:z.uuid(),requestId:z.uuid()};
 const scanInput=z.strictObject({...base,barcode:barcode.optional()});
 const reportInput=z.strictObject({...base,barcode:barcode.optional(),result:z.string().trim().min(1).max(5000),reportDocumentId:z.uuid().optional()});
 const reason=z.string().trim().min(3).max(500);
 async function operator(tx:Transaction,ctx:CommandContext) {
-  await tx.execute(sql`select pg_advisory_xact_lock_shared(729104211)`);
+  await acquireTxLock(tx, "729104211", "shared");
   return admissionOperator(ctx,["LAB"],tx);
 }
 async function orderSource(tx:Transaction,orderId:string,active=false) {
@@ -59,7 +61,7 @@ export async function collectSampleInTransaction(tx:Transaction,ctx:CommandConte
     if(s.sample)return {id:s.sample.id};
     if(s.e.status!=="ADMITTED"||s.stop||s.disposition)throw new DomainError("PRECONDITION","Cannot collect a new sample for stopped or inactive work");
     const sampleId=crypto.randomUUID();
-    const [sample]=await tx.insert(labSamples).values({id:sampleId,orderId:s.o.id,admissionId:s.e.id,patientId:s.e.patientId,barcode:`SMP-${sampleId.replaceAll("-","").toUpperCase()}`,signedBy:id,signedAt:new Date()}).returning();
+    const [sample]=await insertReturning(tx, labSamples, {id:sampleId,orderId:s.o.id,admissionId:s.e.id,patientId:s.e.patientId,barcode:`SMP-${sampleId.replaceAll("-","").toUpperCase()}`,signedBy:id,signedAt:new Date()});
     await audit(tx,ctx,"sample-collected",sample.id,"Human collection; persisted patient, episode and order binding");return {id:sample.id};
   });
   return (await tx.select({id:labSamples.id,barcode:labSamples.barcode}).from(labSamples).where(eq(labSamples.id,result.id)))[0];
@@ -69,7 +71,7 @@ export async function startLabProcessingInTransaction(tx:Transaction,ctx:Command
   const v=scanInput.parse(input);return command(tx,ctx,"lab.processing",v,async(s,id)=>{
     bindScan(s,v.barcode);if(s.processing)return {id:s.processing.id};
     if(s.e.status!=="ADMITTED"||s.disposition||s.stop)throw new DomainError("PRECONDITION","Doctor-stopped work cannot begin new processing; retained collected material needs staff review");
-    const [p]=await tx.insert(labProcessing).values({orderId:s.o.id,admissionId:s.e.id,sampleId:s.sample?.id,signedBy:id,signedAt:new Date()}).returning();await audit(tx,ctx,"processing-started",p.id,"Human confirmed diagnostic processing");return {id:p.id};
+    const [p]=await insertReturning(tx, labProcessing, {orderId:s.o.id,admissionId:s.e.id,sampleId:s.sample?.id,signedBy:id,signedAt:new Date()});await audit(tx,ctx,"processing-started",p.id,"Human confirmed diagnostic processing");return {id:p.id};
   });
 }
 async function finalizeSource(tx:Transaction,ctx:CommandContext,s:Source,resolve=false,why?:string,exceptionId?:string) {
@@ -101,8 +103,8 @@ export async function recordLabReportInTransaction(tx:Transaction,ctx:CommandCon
       if(!departure||s.processing.signedAt>departure)throw new DomainError("PRECONDITION","Only diagnostic work actually processed before departure may be reported later");
     }
     const signedAt=new Date();
-    const [r]=await tx.insert(labReports).values({orderId:s.o.id,admissionId:s.e.id,sampleId:s.sample?.id,result:v.result,signedBy:id,signedAt}).returning();
-    await tx.insert(clinicalTaskEvents).values({orderId:s.o.id,status:"COMPLETED",reason:"Human diagnostic report recorded; billing state is separate",signedBy:id,signedAt}).onConflictDoNothing();
+    const [r]=await insertReturning(tx, labReports, {orderId:s.o.id,admissionId:s.e.id,sampleId:s.sample?.id,result:v.result,signedBy:id,signedAt});
+    await insertOrNothing(tx, clinicalTaskEvents, {orderId:s.o.id,status:"COMPLETED",reason:"Human diagnostic report recorded; billing state is separate",signedBy:id,signedAt});
     await finalizeSource(tx,ctx,s,false,undefined,exceptionId);await audit(tx,ctx,"report-signed",r.id,"Human immutable result; no clinical interpretation by software");return {id:r.id};
   });
 }
@@ -111,7 +113,7 @@ export async function addLabReportAddendum(ctx:CommandContext,input:unknown){
   return withTransaction(tx=>command(tx,ctx,"lab.addendum",v,async(s,id)=>{
     if(s.e.status!=="ADMITTED")throw new DomainError("PRECONDITION","A new closed report addendum requires specific administrator routing");
     if(!s.report||s.report.id!==v.reportId)throw new DomainError("FORBIDDEN","Addendum requires this order's actual report");
-    const [a]=await tx.insert(labReportAddenda).values({reportId:s.report.id,text:v.text,reason:v.reason,signedBy:id,signedAt:new Date()}).returning();await audit(tx,ctx,"report-addendum",a.id,v.reason);return {id:a.id};
+    const [a]=await insertReturning(tx, labReportAddenda, {reportId:s.report.id,text:v.text,reason:v.reason,signedBy:id,signedAt:new Date()});await audit(tx,ctx,"report-addendum",a.id,v.reason);return {id:a.id};
   }));
 }
 export async function resolveLabBilling(ctx:CommandContext,input:unknown){return withTransaction(tx=>resolveLabBillingInTransaction(tx,ctx,input));}
@@ -141,10 +143,10 @@ export async function disposeUnperformedLabOrderInTransaction(tx:Transaction,ctx
     if(charge){
       const finalized=await tx.select().from(chargeFinalizations).where(eq(chargeFinalizations.chargeId,charge.id));const prior=await tx.select().from(chargeReversals).where(eq(chargeReversals.chargeId,charge.id));
       if(charge.initialStatus!=="PENDING"||finalized.length||prior.length)throw new DomainError("PRECONDITION","Performed/finalized or adjusted charges require later financial review");
-      if(charge.amountPaise>0n)reversalId=(await tx.insert(chargeReversals).values({chargeId:charge.id,amountPaise:charge.amountPaise,reason:v.reason,...actorColumns(ctx)}).returning())[0].id;
+      if(charge.amountPaise>0n)reversalId=(await insertReturning(tx, chargeReversals, {chargeId:charge.id,amountPaise:charge.amountPaise,reason:v.reason,...actorColumns(ctx)}))[0].id;
       await bumpBillRevision(tx,s.e.id);
     }
-    const [d]=await tx.insert(labDispositions).values({orderId:s.o.id,admissionId:s.e.id,stopEventId:s.stop.id,reversalId,reason:v.reason,signedBy:id,signedAt:new Date()}).returning();await audit(tx,ctx,"unperformed-disposition",d.id,v.reason);return {id:d.id};
+    const [d]=await insertReturning(tx, labDispositions, {orderId:s.o.id,admissionId:s.e.id,stopEventId:s.stop.id,reversalId,reason:v.reason,signedBy:id,signedAt:new Date()});await audit(tx,ctx,"unperformed-disposition",d.id,v.reason);return {id:d.id};
   });
 }
 export async function getLabOrder(ctx:CommandContext,orderId:string){

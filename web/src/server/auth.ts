@@ -40,9 +40,8 @@ export function createStaffAuth(database: typeof db | Transaction = db) {
     baseURL: configuration.baseURL,
     secret: configuration.secret,
     database: drizzleAdapter(database, {
-      provider: "pg",
+      provider: "mysql",
       schema,
-      schemaName: "hims",
     }),
     emailAndPassword: {
       enabled: true,

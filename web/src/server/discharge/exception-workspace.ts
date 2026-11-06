@@ -11,6 +11,7 @@ import { billProjection, lockBillingAdmission } from "../billing/commands";
 import { exceptionObligationsInTransaction } from "./exceptions";
 import { latestSeals } from "./dependencies";
 import { insuranceReviewInTransaction } from "../insurance/commands";
+import { rowsOf } from "../sql";
 export async function exceptionWorkspace(ctx: CommandContext, selectedId?: string, selectedExceptionId?: string) {
   return withTransaction(async (tx) => {
     const staff = await admissionOperator(ctx, ["ADMIN", "BILLING", "ADMISSION", "DOCTOR", "NURSE", "LAB", "PHARMACY", "INSURANCE"], tx);
@@ -19,13 +20,13 @@ export async function exceptionWorkspace(ctx: CommandContext, selectedId?: strin
     if (staff.role === "DOCTOR")
       access = eq(admissions.admittingDoctorId, staff.id);
     if (staff.role === "NURSE")
-      access = sql `exists(select 1 from hims.nurse_assignments a where a.admission_id=${admissions.id} and a.nurse_id=${staff.id} and not exists(select 1 from hims.nurse_assignment_revocations r where r.assignment_id=a.id))`;
+      access = sql `exists(select 1 from nurse_assignments a where a.admission_id=${admissions.id} and a.nurse_id=${staff.id} and not exists(select 1 from nurse_assignment_revocations r where r.assignment_id=a.id))`;
     if (staff.role === "LAB")
-      access = sql `exists(select 1 from hims.care_tasks t where t.admission_id=${admissions.id} and t.owner_role='LAB')`;
+      access = sql `exists(select 1 from care_tasks t where t.admission_id=${admissions.id} and t.owner_role='LAB')`;
     if (staff.role === "PHARMACY")
-      access = sql `exists(select 1 from hims.clinical_orders o where o.admission_id=${admissions.id} and o.kind='MEDICINE')`;
+      access = sql `exists(select 1 from clinical_orders o where o.admission_id=${admissions.id} and o.kind='MEDICINE')`;
     if (staff.role === "INSURANCE")
-      access = sql `exists(select 1 from hims.insurance_cases c where c.admission_id=${admissions.id} and c.assigned_staff_id=${staff.id})`;
+      access = sql `exists(select 1 from insurance_cases c where c.admission_id=${admissions.id} and c.assigned_staff_id=${staff.id})`;
     const episodes = await tx.select({
       id: admissions.id, ipCode: admissions.ipCode, status: admissions.status, version: admissions.version, name: patients.name, identityStatus: patients.identityStatus, identityProvenance: patients.identityProvenance, bedLabel: beds.label
     })
@@ -60,42 +61,42 @@ export async function exceptionWorkspace(ctx: CommandContext, selectedId?: strin
       label: string;
     }[] = [];
     async function addSources(kind: string, query: SQL) {
-      const rows = (await tx.execute(query)).rows;
+      const rows = rowsOf(await tx.execute(query));
       sources.push(...rows.map(r => ({
         id: String(r.id), kind, label: String(r.label)
       })));
     }
     if (["ADMIN", "NURSE", "DOCTOR"].includes(staff.role)) {
-      await addSources("STAY", sql `select s.id,b.label||' · '||s.started_at::text||' → '||coalesce(s.ended_at::text,'Occupied') label from hims.effective_room_stays s join hims.beds b on b.id=s.bed_id where s.admission_id=${id}`);
-      await addSources("VACATION", sql `select id,'Current room vacancy · '||vacated_at::text label from hims.effective_room_vacations where admission_id=${id}`);
-      await addSources("TRANSFER_ORDER", sql `select o.id,'Doctor transfer to '||o.destination_category||' · version '||o.version::text label from hims.transfer_orders o where o.admission_id=${id} and not exists(select 1 from hims.admission_transfers t where t.transfer_order_id=o.id)`);
-      await addSources("SHIFT", sql `select s.id,'Attendance · '||u.name||' · '||s.started_at::text label from hims.nursing_shifts s join hims.staff_user u on u.id=s.nurse_id where s.admission_id=${id} and (${staff.role}='ADMIN' or s.nurse_id=${staff.id})`);
+      await addSources("STAY", sql `select s.id,b.label||' · '||s.started_at||' → '||coalesce(s.ended_at,'Occupied') label from effective_room_stays s join beds b on b.id=s.bed_id where s.admission_id=${id}`);
+      await addSources("VACATION", sql `select id,'Current room vacancy · '||vacated_at label from effective_room_vacations where admission_id=${id}`);
+      await addSources("TRANSFER_ORDER", sql `select o.id,'Doctor transfer to '||o.destination_category||' · version '||o.version label from transfer_orders o where o.admission_id=${id} and not exists(select 1 from admission_transfers t where t.transfer_order_id=o.id)`);
+      await addSources("SHIFT", sql `select s.id,'Attendance · '||u.name||' · '||s.started_at label from nursing_shifts s join staff_user u on u.id=s.nurse_id where s.admission_id=${id} and (${staff.role}='ADMIN' or s.nurse_id=${staff.id})`);
     }
     if (finance) {
-      await addSources("CHARGE", sql`select c.id,'Original non-room charge · '||c.description label from hims.charges c where c.admission_id=${id} and c.category<>'room' and c.source_event_id not like 'room:%' and c.amount_paise>coalesce((select sum(r.amount_paise) from hims.charge_reversals r where r.charge_id=c.id),0)`);
-      await addSources("CONVERSION", sql `select v.id,'Original externally verified self-pay conversion' label from hims.insurance_conversions v join hims.insurance_cases c on c.id=v.case_id where c.admission_id=${id}`);
-      await addSources("RECEIPT", sql `select id,party||' '||kind||' · '||source_reference label from hims.receipts where admission_id=${id}`);
-      await addSources("ALLOCATION", sql `select a.id,'Original deposit allocation · '||a.created_at::text label from hims.receipt_allocations a join hims.receipts r on r.id=a.receipt_id where r.admission_id=${id} and not exists(select 1 from hims.allocation_cancellations c where c.allocation_id=a.id)`);
+      await addSources("CHARGE", sql`select c.id,'Original non-room charge · '||c.description label from charges c where c.admission_id=${id} and c.category<>'room' and c.source_event_id not like 'room:%' and c.amount_paise>coalesce((select sum(r.amount_paise) from charge_reversals r where r.charge_id=c.id),0)`);
+      await addSources("CONVERSION", sql `select v.id,'Original externally verified self-pay conversion' label from insurance_conversions v join insurance_cases c on c.id=v.case_id where c.admission_id=${id}`);
+      await addSources("RECEIPT", sql `select id,party||' '||kind||' · '||source_reference label from receipts where admission_id=${id}`);
+      await addSources("ALLOCATION", sql `select a.id,'Original deposit allocation · '||a.created_at label from receipt_allocations a join receipts r on r.id=a.receipt_id where r.admission_id=${id} and not exists(select 1 from allocation_cancellations c where c.allocation_id=a.id)`);
     }
     if (["ADMIN", "DOCTOR", "NURSE"].includes(staff.role))
-      await addSources("CARE_BILLING", sql`select b.id,'Original performed '||b.category||' · '||b.quantity||' '||b.unit label from hims.care_billing_events b where b.admission_id=${id} and b.state='UNRESOLVED' and ((${staff.role} in ('ADMIN','DOCTOR') and b.category='consultation') or (${staff.role} in ('ADMIN','NURSE') and b.category='consumable'))`);
+      await addSources("CARE_BILLING", sql`select b.id,'Original performed '||b.category||' · '||b.quantity||' '||b.unit label from care_billing_events b where b.admission_id=${id} and b.state='UNRESOLVED' and ((${staff.role} in ('ADMIN','DOCTOR') and b.category='consultation') or (${staff.role} in ('ADMIN','NURSE') and b.category='consumable'))`);
     if (["ADMIN", "BILLING", "INSURANCE"].includes(staff.role))
-      await addSources("INSURANCE_CASE", sql `select id,'Retained insurance case · version '||version::text label from hims.insurance_cases where admission_id=${id}`);
+      await addSources("INSURANCE_CASE", sql `select id,'Retained insurance case · version '||version label from insurance_cases where admission_id=${id}`);
     if (["ADMIN", "DOCTOR"].includes(staff.role))
-      await addSources("CLINICAL_NOTE", sql `select id,'Original Doctor note · '||signed_at::text label from hims.clinical_rounds where admission_id=${id}`);
+      await addSources("CLINICAL_NOTE", sql `select id,'Original Doctor note · '||signed_at label from clinical_rounds where admission_id=${id}`);
     if (staff.role === "DOCTOR")
-      await addSources("RETURN_INSTRUCTION", sql`select p.id,'Doctor return instruction · '||p.signed_at::text label from hims.exception_evidence p where p.admission_id=${id} and p.kind='RETURN_TO_BED' and not exists(select 1 from hims.exception_evidence c where c.kind='RETURN_CANCELLED' and c.source_id=p.id) and not exists(select 1 from hims.room_returns r where r.doctor_evidence_id=p.id)`);
+      await addSources("RETURN_INSTRUCTION", sql`select p.id,'Doctor return instruction · '||p.signed_at label from exception_evidence p where p.admission_id=${id} and p.kind='RETURN_TO_BED' and not exists(select 1 from exception_evidence c where c.kind='RETURN_CANCELLED' and c.source_id=p.id) and not exists(select 1 from room_returns r where r.doctor_evidence_id=p.id)`);
     if (["ADMIN", "NURSE"].includes(staff.role)) {
-      await addSources("MAR", sql `select id,'Original administration · '||actual_at::text label from hims.medication_administrations where admission_id=${id}`);
-      await addSources("OBSERVATION", sql `select id,'Original observation · '||observed_at::text label from hims.nursing_observations where admission_id=${id}`);
-      await addSources("CONSUMABLE", sql `select id,'Original consumable · '||used_at::text label from hims.nursing_consumables where admission_id=${id}`);
+      await addSources("MAR", sql `select id,'Original administration · '||actual_at label from medication_administrations where admission_id=${id}`);
+      await addSources("OBSERVATION", sql `select id,'Original observation · '||observed_at label from nursing_observations where admission_id=${id}`);
+      await addSources("CONSUMABLE", sql `select id,'Original consumable · '||used_at label from nursing_consumables where admission_id=${id}`);
     }
     if (["ADMIN", "LAB"].includes(staff.role)) {
-      await addSources("LAB_ORDER", sql `select o.id,'Diagnostic work processed · '||p.signed_at::text label from hims.clinical_orders o join hims.lab_processing p on p.order_id=o.id where o.admission_id=${id}`);
-      await addSources("LAB_REPORT", sql `select id,'Original diagnostic report · '||signed_at::text label from hims.lab_reports where admission_id=${id}`);
+      await addSources("LAB_ORDER", sql `select o.id,'Diagnostic work processed · '||p.signed_at label from clinical_orders o join lab_processing p on p.order_id=o.id where o.admission_id=${id}`);
+      await addSources("LAB_REPORT", sql `select id,'Original diagnostic report · '||signed_at label from lab_reports where admission_id=${id}`);
     }
-    await addSources("DEPARTURE", sql `select id,'Exceptional departure · '||departed_at::text label from hims.exceptional_departures where admission_id=${id} union all select id,'Ordinary departure · '||departed_at::text from hims.departures where admission_id=${id}`);
-    const bedOptions = ["ADMIN", "NURSE"].includes(staff.role) ? (await tx.execute(sql `select b.id,b.label,b.category from hims.beds b left join hims.bed_holds h on h.bed_id=b.id where b.active and h.bed_id is null order by b.label`)).rows.map(b => ({ id: String(b.id), label: `${b.label} · ${b.category}` })) : [];
+    await addSources("DEPARTURE", sql `select id,'Exceptional departure · '||departed_at label from exceptional_departures where admission_id=${id} union all select id,'Ordinary departure · '||departed_at from departures where admission_id=${id}`);
+    const bedOptions = ["ADMIN", "NURSE"].includes(staff.role) ? rowsOf(await tx.execute(sql `select b.id,b.label,b.category from beds b left join bed_holds h on h.bed_id=b.id where b.active and h.bed_id is null order by b.label`)).map(b => ({ id: String(b.id), label: `${b.label} · ${b.category}` })) : [];
     const amendments = await tx.select({
       id: postDischargeAmendments.id, kind: postDischargeAmendments.kind, sourceId: postDischargeAmendments.sourceId, resultId: postDischargeAmendments.resultId, signedAt: postDischargeAmendments.signedAt, signedBy: postDischargeAmendments.signedBy
     }).from(postDischargeAmendments).where(eq(postDischargeAmendments.admissionId, id));

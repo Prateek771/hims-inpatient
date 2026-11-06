@@ -2,7 +2,7 @@ name: Checks
 
 on:
   push:
-    branches: [main, codex/hims-development]
+    branches: [main, codex/hims-development, codex/mariadb-port]
   pull_request:
     branches: [main]
 
@@ -17,30 +17,20 @@ jobs:
   web:
     name: Web checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 30
     services:
-      postgres:
-        image: postgres:18.6-bookworm@sha256:afc7e2d441324c0388fa80c3d24f733b4194a4eb7f47dd8ee2b08eb1a24a647c
+      # MariaDB 11.8 matches the Hostinger database service. Pin by digest when the image is next reviewed.
+      mariadb:
+        image: mariadb:11.8
         env:
-          POSTGRES_PASSWORD: hims-ci-only
+          MARIADB_ROOT_PASSWORD: hims-ci-only
         ports:
-          - 5432:5432
+          - 3306:3306
         options: >-
-          --health-cmd "pg_isready -U postgres"
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
           --health-interval 5s
           --health-timeout 5s
-          --health-retries 10
-      recovery-postgres:
-        image: postgres:18.6-bookworm@sha256:afc7e2d441324c0388fa80c3d24f733b4194a4eb7f47dd8ee2b08eb1a24a647c
-        env:
-          POSTGRES_PASSWORD: hims-ci-recovery-only
-        ports:
-          - 55432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-retries 20
     defaults:
       run:
         working-directory: web
@@ -48,6 +38,13 @@ jobs:
       NEXT_TELEMETRY_DISABLED: "1"
       npm_config_cache: ${{ github.workspace }}/tmp/npm-cache
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/tmp/playwright-browsers
+      # Throwaway CI-only credentials for the synthetic service container above.
+      DATABASE_URL: mysql://hims_app:hims-ci-app@127.0.0.1:3306/hims_local
+      MIGRATION_DATABASE_URL: mysql://hims_app:hims-ci-app@127.0.0.1:3306/hims_local
+      TEST_DATABASE_URL: mysql://hims_test_owner:hims-ci-owner@127.0.0.1:3306/hims_test
+      TEST_RUNTIME_DATABASE_URL: mysql://hims_test_runtime:hims-ci-runtime@127.0.0.1:3306/hims_test
+      BETTER_AUTH_SECRET: hims-ci-session-signing-secret-0123456789
+      BETTER_AUTH_URL: http://localhost:3000
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,21 +56,31 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Install MariaDB client and dump tools
+        run: sudo apt-get update && sudo apt-get install -y mariadb-client
       - name: Create isolated synthetic databases
-        run: node scripts/bootstrap-local-database.mjs
-        env:
-          HIMS_SETUP_ADMIN_PASSWORD: hims-ci-only
+        run: |
+          mariadb -h127.0.0.1 -uroot -phims-ci-only <<'SQL'
+          CREATE DATABASE hims_local CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin;
+          CREATE DATABASE hims_test CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin;
+          CREATE USER 'hims_app'@'%' IDENTIFIED BY 'hims-ci-app';
+          CREATE USER 'hims_test_owner'@'%' IDENTIFIED BY 'hims-ci-owner';
+          CREATE USER 'hims_test_runtime'@'%' IDENTIFIED BY 'hims-ci-runtime';
+          GRANT ALL ON hims_local.* TO 'hims_app'@'%';
+          GRANT ALL ON hims_test.* TO 'hims_test_owner'@'%' WITH GRANT OPTION;
+          GRANT ALL ON `hims\_test\_restore\_%`.* TO 'hims_test_owner'@'%';
+          GRANT SELECT, INSERT, UPDATE, DELETE, EXECUTE ON hims_test.* TO 'hims_test_runtime'@'%';
+          GRANT PROCESS ON *.* TO 'hims_test_owner'@'%';
+          GRANT PROCESS ON *.* TO 'hims_test_runtime'@'%';
+          FLUSH PRIVILEGES;
+          SQL
       - name: Apply HIMS migrations
         run: npm run db:migrate
-      - name: Prepare official durable paperwork checkpointer
-        run: npm run paperwork:setup
-      - name: Prepare protected local storage
-        run: npm run storage:setup
       - name: Verify fresh clone demo setup
         run: npm run demo:seed
       - name: Unit checks
         run: npm run test:unit
-      - name: PostgreSQL integration checks
+      - name: MariaDB integration checks
         run: npm run test:integration
       - name: Lint
         run: npm run lint
@@ -89,10 +96,6 @@ jobs:
         run: npm run test:e2e
       - name: Isolated backup and restore verification
         run: npm run test:recovery
-        env:
-          HIMS_RECOVERY_ADMIN_PASSWORD: hims-ci-recovery-only
-          HIMS_POSTGRES_SOURCE_CONTAINER: ${{ job.services.postgres.id }}
-          HIMS_POSTGRES_RECOVERY_CONTAINER: ${{ job.services['recovery-postgres'].id }}
       - name: Save failure report
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

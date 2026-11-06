@@ -26,5 +26,5 @@ it("serializes patient medicine returns, rejects over-return and reopens only af
  const after=await m.projection();expect(after.bill?.netPaise).toBe("11000000");expect(after.bill?.refundedPaise).toBe("500000");expect(after.finance).toBeNull();
  expect(after.checks.find(x=>x.check==="PHARMACY")?.current).toBe(false);expect(after.checks.find(x=>x.check==="NURSING")?.current).toBe(true);expect(after.checks.find(x=>x.check==="DIAGNOSTICS")?.current).toBe(true);
  expect(after.financial?.responsibility?.allocationComplete).toBe(false);
- expect((await runtime.query("select count(*)::int n from hims.mvp_medicine_sources where original_id=$1",[charge.id])).rows[0].n).toBe(2);
+ expect((await runtime.query("select count(*) n from mvp_medicine_sources where original_id=$1",[charge.id])).rows[0].n).toBe(2);
 }),60000);

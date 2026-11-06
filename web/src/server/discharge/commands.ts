@@ -14,11 +14,13 @@ import { clinicalClearanceInputs, pharmacyClearanceInputs, nursingClearanceInput
 import { admissions, beds, bedHolds, effectiveRoomStays as roomStays, roomStays as originalRoomStays, effectivePatients as patients } from "../admissions/schema";
 import { shiftForCare } from "../nursing/commands";
 import { reconcileRoomChargesInTransaction } from "../billing/room-charges";
+import { acquireTxLock } from "../locks";
+import { insertReturning, rowsOf } from "../sql";
 export { invalidateAffectedClearances } from "./dependencies";
 const gateInput = z.enum(gates);
 const roleForGate: Record<Gate, readonly StaffRole[]> = { DOCTOR: ["DOCTOR"], PHARMACY: ["PHARMACY"], NURSING: ["NURSE"], BILLING: ["BILLING", "ADMIN"] };
 async function operator(tx: Transaction, ctx: CommandContext, gate: Gate) {
-  await tx.execute(sql`select pg_advisory_xact_lock_shared(729104211)`);
+  await acquireTxLock(tx, "729104211", "shared");
   return admissionOperator(ctx, roleForGate[gate], tx);
 }
 async function episodeForStaff(tx: Transaction, staff: { id: string; role: string }, admissionId: string, active = true) {
@@ -69,7 +71,7 @@ export async function recordRoomVacatedInTransaction(tx:Transaction,ctx:CommandC
   const v=z.strictObject({admissionId:z.uuid(),shiftId:z.uuid(),vacatedAt:z.iso.datetime(),waitingLocation:z.string().trim().min(3).max(200),handover:z.string().trim().min(3).max(1000),requestId:z.uuid()}).parse(input);
   if(ctx.requestId!==v.requestId)throw new DomainError("VALIDATION","Request keys disagree");
   const staff=await operator(tx,ctx,"NURSING");
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+  await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
   const e=await episodeForStaff(tx,staff,v.admissionId,false);
   return billingRequest(tx,ctx,"discharge.room-vacated",v,async()=>{
     if(e.status!=="ADMITTED")throw new DomainError("PRECONDITION","New physical bed vacancy requires an active admission");
@@ -83,11 +85,11 @@ export async function recordRoomVacatedInTransaction(tx:Transaction,ctx:CommandC
     await tx.select().from(beds).where(eq(beds.id,stay.bedId)).for("update");
     const [hold]=await tx.select().from(bedHolds).where(eq(bedHolds.bedId,stay.bedId));
     if(hold?.admissionId!==e.id)throw new DomainError("CONFLICT","Current physical bed hold changed");
-    const laterUse=await tx.execute(sql`select 1 from hims.nursing_consumables where stay_id=${stay.id} and used_at>=${T} limit 1`);
-    if(laterUse.rows.length)throw new DomainError("CONFLICT","Room vacancy precedes already recorded bed use; retain the factual time for correction");
+    const laterUse=await tx.execute(sql`select 1 from nursing_consumables where stay_id=${stay.id} and used_at>=${T} limit 1`);
+    if(rowsOf(laterUse).length)throw new DomainError("CONFLICT","Room vacancy precedes already recorded bed use; retain the factual time for correction");
     await reconcileRoomChargesInTransaction(tx,{admissionId:e.id,cutoff:T,actorContext:ctx});
     await tx.update(originalRoomStays).set({endedAt:T}).where(eq(originalRoomStays.id,stay.id));
-    const [vacation]=await tx.insert(originalRoomVacations).values({admissionId:e.id,stayId:stay.id,nursingSealId:nursing.id,shiftId:v.shiftId,vacatedAt:T,waitingLocation:v.waitingLocation,handover:v.handover,signedBy:staff.id,signedAt:new Date()}).returning();
+    const [vacation]=await insertReturning(tx, originalRoomVacations, {admissionId:e.id,stayId:stay.id,nursingSealId:nursing.id,shiftId:v.shiftId,vacatedAt:T,waitingLocation:v.waitingLocation,handover:v.handover,signedBy:staff.id,signedAt:new Date()});
     await appendAudit(tx,ctx,{event:"discharge.room-vacated",entityType:"room-vacation",entityId:vacation.id,reason:v.handover});
     return {id:vacation.id};
   });
@@ -97,7 +99,7 @@ export async function recordDepartureInTransaction(tx:Transaction,ctx:CommandCon
   const v=z.strictObject({admissionId:z.uuid(),departedAt:z.iso.datetime(),expectedBillVersion:z.number().int().positive(),requestId:z.uuid()}).parse(input);
   if(ctx.requestId!==v.requestId)throw new DomainError("VALIDATION","Request keys disagree");
   const staff=await operator(tx,ctx,"BILLING");
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+  await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
   const e=await episodeForStaff(tx,staff,v.admissionId,false),T=new Date(v.departedAt);
   const [request]=await tx.select().from(billingRequests).where(and(eq(billingRequests.actorId,staff.id),eq(billingRequests.requestId,ctx.requestId)));
   if(request&&(request.action!=="discharge.departure"||request.payload!==fingerprint(v)))throw new DomainError("CONFLICT","Request key already belongs to a different action or payload");
@@ -115,7 +117,7 @@ export async function recordDepartureInTransaction(tx:Transaction,ctx:CommandCon
   await tx.select().from(beds).where(eq(beds.id,e.bedId)).for("update");
   const [hold]=await tx.select().from(bedHolds).where(eq(bedHolds.bedId,e.bedId));
   if(hold?.admissionId!==e.id)throw new DomainError("CONFLICT","Episode bed hold changed");
-  const [departure]=await tx.insert(departures).values({admissionId:e.id,stayId:vacation.stayId,billSealId:seal.id,billVersion:updated.billRevision,departedAt:T,signedBy:staff.id,signedAt:new Date()}).returning();
+  const [departure]=await insertReturning(tx, departures, {admissionId:e.id,stayId:vacation.stayId,billSealId:seal.id,billVersion:updated.billRevision,departedAt:T,signedBy:staff.id,signedAt:new Date()});
   await tx.update(admissions).set({status:"DISCHARGED",version:sql`${admissions.version}+1`}).where(eq(admissions.id,e.id));
   await tx.delete(bedHolds).where(eq(bedHolds.admissionId,e.id));
   // A proposed return may already have created this vacancy's cleaning task.
@@ -136,7 +138,7 @@ export async function completeBedTurnover(ctx:CommandContext,input:unknown){
   if(v.requestId!==ctx.requestId)throw new DomainError("VALIDATION","Request keys disagree");
   return withTransaction(async tx=>{
     const staff=await admissionOperator(ctx,["ADMIN","ADMISSION"],tx);
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+    await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
     const [turnover]=await tx.select().from(bedTurnovers).where(eq(bedTurnovers.id,v.turnoverId));
     if(!turnover)throw new DomainError("FORBIDDEN","Turnover access denied");
     await lockBillingAdmission(tx,turnover.admissionId);
@@ -144,7 +146,7 @@ export async function completeBedTurnover(ctx:CommandContext,input:unknown){
     return billingRequest(tx,ctx,"discharge.turnover-complete",v,async()=>{
       const [old]=await tx.select().from(bedTurnoverCompletions).where(eq(bedTurnoverCompletions.turnoverId,turnover.id));if(old)return {id:old.id};
       const T=new Date(v.completedAt);if(T<turnover.vacatedAt||T>new Date())throw new DomainError("VALIDATION","Actual cleaning completion must follow vacancy and be no later than now");
-      const [done]=await tx.insert(bedTurnoverCompletions).values({turnoverId:turnover.id,completedAt:T,evidence:v.evidence,signedBy:staff.id,signedAt:new Date()}).returning();
+      const [done]=await insertReturning(tx, bedTurnoverCompletions, {turnoverId:turnover.id,completedAt:T,evidence:v.evidence,signedBy:staff.id,signedAt:new Date()});
       await appendAudit(tx,ctx,{event:"discharge.turnover-completed",entityType:"bed-turnover",entityId:turnover.id,reason:v.evidence});return {id:done.id};
     });
   });
@@ -152,8 +154,8 @@ export async function completeBedTurnover(ctx:CommandContext,input:unknown){
 export async function dischargeWorkspace(ctx:CommandContext){return withTransaction(async tx=>{
   const staff=await admissionOperator(ctx,["ADMIN","BILLING","DOCTOR","NURSE","PHARMACY"],tx);
   const selectedGate:Gate=staff.role==="DOCTOR"?"DOCTOR":staff.role==="NURSE"?"NURSING":staff.role==="PHARMACY"?"PHARMACY":"BILLING";
-  const scope=staff.role==="DOCTOR"?eq(admissions.admittingDoctorId,staff.id):staff.role==="NURSE"?sql`exists(select 1 from hims.nurse_assignments a where a.admission_id=${admissions.id} and a.nurse_id=${staff.id} and not exists(select 1 from hims.nurse_assignment_revocations r where r.assignment_id=a.id))`:undefined;
-  const episodes=await tx.select({id:admissions.id,ipCode:admissions.ipCode,status:admissions.status,name:patients.name,bedLabel:beds.label}).from(admissions).innerJoin(patients,eq(patients.id,admissions.patientId)).innerJoin(beds,eq(beds.id,admissions.bedId)).where(and(scope,sql`${admissions.status}='ADMITTED' or (${admissions.status}='DISCHARGED' and ${admissions.registeredAt}>now()-interval '30 days')`)).orderBy(desc(admissions.registeredAt));
+  const scope=staff.role==="DOCTOR"?eq(admissions.admittingDoctorId,staff.id):staff.role==="NURSE"?sql`exists(select 1 from nurse_assignments a where a.admission_id=${admissions.id} and a.nurse_id=${staff.id} and not exists(select 1 from nurse_assignment_revocations r where r.assignment_id=a.id))`:undefined;
+  const episodes=await tx.select({id:admissions.id,ipCode:admissions.ipCode,status:admissions.status,name:patients.name,bedLabel:beds.label}).from(admissions).innerJoin(patients,eq(patients.id,admissions.patientId)).innerJoin(beds,eq(beds.id,admissions.bedId)).where(and(scope,sql`${admissions.status}='ADMITTED' or (${admissions.status}='DISCHARGED' and ${admissions.registeredAt}>UTC_TIMESTAMP(6)-interval 30 day)`)).orderBy(desc(admissions.registeredAt));
   const turnovers=staff.role==="ADMIN"?await tx.select({id:bedTurnovers.id,bedLabel:beds.label,vacatedAt:bedTurnovers.vacatedAt,reason:bedTurnovers.reason}).from(bedTurnovers).innerJoin(beds,eq(beds.id,bedTurnovers.bedId)).leftJoin(bedTurnoverCompletions,eq(bedTurnoverCompletions.turnoverId,bedTurnovers.id)).where(isNull(bedTurnoverCompletions.id)).orderBy(asc(bedTurnovers.vacatedAt)):[];
   return {selectedGate,episodes,turnovers};
 });}
@@ -173,7 +175,7 @@ export async function requireGate4Review(tx:Transaction,episode:typeof admission
 export async function issueClearanceInTransaction(tx: Transaction, ctx: CommandContext, input: unknown) {
   const value = z.strictObject({ admissionId: z.uuid(), gate: gateInput, expectedReviewHash: z.string().length(64), expectedBillVersion: z.number().int().positive().optional(), reviewNote: z.string().trim().min(3).max(1000).default("Human reviewed this gate's current evidence and discrepancies") }).parse(input);
   const staff = await operator(tx, ctx, value.gate);
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+  await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
   const episode = await episodeForStaff(tx, staff, value.admissionId, false);
   const result = await billingRequest(tx, ctx, "discharge.seal", value, async () => {
     if(episode.status!=="ADMITTED")throw new DomainError("PRECONDITION","New human clearance requires an active admission");
@@ -181,7 +183,7 @@ export async function issueClearanceInTransaction(tx: Transaction, ctx: CommandC
     if (value.expectedReviewHash !== review.reviewHash || (value.gate === "BILLING" && value.expectedBillVersion !== episode.billRevision)) throw new DomainError("CONFLICT", "Reviewed inputs or bill changed; refresh and review before signing");
     if (review.blockers.length) throw new DomainError("PRECONDITION", review.blockers.join(" "));
     if (review.current) return { id: review.seal!.id };
-    const [seal] = await tx.insert(clearanceSeals).values({ admissionId: episode.id, gate: value.gate, role: staff.role, reviewHash: review.reviewHash, inputs: review.inputs, predecessorId: review.predecessorId, billVersion: value.gate === "BILLING" ? episode.billRevision : null, reason: value.reviewNote, signedBy: staff.id, signedAt: new Date() }).returning();
+    const [seal] = await insertReturning(tx, clearanceSeals, { admissionId: episode.id, gate: value.gate, role: staff.role, reviewHash: review.reviewHash, inputs: review.inputs, predecessorId: review.predecessorId, billVersion: value.gate === "BILLING" ? episode.billRevision : null, reason: value.reviewNote, signedBy: staff.id, signedAt: new Date() });
     await appendAudit(tx, ctx, { event: "discharge.clearance-signed", entityType: "clearance-seal", entityId: seal.id, reason: value.reviewNote });
     return { id: seal.id };
   });

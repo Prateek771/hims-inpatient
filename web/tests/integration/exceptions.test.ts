@@ -12,12 +12,14 @@ import * as clinical from "../../src/server/clinical/commands";
 import * as discharge from "../../src/server/discharge/commands";
 import * as nursing from "../../src/server/nursing/commands";
 import * as billing from "../../src/server/billing/commands";
-import { Client } from "pg";
+import { TestClient as Client } from "../../scripts/test-client.ts";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
+import { drizzle, type MySql2Database } from "drizzle-orm/mysql2";
 import * as schema from "../../src/server/schema";
 import { sql } from "drizzle-orm";
+import { ruleViolation, serializationFailure } from "../support/errors";
+import { rowsOf } from "../../src/server/sql";
 async function reviewedVacancy(f: Awaited<ReturnType<typeof activeFixture>>) {
   await clinical.signClinicalSummary(f.doctorCtx(), { admissionId: f.admissionId, expectedVersion: 0, diagnosis: "Synthetic reviewed diagnosis", course: "Completed care review", condition: "Stable waiting", followUp: "Doctor follow-up", advice: "Continue monitoring", prescriptionOrderIds: [] });
   for (const [gate, ctx] of [["DOCTOR", f.doctorCtx], ["PHARMACY", () => staffContext(f.pharmacy, "synthetic-exception")], ["NURSING", f.nurseCtx]] as const) {
@@ -27,7 +29,7 @@ async function reviewedVacancy(f: Awaited<ReturnType<typeof activeFixture>>) {
   const c = f.nurseCtx();
   return discharge.recordRoomVacated(c, { admissionId: f.admissionId, shiftId: f.shift.id, vacatedAt: new Date().toISOString(), waitingLocation: "Actual supervised waiting area", handover: "Actual physical vacancy", requestId: c.requestId });
 }
-async function observedReaderRace<T>(runtime: Client, writer: NodePgDatabase<typeof schema>, writerPid: number, write: Parameters<typeof writer.transaction<T>>[0], read: () => Promise<unknown>) {
+async function observedReaderRace<T>(runtime: Client, writer: MySql2Database<typeof schema>, writerPid: number, write: Parameters<typeof writer.transaction<T>>[0], read: () => Promise<unknown>) {
   let release = () => {}, ready = () => {};
   const held = new Promise<void>(r => release = r), acquired = new Promise<void>(r => ready = r);
   let first: Promise<T> | undefined, second: Promise<unknown> | undefined;
@@ -37,7 +39,7 @@ async function observedReaderRace<T>(runtime: Client, writer: NodePgDatabase<typ
     second = read().catch(e => e);
     let readerPid: number | undefined;
     for (let i = 0; i < 100; i++) {
-      const blocked = await runtime.query("select pid from pg_stat_activity where $1::int=any(pg_blocking_pids(pid)) and usename=current_user", [writerPid]);
+      const blocked = await runtime.query("select rt.trx_mysql_thread_id as pid from information_schema.INNODB_LOCK_WAITS w join information_schema.INNODB_TRX rt on rt.trx_id=w.requesting_trx_id join information_schema.INNODB_TRX bt on bt.trx_id=w.blocking_trx_id where bt.trx_mysql_thread_id=$1", [writerPid]);
       if (blocked.rows.length) { readerPid = blocked.rows[0].pid; break; }
       await new Promise(r => setTimeout(r, 10));
     }
@@ -87,7 +89,7 @@ process.env.BETTER_AUTH_SECRET = "SyntheticExceptionsOnlySecretAtLeast32Characte
 describe("accountable administrator exceptions", () => {
   it.each(["amend-before-end", "end-before-amend", "native-end-before-amend"] as const)("attributes supported final cutoff to its later actual Nurse witness: %s", async order => withTestDatabase(async ({ runtime, owner }) => {
     const f = await activeFixture(), vacation = await reviewedVacancy(f);
-    const original = (await runtime.query("select * from hims.room_vacations where id=$1", [vacation.id])).rows[0];
+    const original = (await runtime.query("select * from room_vacations where id=$1", [vacation.id])).rows[0];
     await nursing.endShift(f.nurseCtx(), { shiftId: f.shift.id, endedAt: new Date().toISOString(), handover: "Original earlier attendance ends" });
     const start = f.nurseCtx(), later = await nursing.recordShift(start, { admissionId: f.admissionId, startedAt: new Date().toISOString(), handover: "Actual distinct later attendance", requestId: start.requestId });
     const authority = await exceptions.authorizeException(f.adminCtx(), { admissionId: f.admissionId, type: "ROOM_CUTOFF_CORRECTION", disposition: "AMEND", sourceId: original.stay_id, authority: "Administrator factual correction", reason: "Later Nurse verifies the final physical cutoff", evidenceIds: [], evidence: "Original cutoff superseded with retained later witness", followUpOwnerId: f.nurse.id });
@@ -96,15 +98,15 @@ describe("accountable administrator exceptions", () => {
     if (order !== "amend-before-end") await end();
     let amendmentId: string;
     if (order.startsWith("native")) {
-      amendmentId = (await owner.query("insert into hims.stay_boundary_amendments(admission_id,stay_id,exception_id,evidence_id,version,started_at,ended_at,reason,signed_by) select $1,s.id,$2,$3,1,s.started_at,$4,'Actual final cutoff correction',$5 from hims.room_stays s where s.id=$6 returning id", [f.admissionId, authority.id, evidence.id, cutoff, f.admin.id, original.stay_id])).rows[0].id;
+      amendmentId = (await owner.query("insert into stay_boundary_amendments(admission_id,stay_id,exception_id,evidence_id,version,started_at,ended_at,reason,signed_by) select $1,s.id,$2,$3,1,s.started_at,$4,'Actual final cutoff correction',$5 from room_stays s where s.id=$6 returning id", [f.admissionId, authority.id, evidence.id, cutoff, f.admin.id, original.stay_id])).rows[0].id;
     } else amendmentId = (await exceptions.correctRoomCutoff(f.adminCtx(), { admissionId: f.admissionId, exceptionId: authority.id, evidenceId: evidence.id })).id;
     if (order === "amend-before-end") await end();
-    const fact = (await runtime.query("select * from hims.effective_vacation_facts where id=$1", [vacation.id])).rows[0];
-    const witness = (await runtime.query("select * from hims.exception_evidence where id=$1", [evidence.id])).rows[0];
+    const fact = (await runtime.query("select * from effective_vacation_facts where id=$1", [vacation.id])).rows[0];
+    const witness = (await runtime.query("select * from exception_evidence where id=$1", [evidence.id])).rows[0];
     expect(fact).toMatchObject({ shift_id: later.id, signed_by: witness.signed_by, signed_at: witness.signed_at, handover: witness.notes, amendment_id: amendmentId, evidence_id: evidence.id, original_shift_id: original.shift_id, original_signed_at: original.signed_at, original_vacated_at: original.vacated_at });
     expect(fact.vacated_at.toISOString()).toBe(cutoff);
-    expect((await runtime.query("select * from hims.room_vacations where id=$1", [vacation.id])).rows[0]).toEqual(original);
-    expect((await runtime.query("select shift_id,signed_at from hims.effective_room_vacations where id=$1", [vacation.id])).rows[0]).toMatchObject({ shift_id: later.id, signed_at: witness.signed_at });
+    expect((await runtime.query("select * from room_vacations where id=$1", [vacation.id])).rows[0]).toEqual(original);
+    expect((await runtime.query("select shift_id,signed_at from effective_room_vacations where id=$1", [vacation.id])).rows[0]).toMatchObject({ shift_id: later.id, signed_at: witness.signed_at });
     const review = await discharge.getClearanceReview(f.nurseCtx(), f.admissionId, "NURSING");
     expect(JSON.stringify(review.inputs)).toContain(evidence.id);
     expect(review.current).toBe(false);
@@ -113,62 +115,63 @@ describe("accountable administrator exceptions", () => {
     const f = await activeFixture();
     await exceptions.recordExceptionEvidence(f.doctorCtx(), { admissionId: f.admissionId, kind: "PLANNED_EXIT", actualAt: new Date().toISOString(), notes: "Sensitive professional review for currently assigned staff" });
     await nursing.endShift(f.nurseCtx(), { shiftId: f.shift.id, endedAt: new Date().toISOString(), handover: "Actual signed handover before revocation" });
-    const grant = (await runtime.query("select id from hims.nurse_assignments where admission_id=$1", [f.admissionId])).rows[0];
+    const grant = (await runtime.query("select id from nurse_assignments where admission_id=$1", [f.admissionId])).rows[0];
     const client = new Client({ connectionString: testUrl }); await client.connect();
     try {
-      const pid = (await client.query("select pg_backend_pid() pid")).rows[0].pid;
-      const race = await observedReaderRace(runtime, drizzle(client, { schema }), pid, tx => nursing.revokeNurseAssignmentInTransaction(tx, f.adminCtx(), { assignmentId: grant.id, authority: "Administrator actual reassignment", reason: "Remove completed staff assignment" }), () => exceptionWorkspace(f.nurseCtx(), f.admissionId));
+      const pid = (await client.query("select connection_id() pid")).rows[0].pid;
+      const race = await observedReaderRace(runtime, drizzle(client.pool, { schema, mode: "default" }), pid, tx => nursing.revokeNurseAssignmentInTransaction(tx, f.adminCtx(), { assignmentId: grant.id, authority: "Administrator actual reassignment", reason: "Remove completed staff assignment" }), () => exceptionWorkspace(f.nurseCtx(), f.admissionId));
       expect(race.result).toMatchObject({ code: "FORBIDDEN" });
-      expect((await runtime.query("select count(*)::int n from hims.nurse_assignment_revocations where assignment_id=$1", [grant.id])).rows[0].n).toBe(1);
+      expect((await runtime.query("select count(*) n from nurse_assignment_revocations where assignment_id=$1", [grant.id])).rows[0].n).toBe(1);
     } finally { await client.end(); }
   }));
   it("native Doctor exception evidence changes clinical source hashes and invalidates old professional seals", async () => withTestDatabase(async ({ runtime, owner }) => {
     const f = await activeFixture(), vacation = await reviewedVacancy(f), before = await discharge.getClearanceReview(f.doctorCtx(), f.admissionId, "DOCTOR");
-    const native = (await owner.query("insert into hims.exception_evidence(admission_id,kind,role,source_id,actual_at,notes,signed_by) values($1,'RETURN_TO_BED','DOCTOR',$2,clock_timestamp(),'Doctor native source-bound continued bed care',$3) returning id", [f.admissionId, vacation.id, f.doctor.id])).rows[0];
-    expect((await runtime.query("select count(*)::int n from hims.clearance_invalidations i join hims.clearance_seals s on s.id=i.seal_id where s.admission_id=$1 and s.gate in ('DOCTOR','PHARMACY','NURSING')", [f.admissionId])).rows[0].n).toBe(3);
+    const native = (await owner.query("insert into exception_evidence(admission_id,kind,role,source_id,actual_at,notes,signed_by) values($1,'RETURN_TO_BED','DOCTOR',$2,UTC_TIMESTAMP(6),'Doctor native source-bound continued bed care',$3) returning id", [f.admissionId, vacation.id, f.doctor.id])).rows[0];
+    expect((await runtime.query("select count(*) n from clearance_invalidations i join clearance_seals s on s.id=i.seal_id where s.admission_id=$1 and s.gate in ('DOCTOR','PHARMACY','NURSING')", [f.admissionId])).rows[0].n).toBe(3);
     const after = await discharge.getClearanceReview(f.doctorCtx(), f.admissionId, "DOCTOR");
     expect(after.reviewHash).not.toBe(before.reviewHash);
     expect(JSON.stringify(after.inputs)).toContain(native.id);
     await expect(discharge.issueClearance(f.doctorCtx(), { admissionId: f.admissionId, gate: "DOCTOR", expectedReviewHash: before.reviewHash })).rejects.toMatchObject({ code: "CONFLICT" });
-    await expect(owner.query("insert into hims.clearance_seals(admission_id,gate,role,review_hash,inputs,reason,signed_by) values($1,'DOCTOR','DOCTOR',$2,'{}','Bypass missing reconsideration',$3)", [f.admissionId, before.reviewHash, f.doctor.id])).rejects.toMatchObject({ code: "23514" });
+    await expect(owner.query("insert into clearance_seals(admission_id,gate,role,review_hash,inputs,reason,signed_by) values($1,'DOCTOR','DOCTOR',$2,'{}','Bypass missing reconsideration',$3)", [f.admissionId, before.reviewHash, f.doctor.id])).rejects.toSatisfy(ruleViolation);
   }));
   it("preserves the original earlier vacancy witness for an unchanged cutoff and rejects a changed cutoff outside the later exit witness attendance", async () => withTestDatabase(async ({ runtime, owner }) => {
-    const f = await activeFixture(), vacancy = await reviewedVacancy(f), original = (await runtime.query("select * from hims.room_vacations where id=$1", [vacancy.id])).rows[0];
+    const f = await activeFixture(), vacancy = await reviewedVacancy(f), original = (await runtime.query("select * from room_vacations where id=$1", [vacancy.id])).rows[0];
     await nursing.endShift(f.nurseCtx(), { shiftId: f.shift.id, endedAt: new Date().toISOString(), handover: "Original vacancy witness ends attendance" });
     const c = f.nurseCtx(), later = await nursing.recordShift(c, { admissionId: f.admissionId, startedAt: new Date().toISOString(), handover: "Later hospital-exit witness begins", requestId: c.requestId });
     const physical = await exceptions.recordExceptionEvidence(f.nurseCtx(), { admissionId: f.admissionId, kind: "PHYSICAL_EXIT", shiftId: later.id, actualAt: new Date().toISOString(), vacatedAt: original.vacated_at.toISOString(), notes: "Later hospital exit; original earlier bed-vacancy witness is retained" });
     const authority = await exceptions.authorizeException(f.adminCtx(), { admissionId: f.admissionId, type: "EARLY_EXIT", disposition: "EXCEPTIONAL_EXIT", authority: "Administrator actual exit routing", reason: "Separate later hospital exit and retained earlier bed vacancy", evidenceIds: [physical.id], evidence: "Both original vacancy and later door-exit witness retained", followUpOwnerId: f.doctor.id });
-    await owner.query("insert into hims.stay_boundary_amendments(admission_id,stay_id,exception_id,evidence_id,version,started_at,ended_at,reason,signed_by) select $1,s.id,$2,$3,1,s.started_at,$4,'Retain actual witnessed cutoff',$5 from hims.room_stays s where s.id=$6", [f.admissionId, authority.id, physical.id, original.vacated_at, f.admin.id, original.stay_id]);
-    const fact = (await runtime.query("select * from hims.effective_vacation_facts where id=$1", [vacancy.id])).rows[0];
+    await owner.query("insert into stay_boundary_amendments(admission_id,stay_id,exception_id,evidence_id,version,started_at,ended_at,reason,signed_by) select $1,s.id,$2,$3,1,s.started_at,$4,'Retain actual witnessed cutoff',$5 from room_stays s where s.id=$6", [f.admissionId, authority.id, physical.id, original.vacated_at, f.admin.id, original.stay_id]);
+    const fact = (await runtime.query("select * from effective_vacation_facts where id=$1", [vacancy.id])).rows[0];
     expect(fact).toMatchObject({ shift_id: f.shift.id, signed_at: original.signed_at, handover: original.handover, waiting_location: original.waiting_location });
-    const clean = await runtime.query("insert into hims.bed_turnovers(admission_id,bed_id,stay_id,vacated_at,reason,signed_by) select $1,s.bed_id,s.id,$2,'Actual original vacancy cleaning source',$3 from hims.room_stays s where s.id=$4 returning id", [f.admissionId, original.vacated_at, f.admin.id, original.stay_id]);
-    const turnover = (await runtime.query("select * from hims.effective_bed_turnovers where id=$1", [clean.rows[0].id])).rows[0];
+    const clean = await runtime.query("insert into bed_turnovers(admission_id,bed_id,stay_id,vacated_at,reason,signed_by) select $1,s.bed_id,s.id,$2,'Actual original vacancy cleaning source',$3 from room_stays s where s.id=$4 returning id", [f.admissionId, original.vacated_at, f.admin.id, original.stay_id]);
+    const turnover = (await runtime.query("select * from effective_bed_turnovers where id=$1", [clean.rows[0].id])).rows[0];
     expect(turnover).toMatchObject({ cutoff_shift_id: f.shift.id, cutoff_signed_at: original.signed_at });
     const changed = new Date(original.vacated_at.getTime() - 1);
     const wrong = await exceptions.recordExceptionEvidence(f.nurseCtx(), { admissionId: f.admissionId, kind: "PHYSICAL_EXIT", shiftId: later.id, actualAt: new Date().toISOString(), vacatedAt: changed.toISOString(), notes: "Exit witness cannot attest changed cutoff before their actual shift" });
     const wrongAuthority = await exceptions.authorizeException(f.adminCtx(), { admissionId: f.admissionId, type: "EARLY_EXIT", disposition: "EXCEPTIONAL_EXIT", authority: "Administrator attempted correction", reason: "Changed cutoff lacks in-attendance professional witness", evidenceIds: [wrong.id], evidence: "Later exit evidence only", followUpOwnerId: f.doctor.id });
-    await expect(owner.query("insert into hims.stay_boundary_amendments(admission_id,stay_id,exception_id,evidence_id,version,started_at,ended_at,reason,signed_by) select $1,s.id,$2,$3,2,s.started_at,$4,'Invalid changed bed cutoff',$5 from hims.room_stays s where s.id=$6", [f.admissionId, wrongAuthority.id, wrong.id, changed, f.admin.id, original.stay_id])).rejects.toMatchObject({ code: "23514" });
+    await expect(owner.query("insert into stay_boundary_amendments(admission_id,stay_id,exception_id,evidence_id,version,started_at,ended_at,reason,signed_by) select $1,s.id,$2,$3,2,s.started_at,$4,'Invalid changed bed cutoff',$5 from room_stays s where s.id=$6", [f.admissionId, wrongAuthority.id, wrong.id, changed, f.admin.id, original.stay_id])).rejects.toSatisfy(ruleViolation);
   }));
   it.each(["amend-before-end", "end-before-amend", "repeatable-end-before-amend"] as const)("serializes native corrected final cutoff and later-witness attendance on actual backends: %s", async order => withTestDatabase(async ({ runtime }) => {
     const f = await activeFixture(), vacancy = await reviewedVacancy(f);
-    const raw = (await runtime.query("select * from hims.room_vacations where id=$1", [vacancy.id])).rows[0];
+    const raw = (await runtime.query("select * from room_vacations where id=$1", [vacancy.id])).rows[0];
     await nursing.endShift(f.nurseCtx(), { shiftId: f.shift.id, endedAt: new Date().toISOString(), handover: "Original distinct earlier attendance ends" });
     const nc = f.nurseCtx(), later = await nursing.recordShift(nc, { admissionId: f.admissionId, startedAt: new Date().toISOString(), handover: "Later actual witness attends", requestId: nc.requestId });
     const authority = await exceptions.authorizeException(f.adminCtx(), { admissionId: f.admissionId, type: "ROOM_CUTOFF_CORRECTION", disposition: "AMEND", sourceId: raw.stay_id, authority: "Administrator source review", reason: "Correct factual final cutoff with later witness", evidenceIds: [], evidence: "Retained later professional evidence", followUpOwnerId: f.nurse.id });
     const cutoff = new Date().toISOString(), evidence = await exceptions.recordExceptionEvidence(f.nurseCtx(), { admissionId: f.admissionId, kind: "ROOM_CUTOFF", exceptionId: authority.id, sourceId: raw.stay_id, shiftId: later.id, actualAt: cutoff, notes: "Actual later cutoff witness for concurrency" });
     const one = new Client({ connectionString: testUrl }), two = new Client({ connectionString: testUrl }); await Promise.all([one.connect(), two.connect()]);
     try {
-      const pid = (await one.query("select pg_backend_pid() pid")).rows[0].pid, first = drizzle(one, { schema }), second = drizzle(two, { schema });
-      const amend = async (tx: Parameters<Parameters<typeof first.transaction>[0]>[0]) => (await tx.execute(sql`insert into hims.stay_boundary_amendments(admission_id,stay_id,exception_id,evidence_id,version,started_at,ended_at,reason,signed_by) select ${f.admissionId}::uuid,s.id,${authority.id}::uuid,${evidence.id}::uuid,1,s.started_at,${cutoff}::timestamptz,'Actual concurrent final cutoff',${f.admin.id} from hims.room_stays s where s.id=${raw.stay_id}::uuid returning id`)).rows[0];
+      const pid = (await one.query("select connection_id() pid")).rows[0].pid, first = drizzle(one.pool, { schema, mode: "default" }), second = drizzle(two.pool, { schema, mode: "default" });
+      const amend = async (tx: Parameters<Parameters<typeof first.transaction>[0]>[0]) => rowsOf(await tx.execute(sql`insert into stay_boundary_amendments(admission_id,stay_id,exception_id,evidence_id,version,started_at,ended_at,reason,signed_by) select ${f.admissionId},s.id,${authority.id},${evidence.id},1,s.started_at,${new Date(cutoff)},'Actual concurrent final cutoff',${f.admin.id} from room_stays s where s.id=${raw.stay_id} returning id`))[0];
       const end = (tx: Parameters<Parameters<typeof first.transaction>[0]>[0]) => nursing.endShiftInTransaction(tx, f.nurseCtx(), { shiftId: later.id, endedAt: new Date().toISOString(), handover: "Actual later attendance ends after its cutoff" });
       let race;
       if (order === "amend-before-end") race = await observedReaderRace(runtime, first, pid, amend, () => second.transaction(end));
-      else race = await observedReaderRace(runtime, first, pid, end, () => second.transaction(async tx => { if (order.startsWith("repeatable")) { await tx.execute(sql`set transaction isolation level repeatable read`); await tx.execute(sql`select version from hims.admissions where id=${f.admissionId}::uuid`); } return amend(tx); }));
+      else race = await observedReaderRace(runtime, first, pid, end, () => second.transaction(async tx => { if (order.startsWith("repeatable")) { await tx.execute(sql`select version from admissions where id=${f.admissionId}`); } return amend(tx); }, order.startsWith("repeatable") ? { isolationLevel: "repeatable read" } : undefined));
       if (order.startsWith("repeatable")) {
-        expect(race.result).toMatchObject({ cause: { code: "40001" } });
+        // MariaDB 11.8 snapshot isolation refuses to write a row changed since the snapshot (errno 1020), as PostgreSQL did with 40001.
+        expect(serializationFailure(race.result)).toBe(true);
         await second.transaction(amend);
       } else expect(race.result).toHaveProperty("id");
-      const fact = (await runtime.query("select * from hims.effective_vacation_facts where id=$1", [vacancy.id])).rows[0];
+      const fact = (await runtime.query("select * from effective_vacation_facts where id=$1", [vacancy.id])).rows[0];
       expect(fact.shift_id).toBe(later.id); expect(fact.vacated_at.toISOString()).toBe(cutoff);
       expect(fact.original_shift_id).toBe(f.shift.id);
     } finally { await Promise.all([one.end(), two.end()]); }
@@ -178,9 +181,9 @@ describe("accountable administrator exceptions", () => {
     const c = f.doctorCtx(), order = await clinical.orderTransfer(c, { admissionId: f.admissionId, destinationCategory: "GENERAL", reason: "Actual current Doctor transfer", requestId: c.requestId });
     const client = new Client({ connectionString: testUrl }); await client.connect();
     try {
-      const pid = (await client.query("select pg_backend_pid() pid")).rows[0].pid, nc = f.nurseCtx();
+      const pid = (await client.query("select connection_id() pid")).rows[0].pid, nc = f.nurseCtx();
       const { transferAdmissionInTransaction } = await import("../../src/server/admissions/commands");
-      const race = await observedReaderRace(runtime, drizzle(client, { schema }), pid, tx => transferAdmissionInTransaction(tx, nc, { admissionId: f.admissionId, transferOrderId: order.id, targetBedId: target.id, transferredAt: new Date().toISOString(), handover: { shiftId: f.shift.id, notes: "Actual handover to current target" }, requestId: nc.requestId }), () => exceptionWorkspace(f.nurseCtx(), f.admissionId));
+      const race = await observedReaderRace(runtime, drizzle(client.pool, { schema, mode: "default" }), pid, tx => transferAdmissionInTransaction(tx, nc, { admissionId: f.admissionId, transferOrderId: order.id, targetBedId: target.id, transferredAt: new Date().toISOString(), handover: { shiftId: f.shift.id, notes: "Actual handover to current target" }, requestId: nc.requestId }), () => exceptionWorkspace(f.nurseCtx(), f.admissionId));
       expect(race.result).toMatchObject({ selected: { episode: { bedLabel: "ACTUAL-SELECTED-TARGET" } } });
     } finally { await client.end(); }
   }));
@@ -202,9 +205,9 @@ describe("accountable administrator exceptions", () => {
     await activateAdmission(activate, {
       admissionId, arrivedAt: new Date().toISOString(), expectedVersion: 1, exceptionId: authorized.id, requestId: activate.requestId
     });
-    expect((await runtime.query("select status from hims.admissions where id=$1", [admissionId])).rows[0].status).toBe("ADMITTED");
-    expect((await runtime.query("select count(*)::int n from hims.receipts where admission_id=$1", [admissionId])).rows[0].n).toBe(0);
-    expect((await runtime.query("select count(*)::int n from hims.clearance_seals where admission_id=$1", [admissionId])).rows[0].n).toBe(0);
+    expect((await runtime.query("select status from admissions where id=$1", [admissionId])).rows[0].status).toBe("ADMITTED");
+    expect((await runtime.query("select count(*) n from receipts where admission_id=$1", [admissionId])).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from clearance_seals where admission_id=$1", [admissionId])).rows[0].n).toBe(0);
     let current = await exceptions.getExceptionReview(staffContext(f.admin, "synthetic-exception"), admissionId);
     expect(current.obligations.deposit).toMatchObject({ requiredPaise: "5000000", outstandingPaise: "5000000" });
     await f.setting({
@@ -233,9 +236,9 @@ describe("accountable administrator exceptions", () => {
     const exit = await exceptions.recordExceptionalDeparture(c, v);
     expect(exit.status).toBe("DISCHARGED");
     expect(await exceptions.recordExceptionalDeparture(c, v)).toEqual(exit);
-    expect((await runtime.query("select count(*)::int n from hims.bed_holds where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
-    expect((await runtime.query("select count(*)::int n from hims.bed_turnovers where admission_id=$1", [f.admissionId])).rows[0].n).toBe(1);
-    expect((await runtime.query("select count(*)::int n from hims.clearance_seals where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from bed_holds where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from bed_turnovers where admission_id=$1", [f.admissionId])).rows[0].n).toBe(1);
+    expect((await runtime.query("select count(*) n from clearance_seals where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
     const b = await billing.getBill(f.ctx(), f.admissionId);
     expect(b.netPaise).toBeGreaterThan(0n);
     const plain = f.ctx();
@@ -251,7 +254,7 @@ describe("accountable administrator exceptions", () => {
       admissionId: f.admissionId, exceptionId: amendment.id, kind: "RECEIPT", sourceId: exit.id, data: { ...cash, requestId: collect.requestId }
     });
     expect((await billing.getBill(f.ctx(), f.admissionId)).outstandingPaise).toBe(0n);
-    expect((await runtime.query("select count(*)::int n from hims.bed_turnovers where admission_id=$1", [f.admissionId])).rows[0].n).toBe(1);
+    expect((await runtime.query("select count(*) n from bed_turnovers where admission_id=$1", [f.admissionId])).rows[0].n).toBe(1);
     await nursing.endShift(f.nurseCtx(), {
       shiftId: f.shift.id, endedAt: T, handover: "Actual original Nurse closes recorded attendance after exit"
     });
@@ -263,7 +266,7 @@ describe("accountable administrator exceptions", () => {
       admissionId: f.admissionId, exceptionId: professional.id, kind: "DISPOSITION_REVIEW", sourceId: exit.id, data: { text: "Doctor reviewed the original early departure today; advice was unavailable at exit", reason: "Actual later professional follow-up" }
     });
     expect((await exceptions.getExceptionReview(f.adminCtx(), f.admissionId)).obligations.professionalFollowUp).toMatchObject({ status: "REVIEWED" });
-    expect((await runtime.query("select snapshot from hims.exceptional_departures where id=$1", [exit.id])).rows[0].snapshot.clinicalStatus).toBe("UNREVIEWED_EARLY_EXIT");
+    expect((await runtime.query("select snapshot from exceptional_departures where id=$1", [exit.id])).rows[0].snapshot.clinicalStatus).toBe("UNREVIEWED_EARLY_EXIT");
     await exceptions.recordExceptionFollowup(f.doctorCtx(), {
       exceptionId: professional.id, ownerId: f.doctor.id, note: "Actual later professional discussion recorded; original exit status retained"
     });
@@ -277,7 +280,7 @@ describe("accountable administrator exceptions", () => {
     await new Promise(resolve => setTimeout(resolve, 40));
     const rc = f.ctx();
     await billing.reconcileBill(rc, { admissionId: f.admissionId, cutoff: new Date().toISOString() });
-    const before = (await runtime.query("select * from hims.room_stays where admission_id=$1", [f.admissionId])).rows[0];
+    const before = (await runtime.query("select * from room_stays where admission_id=$1", [f.admissionId])).rows[0];
     expect(before.last_reconciled_at.getTime()).toBeGreaterThan(new Date(T).getTime());
     await f.setting({
       type: "tariff", category: "GENERAL", amount: "9999", basis: "hour", rounding: "exact", graceMinutes: 0
@@ -288,9 +291,9 @@ describe("accountable administrator exceptions", () => {
     await exceptions.recordExceptionalDeparture(f.adminCtx(), {
       admissionId: f.admissionId, exceptionId: authority.id, physicalEvidenceId: witness.id
     });
-    const original = (await runtime.query("select * from hims.room_stays where id=$1", [before.id])).rows[0];
+    const original = (await runtime.query("select * from room_stays where id=$1", [before.id])).rows[0];
     expect(original).toEqual(before);
-    const effective = (await runtime.query("select * from hims.effective_room_stays where id=$1", [before.id])).rows[0];
+    const effective = (await runtime.query("select * from effective_room_stays where id=$1", [before.id])).rows[0];
     expect(effective.ended_at.toISOString()).toBe(T);
     const bill = await billing.getBill(f.ctx(), f.admissionId);
     const elapsed = BigInt(new Date(T).getTime() - before.started_at.getTime());
@@ -319,7 +322,7 @@ describe("accountable administrator exceptions", () => {
     });
     await new Promise(resolve => setTimeout(resolve, 40));
     await billing.reconcileBill(f.ctx(), { admissionId: f.admissionId, cutoff: new Date().toISOString() });
-    const original = (await runtime.query("select * from hims.room_stays where admission_id=$1", [f.admissionId])).rows[0];
+    const original = (await runtime.query("select * from room_stays where admission_id=$1", [f.admissionId])).rows[0];
     await f.setting({
       type: "tariff", category: "ICU", amount: "9999", basis: "hour", rounding: "exact", graceMinutes: 0
     });
@@ -330,8 +333,8 @@ describe("accountable administrator exceptions", () => {
       admissionId: f.admissionId, exceptionId: authority.id, evidenceId: witness.id, targetBedId: target.id
     });
     expect(result.oldStayId).toBe(original.id);
-    expect((await runtime.query("select * from hims.room_stays where id=$1", [original.id])).rows[0]).toEqual(original);
-    const next = (await runtime.query("select * from hims.effective_room_stays where id=$1", [result.newStayId])).rows[0];
+    expect((await runtime.query("select * from room_stays where id=$1", [original.id])).rows[0]).toEqual(original);
+    const next = (await runtime.query("select * from effective_room_stays where id=$1", [result.newStayId])).rows[0];
     expect(next.started_at.toISOString()).toBe(T);
     expect(next.tariff_version_id).toBe(rate.id);
     const first = await billing.getBill(f.ctx(), f.admissionId);
@@ -343,19 +346,19 @@ describe("accountable administrator exceptions", () => {
     const use = await nursing.recordConsumable(f.nurseCtx(), {
       admissionId: f.admissionId, shiftId: f.shift.id, usedAt: new Date().toISOString(), itemId: "WARD_ITEM", quantity: "1", unit: "piece", reason: "Actual new-unit use after delayed correction"
     });
-    expect((await runtime.query("select stay_id,bed_id from hims.nursing_consumables where id=$1", [use.id])).rows[0]).toEqual({ stay_id: result.newStayId, bed_id: target.id });
+    expect((await runtime.query("select stay_id,bed_id from nursing_consumables where id=$1", [use.id])).rows[0]).toEqual({ stay_id: result.newStayId, bed_id: target.id });
     const correction = await exceptions.authorizeException(f.adminCtx(), {
       admissionId: f.admissionId, type: "ROOM_CUTOFF_CORRECTION", disposition: "AMEND", sourceId: original.id, authority: "Administrator factual history review", reason: "Attempted one-sided intermediate boundary correction", evidenceIds: [], evidence: "Both adjacent sources would need coordinated amendment", followUpOwnerId: f.admin.id
     });
     const cutoff = await exceptions.recordExceptionEvidence(f.nurseCtx(), {
       admissionId: f.admissionId, kind: "ROOM_CUTOFF", exceptionId: correction.id, sourceId: original.id, shiftId: f.shift.id, actualAt: T, notes: "Retained original intermediate boundary witness"
     });
-    const historyBefore = (await runtime.query("select * from hims.stay_boundary_amendments where admission_id=$1", [f.admissionId])).rows;
+    const historyBefore = (await runtime.query("select * from stay_boundary_amendments where admission_id=$1", [f.admissionId])).rows;
     const moneyBefore = await billing.getBill(f.ctx(), f.admissionId);
     await expect(exceptions.correctRoomCutoff(f.adminCtx(), {
       admissionId: f.admissionId, exceptionId: correction.id, evidenceId: cutoff.id
     })).rejects.toMatchObject({ code: "PRECONDITION" });
-    expect((await runtime.query("select * from hims.stay_boundary_amendments where admission_id=$1", [f.admissionId])).rows).toEqual(historyBefore);
+    expect((await runtime.query("select * from stay_boundary_amendments where admission_id=$1", [f.admissionId])).rows).toEqual(historyBefore);
     const moneyAfter = await billing.getBill(f.ctx(), f.admissionId);
     expect(moneyAfter.charges).toEqual(moneyBefore.charges);
     expect(moneyAfter.reversals).toEqual(moneyBefore.reversals);
@@ -384,7 +387,7 @@ describe("accountable administrator exceptions", () => {
     const authority = await exceptions.authorizeException(f.adminCtx(), {
       admissionId: f.admissionId, type: "RETURN_TO_BED", disposition: "RETURN_TO_BED", authority: "Administrator bed return routing", reason: "Fresh clinical instruction for continued bed care", evidenceIds: [doctor.id], evidence: "Doctor return instruction", followUpOwnerId: f.admin.id
     });
-    const [turnover] = (await runtime.query("select id from hims.bed_turnovers where admission_id=$1", [f.admissionId])).rows;
+    const [turnover] = (await runtime.query("select id from bed_turnovers where admission_id=$1", [f.admissionId])).rows;
     const clean = f.adminCtx();
     await discharge.completeBedTurnover(clean, {
       turnoverId: turnover.id, completedAt: new Date().toISOString(), evidence: "Actual cleaning before bed return", requestId: clean.requestId
@@ -396,14 +399,14 @@ describe("accountable administrator exceptions", () => {
       admissionId: f.admissionId, kind: "RETURN_HANDOVER", sourceId: vacation.id, shiftId: f.shift.id, actualAt: new Date().toISOString(), notes: "Actual patient return after Doctor instruction and cleaning"
     });
     await expect(exceptions.recordExceptionEvidence(f.doctorCtx(), { admissionId: f.admissionId, kind: "RETURN_CANCELLED", sourceId: doctor.id, actualAt: new Date().toISOString(), notes: "Cannot erase already witnessed physical return" })).rejects.toMatchObject({ code: "PRECONDITION" });
-    await expect(runtime.query("insert into hims.exception_evidence(admission_id,kind,role,source_id,actual_at,notes,signed_by) values($1,'RETURN_CANCELLED','DOCTOR',$2,clock_timestamp(),'Cannot erase already witnessed return',$3)", [f.admissionId, doctor.id, f.doctor.id])).rejects.toMatchObject({ code: "23514" });
+    await expect(runtime.query("insert into exception_evidence(admission_id,kind,role,source_id,actual_at,notes,signed_by) values($1,'RETURN_CANCELLED','DOCTOR',$2,UTC_TIMESTAMP(6),'Cannot erase already witnessed return',$3)", [f.admissionId, doctor.id, f.doctor.id])).rejects.toSatisfy(ruleViolation);
     const returned = await exceptions.returnToBed(f.nurseCtx(), {
       admissionId: f.admissionId, exceptionId: authority.id, doctorEvidenceId: doctor.id, nurseEvidenceId: witness.id
     });
-    const stay = (await runtime.query("select * from hims.effective_room_stays where id=$1", [returned.id])).rows[0];
+    const stay = (await runtime.query("select * from effective_room_stays where id=$1", [returned.id])).rows[0];
     expect(stay.tariff_version_id).toBe(rate.id);
-    expect((await runtime.query("select count(*)::int n from hims.room_vacations where admission_id=$1", [f.admissionId])).rows[0].n).toBe(1);
-    expect((await runtime.query("select count(*)::int n from hims.effective_room_vacations where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from room_vacations where admission_id=$1", [f.admissionId])).rows[0].n).toBe(1);
+    expect((await runtime.query("select count(*) n from effective_room_vacations where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
     const review = await discharge.getClearanceReview(f.ctx(), f.admissionId, "BILLING");
     expect(review.physicalBedUse).toBeUndefined();
     expect(review.gates.some(g => !g.current)).toBe(true);
@@ -424,7 +427,7 @@ describe("accountable administrator exceptions", () => {
     const secondAuthority = await exceptions.authorizeException(f.adminCtx(), {
       admissionId: f.admissionId, type: "RETURN_TO_BED", disposition: "RETURN_TO_BED", authority: "Administrator second return routing", reason: "Second fresh clinical instruction after second vacancy", evidenceIds: [secondDoctor.id], evidence: "Second original Doctor instruction", followUpOwnerId: f.admin.id
     });
-    const secondTurnover = (await runtime.query("select id from hims.bed_turnovers where stay_id=$1", [returned.id])).rows[0], secondClean = f.adminCtx();
+    const secondTurnover = (await runtime.query("select id from bed_turnovers where stay_id=$1", [returned.id])).rows[0], secondClean = f.adminCtx();
     await discharge.completeBedTurnover(secondClean, {
       turnoverId: secondTurnover.id, completedAt: new Date().toISOString(), evidence: "Second actual cleaning before return", requestId: secondClean.requestId
     });
@@ -435,9 +438,9 @@ describe("accountable administrator exceptions", () => {
       admissionId: f.admissionId, exceptionId: secondAuthority.id, doctorEvidenceId: secondDoctor.id, nurseEvidenceId: secondNurse.id
     });
     expect(secondReturn.id).not.toBe(returned.id);
-    expect((await runtime.query("select count(*)::int n from hims.room_vacations where admission_id=$1", [f.admissionId])).rows[0].n).toBe(2);
-    expect((await runtime.query("select count(*)::int n from hims.effective_room_vacations where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
-    expect((await runtime.query("select count(*)::int n from hims.effective_room_stays where admission_id=$1 and ended_at is null", [f.admissionId])).rows[0].n).toBe(1);
+    expect((await runtime.query("select count(*) n from room_vacations where admission_id=$1", [f.admissionId])).rows[0].n).toBe(2);
+    expect((await runtime.query("select count(*) n from effective_room_vacations where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from effective_room_stays where admission_id=$1 and ended_at is null", [f.admissionId])).rows[0].n).toBe(1);
   }));
   it("preserves a proposed return cleaning source when the patient instead completes ordinary departure", async () => withTestDatabase(async ({ runtime }) => {
     const f = await activeFixture();
@@ -465,8 +468,8 @@ describe("accountable administrator exceptions", () => {
     const authority = await exceptions.authorizeException(f.adminCtx(), {
       admissionId: f.admissionId, type: "RETURN_TO_BED", disposition: "RETURN_TO_BED", authority: "Administrator bed return routing", reason: "Fresh clinical instruction for continued bed care", evidenceIds: [doctor.id], evidence: "Doctor return instruction", followUpOwnerId: f.admin.id
     });
-    const [turnover] = (await runtime.query("select id from hims.bed_turnovers where admission_id=$1", [f.admissionId])).rows;
-    const originalTurnover = (await runtime.query("select * from hims.bed_turnovers where id=$1", [turnover.id])).rows[0];
+    const [turnover] = (await runtime.query("select id from bed_turnovers where admission_id=$1", [f.admissionId])).rows;
+    const originalTurnover = (await runtime.query("select * from bed_turnovers where id=$1", [turnover.id])).rows[0];
     // A revised clinical decision is explicit and source-bound; paying cannot cancel bed care.
     await exceptions.recordExceptionEvidence(f.doctorCtx(), {
       admissionId: f.admissionId, kind: "RETURN_CANCELLED", sourceId: doctor.id, actualAt: new Date().toISOString(), notes: "Doctor re-reviewed the patient: bed care is no longer required; ordinary discharge review may proceed"
@@ -492,9 +495,9 @@ describe("accountable administrator exceptions", () => {
     };
     expect(await discharge.recordDeparture(exit, input)).toMatchObject({ status: "DISCHARGED" });
     expect(await discharge.recordDeparture(exit, input)).toMatchObject({ status: "DISCHARGED" });
-    expect((await runtime.query("select * from hims.bed_turnovers where admission_id=$1", [f.admissionId])).rows).toEqual([originalTurnover]);
-    expect((await runtime.query("select count(*)::int n from hims.bed_holds where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
-    expect((await runtime.query("select count(*)::int n from hims.room_returns where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
+    expect((await runtime.query("select * from bed_turnovers where admission_id=$1", [f.admissionId])).rows).toEqual([originalTurnover]);
+    expect((await runtime.query("select count(*) n from bed_holds where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from room_returns where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
   }));
   it("returns real cancelled never-occupied deposits without seals, fabricated fees or duplicate refunds", async () => withTestDatabase(async ({ runtime }) => {
     process.env.DATABASE_URL = testUrl;
@@ -512,7 +515,7 @@ describe("accountable administrator exceptions", () => {
     const result = await exceptions.returnCancelledDeposit(refund, v);
     expect(await exceptions.returnCancelledDeposit(refund, v)).toEqual(result);
     expect((await billing.getBill(f.ctx(), admissionId)).retainedPaise).toBe(0n);
-    expect((await runtime.query("select (select count(*) from hims.clearance_seals)::int seals,(select count(*) from hims.room_stays)::int stays,(select count(*) from hims.charges)::int charges")).rows[0]).toEqual({
+    expect((await runtime.query("select (select count(*) from clearance_seals) seals,(select count(*) from room_stays) stays,(select count(*) from charges) charges")).rows[0]).toEqual({
       seals: 0, stays: 0, charges: 0
     });
   }));
@@ -535,7 +538,7 @@ describe("accountable administrator exceptions", () => {
       admissionId: f.admissionId, exceptionId: authority.id, physicalEvidenceId: nurse.id
     });
     expect((await billing.getBill(f.ctx(), f.admissionId)).outstandingPaise).toBeGreaterThan(0n);
-    expect((await runtime.query("select count(*)::int n from hims.clearance_seals")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from clearance_seals")).rows[0].n).toBe(0);
   }));
   it("closes an unavailable Nurse's actual attendance as an Admin fact without manufacturing a handover signature", async () => withTestDatabase(async ({ runtime, owner }) => {
     const f = await activeFixture(), T = new Date().toISOString();
@@ -544,13 +547,13 @@ describe("accountable administrator exceptions", () => {
     });
     const future = new Date(Date.now() + 3600000).toISOString();
     await expect(nursing.recordConsumable(f.nurseCtx(), {admissionId:f.admissionId,shiftId:f.shift.id,usedAt:future,itemId:"FUTURE_USE",quantity:"1",unit:"piece",reason:"Future ordinary factual use must fail"})).rejects.toMatchObject({code:"VALIDATION"});
-    await expect(owner.query("insert into hims.administrative_shift_ends(admission_id,shift_id,exception_id,ended_at,evidence,signed_by,signed_at) values($1,$2,$3,$4,'Future operational fact rejected',$5,clock_timestamp())",[f.admissionId,f.shift.id,authority.id,future,f.admin.id])).rejects.toMatchObject({code:"23514"});
-    await expect(owner.query("insert into hims.exception_evidence(admission_id,kind,role,shift_id,actual_at,vacated_at,notes,signed_by,signed_at) values($1,'PHYSICAL_EXIT','NURSE',$2,$3,$3,'Future physical witness rejected',$4,$3)",[f.admissionId,f.shift.id,future,f.nurse.id])).rejects.toMatchObject({code:"23514"});
+    await expect(owner.query("insert into administrative_shift_ends(admission_id,shift_id,exception_id,ended_at,evidence,signed_by,signed_at) values($1,$2,$3,$4,'Future operational fact rejected',$5,UTC_TIMESTAMP(6))",[f.admissionId,f.shift.id,authority.id,future,f.admin.id])).rejects.toSatisfy(ruleViolation);
+    await expect(owner.query("insert into exception_evidence(admission_id,kind,role,shift_id,actual_at,vacated_at,notes,signed_by,signed_at) values($1,'PHYSICAL_EXIT','NURSE',$2,$3,$3,'Future physical witness rejected',$4,$3)",[f.admissionId,f.shift.id,future,f.nurse.id])).rejects.toSatisfy(ruleViolation);
     await exceptions.closeUnavailableAttendance(f.adminCtx(), {
       admissionId: f.admissionId, exceptionId: authority.id, shiftId: f.shift.id, endedAt: T, evidence: "Actual attendance confirmed from ward roster and witness"
     });
-    expect((await runtime.query("select count(*)::int n from hims.nursing_shift_ends where shift_id=$1", [f.shift.id])).rows[0].n).toBe(0);
-    expect((await runtime.query("select count(*)::int n from hims.administrative_shift_ends where shift_id=$1", [f.shift.id])).rows[0].n).toBe(1);
+    expect((await runtime.query("select count(*) n from nursing_shift_ends where shift_id=$1", [f.shift.id])).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from administrative_shift_ends where shift_id=$1", [f.shift.id])).rows[0].n).toBe(1);
   }));
   it("keeps urgent unknown identity truthful and later identification attributable without rewriting original evidence", async () => withTestDatabase(async ({ runtime }) => {
     process.env.DATABASE_URL = testUrl;
@@ -568,7 +571,7 @@ describe("accountable administrator exceptions", () => {
         clinicianId: f.doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Recorded clinician complaint", vitals: "Recorded actual vitals", triage: "Urgent clinical routing", destinationCategory: "GENERAL"
       }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: c.requestId
     });
-    const raw = (await runtime.query("select * from hims.patients where id=$1", [created.patientId])).rows[0];
+    const raw = (await runtime.query("select * from patients where id=$1", [created.patientId])).rows[0];
     expect(raw.name).toMatch(/^Unidentified /);
     expect(raw.date_of_birth).toBeNull();
     expect(raw.age_years_at_registration).toBeNull();
@@ -581,15 +584,15 @@ describe("accountable administrator exceptions", () => {
     });
     const identificationClient = new Client({ connectionString: testUrl }); await identificationClient.connect();
     try {
-      const pid = (await identificationClient.query("select pg_backend_pid() pid")).rows[0].pid;
-      const race = await observedReaderRace(runtime, drizzle(identificationClient, { schema }), pid, tx => tx.execute(sql`insert into hims.patient_identifications(patient_id,admission_id,exception_id,version,name,date_of_birth,sex,evidence,reason,signed_by) values(${created.patientId}::uuid,${created.admissionId}::uuid,${authority.id}::uuid,1,'Verified interim synthetic identity','1980-01-01','FEMALE','Actual family identification evidence','Current factual identification',${f.desk.id})`), () => exceptionWorkspace(f.deskCtx(), created.admissionId));
+      const pid = (await identificationClient.query("select connection_id() pid")).rows[0].pid;
+      const race = await observedReaderRace(runtime, drizzle(identificationClient.pool, { schema, mode: "default" }), pid, tx => tx.execute(sql`insert into patient_identifications(patient_id,admission_id,exception_id,version,name,date_of_birth,sex,evidence,reason,signed_by) values(${created.patientId},${created.admissionId},${authority.id},1,'Verified interim synthetic identity','1980-01-01','FEMALE','Actual family identification evidence','Current factual identification',${f.desk.id})`), () => exceptionWorkspace(f.deskCtx(), created.admissionId));
       expect(race.result).toMatchObject({ selected: { episode: { name: "Verified interim synthetic identity", identityStatus: "KNOWN", identityProvenance: "Actual family identification evidence" } } });
     } finally { await identificationClient.end(); }
     await exceptions.identifyTemporaryPatient(f.deskCtx(), {
       admissionId: created.admissionId, exceptionId: authority.id, expectedVersion: 1, name: "Verified synthetic identity", dateOfBirth: "1980-01-01", sex: "FEMALE", evidence: "Family and original identity document inspected", reason: "Actual later identification"
     });
     expect((await getAdmission(f.deskCtx(), created.admissionId)).name).toBe("Verified synthetic identity");
-    expect((await runtime.query("select * from hims.patients where id=$1", [created.patientId])).rows[0]).toEqual(raw);
+    expect((await runtime.query("select * from patients where id=$1", [created.patientId])).rows[0]).toEqual(raw);
   }));
   it("amends closed professional records with proper current roles and reports only already-processed diagnostic work at its original price", async () => withTestDatabase(async ({ runtime }) => {
     const f = await activeFixture(), lab = await import("../../src/server/lab/commands");
@@ -637,9 +640,9 @@ describe("accountable administrator exceptions", () => {
     const reported = await lab.getLabOrder(lc(), order.id);
     expect(reported.billingState).toBe("FINAL");
     await amendment("LAB_ADDENDUM", reported.report!.id, lc(), { text: "Actual Lab correction", reason: "Clarify original units" });
-    expect((await runtime.query("select amount_paise from hims.charges where category='lab'")).rows).toEqual([{ amount_paise: "12500" }]);
-    expect((await runtime.query("select count(*)::int n from hims.post_discharge_amendments")).rows[0].n).toBe(4);
-    expect((await runtime.query("select count(*)::int n from hims.bed_holds where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
+    expect((await runtime.query("select amount_paise from charges where category='lab'")).rows).toEqual([{ amount_paise: "12500" }]);
+    expect((await runtime.query("select count(*) n from post_discharge_amendments")).rows[0].n).toBe(4);
+    expect((await runtime.query("select count(*) n from bed_holds where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
   }));
   it("keeps closed cash allocation, cancellation and real excess refund linked to original receipts", async () => withTestDatabase(async ({ runtime }) => {
     const f = await activeFixture(), c = f.ctx();
@@ -665,7 +668,7 @@ describe("accountable administrator exceptions", () => {
     }
     let b = await billing.getBill(f.ctx(), f.admissionId);
     await amend("ALLOCATE", receipt.id, { amountPaise: b.netPaise.toString(), reason: "Apply held original deposit" });
-    const allocation = (await runtime.query("select id from hims.receipt_allocations where receipt_id=$1", [receipt.id])).rows[0];
+    const allocation = (await runtime.query("select id from receipt_allocations where receipt_id=$1", [receipt.id])).rows[0];
     b = await billing.getBill(f.ctx(), f.admissionId);
     await amend("CANCEL_ALLOCATION", allocation.id, { reason: "Correct mistaken allocation record", expectedBillVersion: b.revision });
     await amend("ALLOCATE", receipt.id, { amountPaise: b.netPaise.toString(), reason: "Correctly apply original deposit" });
@@ -693,7 +696,7 @@ describe("accountable administrator exceptions", () => {
     await exceptions.recordExceptionalDeparture(f.adminCtx(), {
       admissionId: f.admissionId, exceptionId: a.id, physicalEvidenceId: w.id
     });
-    const old = (await runtime.query("select * from hims.room_stays where admission_id=$1", [f.admissionId])).rows[0], bill = await billing.getBill(f.ctx(), f.admissionId);
+    const old = (await runtime.query("select * from room_stays where admission_id=$1", [f.admissionId])).rows[0], bill = await billing.getBill(f.ctx(), f.admissionId);
     const authority = await exceptions.authorizeException(f.adminCtx(), {
       admissionId: f.admissionId, type: "ROOM_CUTOFF_CORRECTION", disposition: "AMEND", sourceId: old.id, authority: "Administrator correction review", reason: "Original room vacancy time was recorded as hospital exit", evidenceIds: [], evidence: "Nurse retained actual ward vacancy evidence", followUpOwnerId: f.cashier.id
     });
@@ -703,13 +706,13 @@ describe("accountable administrator exceptions", () => {
     await exceptions.correctRoomCutoff(f.adminCtx(), {
       admissionId: f.admissionId, exceptionId: authority.id, evidenceId: evidence.id
     });
-    expect((await runtime.query("select * from hims.room_stays where id=$1", [old.id])).rows[0]).toEqual(old);
+    expect((await runtime.query("select * from room_stays where id=$1", [old.id])).rows[0]).toEqual(old);
     const b = await billing.getBill(f.ctx(), f.admissionId);
     expect(b.netPaise).toBeLessThan(bill.netPaise);
     expect(b.reversals.length).toBeGreaterThan(0);
     expect(b.unpostedRoomPaise).toBe(0n);
-    expect((await runtime.query("select vacated_at from hims.effective_bed_turnovers where stay_id=$1", [old.id])).rows[0].vacated_at.toISOString()).toBe(corrected);
-    expect((await runtime.query("select count(*)::int n from hims.bed_holds where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
+    expect((await runtime.query("select vacated_at from effective_bed_turnovers where stay_id=$1", [old.id])).rows[0].vacated_at.toISOString()).toBe(corrected);
+    expect((await runtime.query("select count(*) n from bed_holds where admission_id=$1", [f.admissionId])).rows[0].n).toBe(0);
   }));
   it.each(["CREDIT", "INSURANCE_DELAY", "INSURANCE_DENIAL"] as const)("routes %s against its proper original sources and keeps real obligations after actual exit", async (type) => withTestDatabase(async ({ runtime }) => {
     const f = await activeFixture(type === "CREDIT" ? "SELF_PAY" : "INSURED"), insurance = await import("../../src/server/insurance/commands");
@@ -767,7 +770,7 @@ describe("accountable administrator exceptions", () => {
       expect((await exceptions.getExceptionReview(f.adminCtx(), f.admissionId)).obligations.insurerOutstandingPaise).toBe(b.netPaise.toString());
     }
     expect(exit.status).toBe("DISCHARGED");
-    expect((await runtime.query("select count(*)::int n from hims.clearance_seals")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from clearance_seals")).rows[0].n).toBe(0);
   }));
   it("serializes authority retries, actual exit and later cash on observed distinct PostgreSQL backends", async () => withTestDatabase(async ({ runtime, owner }) => {
     const f = await activeFixture(), T = new Date().toISOString();
@@ -779,9 +782,9 @@ describe("accountable administrator exceptions", () => {
     };
     const one = new Client({ connectionString: testUrl }), two = new Client({ connectionString: testUrl });
     await Promise.all([one.connect(), two.connect()]);
-    const pid1 = (await one.query("select pg_backend_pid() pid")).rows[0].pid, pid2 = (await two.query("select pg_backend_pid() pid")).rows[0].pid;
+    const pid1 = (await one.query("select connection_id() pid")).rows[0].pid, pid2 = (await two.query("select connection_id() pid")).rows[0].pid;
     expect(pid1).not.toBe(pid2);
-    const db1 = drizzle(one, { schema }), db2 = drizzle(two, { schema });
+    const db1 = drizzle(one.pool, { schema, mode: "default" }), db2 = drizzle(two.pool, { schema, mode: "default" });
     async function contest<A, B>(firstWork: Parameters<typeof db1.transaction<A>>[0], secondWork: Parameters<typeof db2.transaction<B>>[0]) {
       let release = () => {
       }, ready = () => {
@@ -800,7 +803,7 @@ describe("accountable administrator exceptions", () => {
         second = db2.transaction(secondWork).catch(e => e);
         let blocked = false;
         for (let i = 0; i < 100; i++) {
-          if ((await runtime.query("select $1::int=any(pg_blocking_pids($2)) blocked", [pid1, pid2])).rows[0].blocked) {
+          if ((await runtime.query("select exists(select 1 from information_schema.INNODB_LOCK_WAITS w join information_schema.INNODB_TRX rt on rt.trx_id=w.requesting_trx_id join information_schema.INNODB_TRX bt on bt.trx_id=w.blocking_trx_id where bt.trx_mysql_thread_id=$1 and rt.trx_mysql_thread_id=$2) blocked", [pid1, pid2])).rows[0].blocked) {
             blocked = true;
             break;
           }
@@ -838,13 +841,13 @@ describe("accountable administrator exceptions", () => {
       };
       const [paid, replayed] = await contest(tx => exceptions.applyPostDischargeCorrectionInTransaction(tx, cash, correction), tx => exceptions.applyPostDischargeCorrectionInTransaction(tx, cash, correction));
       expect(replayed).toEqual(paid);
-      expect((await runtime.query("select count(*)::int n from hims.receipts where admission_id=$1", [f.admissionId])).rows[0].n).toBe(1);
-      expect((await runtime.query("select count(*)::int n from hims.post_discharge_amendments where admission_id=$1", [f.admissionId])).rows[0].n).toBe(1);
-      await expect(owner.query("insert into hims.post_discharge_amendments (admission_id,exception_id,kind,source_id,result_id,before_snapshot,after_snapshot,signed_by,signed_at) values ($1,$2,'RECEIPT',$3,$4,'{}','{}',$5,clock_timestamp())", [f.admissionId, authorityCash.id, exit.id, witness.id, f.admin.id])).rejects.toMatchObject({ code: "23514" });
-      await runtime.query("update hims.staff_user set banned=true where id=$1", [f.cashier.id]);
+      expect((await runtime.query("select count(*) n from receipts where admission_id=$1", [f.admissionId])).rows[0].n).toBe(1);
+      expect((await runtime.query("select count(*) n from post_discharge_amendments where admission_id=$1", [f.admissionId])).rows[0].n).toBe(1);
+      await expect(owner.query("insert into post_discharge_amendments (admission_id,exception_id,kind,source_id,result_id,before_snapshot,after_snapshot,signed_by,signed_at) values ($1,$2,'RECEIPT',$3,$4,'{}','{}',$5,UTC_TIMESTAMP(6))", [f.admissionId, authorityCash.id, exit.id, witness.id, f.admin.id])).rejects.toSatisfy(ruleViolation);
+      await runtime.query("update staff_user set banned=true where id=$1", [f.cashier.id]);
       await expect(exceptions.applyPostDischargeCorrection(cash, correction)).rejects.toMatchObject({ code: "FORBIDDEN" });
-      await expect(owner.query("update hims.admin_exceptions set reason='Forged replacement' where id=$1", [authority.id])).rejects.toMatchObject({ code: "P0001" });
-      await expect(owner.query("delete from hims.exceptional_departures where id=$1", [exit.id])).rejects.toMatchObject({ code: "P0001" });
+      await expect(owner.query("update admin_exceptions set reason='Forged replacement' where id=$1", [authority.id])).rejects.toSatisfy(ruleViolation);
+      await expect(owner.query("delete from exceptional_departures where id=$1", [exit.id])).rejects.toSatisfy(ruleViolation);
     }
     finally {
       await Promise.all([one.end(), two.end()]);
@@ -856,7 +859,7 @@ describe("accountable administrator exceptions", () => {
     await activateAdmission(arrival, {
       admissionId: other.admissionId, expectedVersion: 1, arrivedAt: new Date().toISOString(), requestId: arrival.requestId
     });
-    const target = (await runtime.query("select bed_id from hims.admissions where id=$1", [other.admissionId])).rows[0].bed_id;
+    const target = (await runtime.query("select bed_id from admissions where id=$1", [other.admissionId])).rows[0].bed_id;
     const dc = f.doctorCtx(), order = await clinical.orderTransfer(dc, {
       admissionId: f.admissionId, destinationCategory: "GENERAL", reason: "Doctor requested another General bed", requestId: dc.requestId
     });
@@ -879,25 +882,25 @@ describe("accountable administrator exceptions", () => {
     await exceptions.recordExceptionalDeparture(f.adminCtx(), {
       admissionId: other.admissionId, exceptionId: exitAuthority.id, physicalEvidenceId: witness.id
     });
-    const turnover = (await runtime.query("select id from hims.bed_turnovers where admission_id=$1", [other.admissionId])).rows[0], clean = f.adminCtx();
+    const turnover = (await runtime.query("select id from bed_turnovers where admission_id=$1", [other.admissionId])).rows[0], clean = f.adminCtx();
     await discharge.completeBedTurnover(clean, {
       turnoverId: turnover.id, completedAt: new Date().toISOString(), evidence: "Actual later cleaning completed", requestId: clean.requestId
     });
     const authority = await exceptions.authorizeException(f.adminCtx(), {
       admissionId: f.admissionId, type: "DELAYED_TRANSFER", disposition: "TRANSFER", authority: "Administrator retrospective review", reason: "Verify target at true physical handover time", evidenceIds: [handover.id], evidence: "Retained actual Doctor and Nurse source", followUpOwnerId: f.admin.id
     });
-    const before = (await runtime.query("select * from hims.room_stays order by id")).rows, bill = await billing.getBill(f.ctx(), f.admissionId);
+    const before = (await runtime.query("select * from room_stays order by id")).rows, bill = await billing.getBill(f.ctx(), f.admissionId);
     await expect(exceptions.applyDelayedTransfer(f.adminCtx(), {
       admissionId: f.admissionId, exceptionId: authority.id, evidenceId: handover.id, targetBedId: target
     })).rejects.toMatchObject({ code: "CONFLICT", message: "Target was occupied or not cleaned at the actual physical time" });
-    expect((await runtime.query("select * from hims.room_stays order by id")).rows).toEqual(before);
-    expect((await runtime.query("select count(*)::int n from hims.stay_boundary_amendments")).rows[0].n).toBe(0);
+    expect((await runtime.query("select * from room_stays order by id")).rows).toEqual(before);
+    expect((await runtime.query("select count(*) n from stay_boundary_amendments")).rows[0].n).toBe(0);
     const after = await billing.getBill(f.ctx(), f.admissionId);
     expect(after.charges).toEqual(bill.charges);
     expect(after.reversals).toEqual(bill.reversals);
     expect(after.receipts).toEqual(bill.receipts);
     const original = before.find(s => s.admission_id === f.admissionId)!;
-    await expect(owner.query("insert into hims.room_stays (admission_id,bed_id,tariff_version_id,started_at,last_reconciled_at) values ($1,$2,$3,clock_timestamp(),clock_timestamp())", [f.admissionId, original.bed_id, original.tariff_version_id])).rejects.toMatchObject({ code: "23P01" });
+    await expect(owner.query("insert into room_stays (admission_id,bed_id,tariff_version_id,started_at,last_reconciled_at) values ($1,$2,$3,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6))", [f.admissionId, original.bed_id, original.tariff_version_id])).rejects.toSatisfy(ruleViolation);
   }));
   it("resolves an originally missing diagnostic price after exit through its performed source and current Lab authority", async () => withTestDatabase(async ({ runtime }) => {
     const f = await activeFixture(), lab = await import("../../src/server/lab/commands"), lc = () => staffContext(f.lab, "synthetic-exception");
@@ -943,7 +946,7 @@ describe("accountable administrator exceptions", () => {
       }
     });
     expect((await lab.getLabOrder(lc(), order.id)).billingState).toBe("FINAL");
-    expect((await runtime.query("select amount_paise from hims.charges where category='radiology'")).rows).toEqual([{ amount_paise: "8000" }]);
+    expect((await runtime.query("select amount_paise from charges where category='radiology'")).rows).toEqual([{ amount_paise: "8000" }]);
   }));
   it("renews converted self-pay responsibility after the final exit bill changes without erasing prior insurer cash", async () => withTestDatabase(async () => {
     const f = await activeFixture("INSURED"), insurance = await import("../../src/server/insurance/commands");

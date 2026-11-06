@@ -4,6 +4,8 @@ import { eq, sql } from "drizzle-orm";
 import { withTestDatabase } from "../../scripts/test-database";
 import { getTestDatabaseConfig } from "../../scripts/test-database-guard";
 import { loadLocalEnvironment } from "../../scripts/migrate";
+import { ruleViolation } from "../support/errors";
+import { rowsOf } from "../../src/server/sql";
 loadLocalEnvironment();
 const appUrl = process.env.DATABASE_URL;
 afterEach(() => { process.env.DATABASE_URL = appUrl; });
@@ -43,8 +45,8 @@ describe("billing with actual PostgreSQL transactions", () => {
       await expect(recordReceipt(conflict, { ...input, amountPaise: "1", requestId: conflict.requestId })).rejects.toMatchObject({ code: "CONFLICT" });
       expect((await getDepositSummary(f.deskCtx(), a.admissionId)).paidPaise).toBe(30000n);
       await expect(activateAdmission({ ...f.deskCtx(), requestId: activation.requestId }, activation)).rejects.toMatchObject({ code: "PRECONDITION" });
-      expect((await runtime.query("select status from hims.admissions where id=$1", [a.admissionId])).rows[0].status).toBe("PENDING");
-      expect((await runtime.query("select count(*)::int n from hims.room_stays")).rows[0].n).toBe(0);
+      expect((await runtime.query("select status from admissions where id=$1", [a.admissionId])).rows[0].status).toBe("PENDING");
+      expect((await runtime.query("select count(*) n from room_stays")).rows[0].n).toBe(0);
       const topCtx = f.deskCtx();
       await recordReceipt(topCtx, {
         ...input, kind: "TOP_UP", amountPaise: "20000", sourceReference: "0002", reference: "Staff receipt 0002", requestId: topCtx.requestId
@@ -54,11 +56,11 @@ describe("billing with actual PostgreSQL transactions", () => {
         const occupancy = f.deskCtx();
         await expect(activateAdmission(occupancy, { ...activation, arrivedAt, requestId: occupancy.requestId })).rejects.toMatchObject({ code: "VALIDATION" });
       }
-      expect((await runtime.query("select count(*)::int n from hims.room_stays")).rows[0].n).toBe(0);
+      expect((await runtime.query("select count(*) n from room_stays")).rows[0].n).toBe(0);
       await expect(activateAdmission({ ...f.deskCtx(), requestId: activation.requestId }, { ...activation, expectedVersion: 2 })).rejects.toMatchObject({ code: "CONFLICT" });
       const activated = await Promise.all([activateAdmission({ ...f.deskCtx(), requestId: activation.requestId }, activation), activateAdmission({ ...f.deskCtx(), requestId: activation.requestId }, activation)]);
       expect(activated[0]).toEqual(activated[1]);
-      expect((await runtime.query("select count(*)::int n from hims.room_stays")).rows[0].n).toBe(1);
+      expect((await runtime.query("select count(*) n from room_stays")).rows[0].n).toBe(1);
       const wrong = staffContext(f.nurse, "synthetic");
       await expect(recordReceipt(wrong, { ...input, requestId: wrong.requestId })).rejects.toMatchObject({ code: "FORBIDDEN" });
       await expect(getBill(f.deskCtx(), a.admissionId, new Date())).rejects.toMatchObject({ code: "FORBIDDEN" });
@@ -93,8 +95,8 @@ describe("billing with actual PostgreSQL transactions", () => {
       expect(cancelledBill.status).toBe("CANCELLED");
       expect(cancelledBill.unallocatedDepositPaise).toBe(250n);
       expect(cancelledBill.charges).toHaveLength(0);
-      expect((await runtime.query("select admitted_at from hims.admissions where id=$1", [cancelled.admissionId])).rows[0].admitted_at).toBeNull();
-      await owner.query("update hims.staff_user set banned=true where id=$1", [f.cashier.id]);
+      expect((await runtime.query("select admitted_at from admissions where id=$1", [cancelled.admissionId])).rows[0].admitted_at).toBeNull();
+      await owner.query("update staff_user set banned=true where id=$1", [f.cashier.id]);
       await expect(getBill(f.ctx(), a.admissionId, new Date())).rejects.toMatchObject({ code: "FORBIDDEN" });
     });
   }, 120000);
@@ -126,8 +128,8 @@ describe("billing with actual PostgreSQL transactions", () => {
       await expect(postCharge(f.ctx(), { ...data, amountPaise: "1" })).rejects.toThrow();
       const backendIds = new Set<number>();
       const post = (input = data) => withTransaction(async (tx) => {
-        const backend = await tx.execute(sql `select pg_backend_pid() as pid`);
-        backendIds.add(Number(backend.rows[0].pid));
+        const backend = await tx.execute(sql `select connection_id() as pid`);
+        backendIds.add(Number(rowsOf(backend)[0].pid));
         await tx.select().from(admissions).where(eq(admissions.id, a.admissionId)).for("update");
         return postChargeInTransaction(tx, f.ctx(), input);
       });
@@ -161,13 +163,13 @@ describe("billing with actual PostgreSQL transactions", () => {
       await expect(finalizeCharge(fc, { chargeId: posted[0].id, requestId: fc.requestId })).rejects.toMatchObject({ code: "PRECONDITION" });
       const adminFinal = { ...f.ctx(), actor: { type: "staff" as const, staffId: f.admin.id } };
       await expect(finalizeCharge(adminFinal, { chargeId: posted[0].id, requestId: adminFinal.requestId })).rejects.toMatchObject({ code: "PRECONDITION" });
-      expect((await runtime.query("select count(*)::int n from hims.charge_finalizations")).rows[0].n).toBe(0);
+      expect((await runtime.query("select count(*) n from charge_finalizations")).rows[0].n).toBe(0);
       const finalizeSource = () => withTransaction((tx) => postChargeInTransaction(tx, { ...f.ctx(), actor: { type: "staff", staffId: f.lab.id } }, { ...data, status: "FINAL" }));
       const finalized = await Promise.all([finalizeSource(), finalizeSource()]);
       expect(finalized[0].id).toBe(posted[0].id);
       expect(finalized[1].id).toBe(posted[0].id);
-      expect((await runtime.query("select count(*)::int n from hims.charge_finalizations where charge_id=$1", [posted[0].id])).rows[0].n).toBe(1);
-      expect((await runtime.query("select count(*)::int n from hims.charges")).rows[0].n).toBe(2);
+      expect((await runtime.query("select count(*) n from charge_finalizations where charge_id=$1", [posted[0].id])).rows[0].n).toBe(1);
+      expect((await runtime.query("select count(*) n from charges")).rows[0].n).toBe(2);
       const reversal = f.ctx();
       await reverseCharge(reversal, {
         chargeId: posted[0].id, amountPaise: "500000", reason: "Synthetic return correction", requestId: reversal.requestId
@@ -203,10 +205,10 @@ describe("billing with actual PostgreSQL transactions", () => {
       const cancel = f.ctx();
       await expect(cancelAllocation(cancel, { allocationId: allocated.value.id, reason: "Synthetic cancellation", requestId: cancel.requestId })).rejects.toMatchObject({ code: "PRECONDITION" });
       for (const table of ["charges", "receipts", "charge_reversals", "receipt_allocations", "charge_finalizations", "billing_requests"]) {
-        await expect(runtime.query(`update hims.${table} set id=id`)).rejects.toMatchObject({ code: "42501" });
-        await expect(runtime.query(`delete from hims.${table}`)).rejects.toMatchObject({ code: "42501" });
+        await expect(runtime.query(`update ${table} set id=id`)).rejects.toSatisfy(ruleViolation);
+        await expect(runtime.query(`delete from ${table}`)).rejects.toSatisfy(ruleViolation);
       }
-      await owner.query("update hims.staff_user set role='NURSE' where id=$1", [f.cashier.id]);
+      await owner.query("update staff_user set role='NURSE' where id=$1", [f.cashier.id]);
       await expect(reverseCharge(f.ctx(), {
         chargeId: posted[0].id, amountPaise: "1", reason: "Synthetic role denial", requestId: f.ctx().requestId
       })).rejects.toThrow();
@@ -226,13 +228,13 @@ describe("billing with actual PostgreSQL transactions", () => {
       const a = await f.episode();
       const start = new Date(Date.now() - 7200000);
       // Explicit synthetic historic reservation, not a production backdate command.
-      await owner.query("update hims.admissions set registered_at=$1 where id=$2", [new Date(start.getTime() - 60000), a.admissionId]);
-      await owner.query("update hims.bed_holds set held_at=$1 where admission_id=$2", [new Date(start.getTime() - 60000), a.admissionId]);
+      await owner.query("update admissions set registered_at=$1 where id=$2", [new Date(start.getTime() - 60000), a.admissionId]);
+      await owner.query("update bed_holds set held_at=$1 where admission_id=$2", [new Date(start.getTime() - 60000), a.admissionId]);
       const c = f.deskCtx();
       await activateAdmission(c, {
         admissionId: a.admissionId, arrivedAt: start.toISOString(), expectedVersion: 1, requestId: c.requestId
       });
-      const financialState = async () => (await runtime.query("select a.bill_revision,s.last_reconciled_at,s.posted_paise,(select count(*)::int from hims.charges where admission_id=a.id) charge_count from hims.admissions a join hims.room_stays s on s.admission_id=a.id where a.id=$1", [a.admissionId])).rows;
+      const financialState = async () => (await runtime.query("select a.bill_revision,s.last_reconciled_at,s.posted_paise,(select count(*) from charges where admission_id=a.id) charge_count from admissions a join room_stays s on s.admission_id=a.id where a.id=$1", [a.admissionId])).rows;
       const unchanged = await financialState();
       const future = new Date(Date.now() + 30000);
       await expect(reconcileBill(f.ctx(), { admissionId: a.admissionId, cutoff: future.toISOString() })).rejects.toMatchObject({ code: "VALIDATION" });
@@ -245,20 +247,20 @@ describe("billing with actual PostgreSQL transactions", () => {
       const estimate = await getBill(f.ctx(), a.admissionId, hour);
       expect(estimate.netPaise).toBe(0n);
       expect(estimate.unpostedRoomPaise).toBe(10001n);
-      expect((await runtime.query("select count(*)::int n from hims.charges")).rows[0].n).toBe(0);
+      expect((await runtime.query("select count(*) n from charges")).rows[0].n).toBe(0);
       await postDueRoomCharges(half);
       await f.setting({
         type: "tariff", category: "GENERAL", amount: "999", basis: "hour", rounding: "started-unit", graceMinutes: 0
       });
       await Promise.all([postDueRoomCharges(hour), postDueRoomCharges(hour)]);
       expect((await getBill(f.ctx(), a.admissionId, hour)).netPaise).toBe(10001n);
-      expect((await runtime.query("select count(*)::int n from hims.charges")).rows[0].n).toBe(2);
-      await owner.query("CREATE FUNCTION hims.synthetic_fail_billing_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event='billing.room-reconciled' THEN RAISE EXCEPTION 'Synthetic room audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER synthetic_billing_audit_failure BEFORE INSERT ON hims.audit_events FOR EACH ROW EXECUTE FUNCTION hims.synthetic_fail_billing_audit()");
+      expect((await runtime.query("select count(*) n from charges")).rows[0].n).toBe(2);
+      await owner.query("create trigger synthetic_billing_audit_failure BEFORE insert on audit_events for each row begin IF NEW.event='billing.room-reconciled' THEN signal sqlstate '45000' set message_text='Synthetic room audit failure'; END IF; end");
       try {
         await expect(postDueRoomCharges(twoHours)).rejects.toThrow();
       }
       finally {
-        await owner.query("DROP TRIGGER synthetic_billing_audit_failure ON hims.audit_events; DROP FUNCTION hims.synthetic_fail_billing_audit()");
+        await owner.query("drop trigger synthetic_billing_audit_failure");
       }
       expect((await getBill(f.ctx(), a.admissionId, twoHours)).netPaise).toBe(10001n);
       await Promise.all([postDueRoomCharges(twoHours), reconcileBill(f.ctx(), { admissionId: a.admissionId, cutoff: twoHours.toISOString() })]);
@@ -267,7 +269,7 @@ describe("billing with actual PostgreSQL transactions", () => {
       expect(final.unpostedRoomPaise).toBe(0n);
       expect(final.revision).toBeGreaterThan(1);
       await expect(reconcileBill(f.ctx(), { admissionId: a.admissionId, cutoff: half.toISOString() })).rejects.toMatchObject({ code: "CONFLICT" });
-      const rows = (await runtime.query("select last_reconciled_at,posted_paise from hims.room_stays where admission_id=$1", [a.admissionId])).rows;
+      const rows = (await runtime.query("select last_reconciled_at,posted_paise from room_stays where admission_id=$1", [a.admissionId])).rows;
       expect(rows[0].last_reconciled_at.toISOString()).toBe(twoHours.toISOString());
       expect(rows[0].posted_paise).toBe("20002");
       const current = new Date();
@@ -289,8 +291,8 @@ describe("billing with actual PostgreSQL transactions", () => {
       });
       const a = await f.episode("INSURED");
       const start = new Date(Date.now() - 10800000);
-      await owner.query("update hims.admissions set registered_at=$1 where id=$2", [new Date(start.getTime() - 60000), a.admissionId]);
-      await owner.query("update hims.bed_holds set held_at=$1 where admission_id=$2", [new Date(start.getTime() - 60000), a.admissionId]);
+      await owner.query("update admissions set registered_at=$1 where id=$2", [new Date(start.getTime() - 60000), a.admissionId]);
+      await owner.query("update bed_holds set held_at=$1 where admission_id=$2", [new Date(start.getTime() - 60000), a.admissionId]);
       const receiptDetails = {
         admissionId: a.admissionId, party: "INSURER", kind: "PAYMENT", amountPaise: "60000", mode: "BANK", channel: "Synthetic insurer account", sourceReference: "001", reference: "Synthetic partial insurer receipt"
       };
@@ -315,7 +317,7 @@ describe("billing with actual PostgreSQL transactions", () => {
         type: "tariff", category: "GENERAL", amount: "100", basis: "hour", rounding: "exact", graceMinutes: 10
       })).rejects.toThrow();
       // Simulate a pre-existing nonzero legacy payload without assigning it invented semantics.
-      await owner.query("insert into hims.setting_versions(hospital_id,kind,version,payload,actor_type,actor_id,reason) select hospital_id,'tariff',version+1,jsonb_set(payload,'{graceMinutes}','10'),'staff',actor_id,'Synthetic legacy ambiguity' from hims.setting_versions where id=$1", [f.room.id]);
+      await owner.query("insert into setting_versions(hospital_id,kind,version,payload,actor_type,actor_id,reason) select hospital_id,'tariff',version+1,JSON_SET(payload,'$.graceMinutes',10),'staff',actor_id,'Synthetic legacy ambiguity' from setting_versions where id=$1", [f.room.id]);
       await expect(activate()).rejects.toMatchObject({ code: "PRECONDITION" });
       // The fixture helper's cached counter intentionally rejects the stale edit; explicit refresh follows.
       await expect(f.setting({
@@ -328,8 +330,8 @@ describe("billing with actual PostgreSQL transactions", () => {
         } });
       const { postDueRoomCharges } = await import("../../src/server/billing/room-worker");
       await Promise.all([activate(), postDueRoomCharges(start)]);
-      expect((await runtime.query("select count(*)::int n from hims.charges")).rows[0].n).toBe(0);
-      const [stay] = (await runtime.query("select * from hims.room_stays where admission_id=$1", [a.admissionId])).rows;
+      expect((await runtime.query("select count(*) n from charges")).rows[0].n).toBe(0);
+      const [stay] = (await runtime.query("select * from room_stays where admission_id=$1", [a.admissionId])).rows;
       const boundary = new Date(stay.started_at.getTime() + 3600000);
       await reconcileBill(f.ctx(), { admissionId: a.admissionId, cutoff: boundary.toISOString() });
       const newPrice = await saveSetting(f.ah, { expectedVersion: replacement.version, reason: "Synthetic transfer tariff", value: {
@@ -338,8 +340,8 @@ describe("billing with actual PostgreSQL transactions", () => {
       // Synthetic future-transfer source fixture: exact close/open at T, composed in a single transaction.
       await owner.query("begin");
       try {
-        await owner.query("update hims.room_stays set ended_at=$1 where id=$2", [boundary, stay.id]);
-        await owner.query("insert into hims.room_stays(admission_id,bed_id,tariff_version_id,started_at,last_reconciled_at) values($1,$2,$3,$4,$4)", [a.admissionId, stay.bed_id, newPrice.id, boundary]);
+        await owner.query("update room_stays set ended_at=$1 where id=$2", [boundary, stay.id]);
+        await owner.query("insert into room_stays(admission_id,bed_id,tariff_version_id,started_at,last_reconciled_at) values($1,$2,$3,$4,$4)", [a.admissionId, stay.bed_id, newPrice.id, boundary]);
         await owner.query("commit");
       }
       catch (error) {
@@ -391,8 +393,8 @@ describe("billing with actual PostgreSQL transactions", () => {
       const a = await f.episode();
       expect((await getDepositSummary(f.deskCtx(), a.admissionId)).requiredPaise).toBeNull();
       const start = new Date(Date.now() - 3600000);
-      await owner.query("update hims.admissions set registered_at=$1 where id=$2", [new Date(start.getTime()-60000), a.admissionId]);
-      await owner.query("update hims.bed_holds set held_at=$1 where admission_id=$2", [new Date(start.getTime()-60000), a.admissionId]);
+      await owner.query("update admissions set registered_at=$1 where id=$2", [new Date(start.getTime()-60000), a.admissionId]);
+      await owner.query("update bed_holds set held_at=$1 where admission_id=$2", [new Date(start.getTime()-60000), a.admissionId]);
       const activate = () => { const c = f.deskCtx(); return activateAdmission(c, { admissionId: a.admissionId, arrivedAt: start.toISOString(), expectedVersion: 1, requestId: c.requestId }); };
       await expect(activate()).rejects.toMatchObject({ code: "PRECONDITION" });
       await f.setting({ type: "deposit", category: "GENERAL", route: "self-pay", requirement: "not-required", amount: "0" });
@@ -400,7 +402,7 @@ describe("billing with actual PostgreSQL transactions", () => {
       const cutoff = new Date();
       await reconcileBill(f.ctx(), { admissionId: a.admissionId, cutoff: cutoff.toISOString() });
       expect((await getBill(f.ctx(), a.admissionId, cutoff)).netPaise).toBe(0n);
-      expect((await runtime.query("select posted_paise,last_reconciled_at from hims.room_stays where admission_id=$1", [a.admissionId])).rows[0]).toMatchObject({ posted_paise: "0", last_reconciled_at: cutoff });
+      expect((await runtime.query("select posted_paise,last_reconciled_at from room_stays where admission_id=$1", [a.admissionId])).rows[0]).toMatchObject({ posted_paise: "0", last_reconciled_at: cutoff });
       const item = await f.setting({ type: "billable-item", code: "ZERO_ITEM", name: "Synthetic explicit zero consultation", category: "consultation", department: "DOCTOR", unit: "session", quantityScale: 0, amount: "0", active: true });
       const source = { admissionId: a.admissionId, sourceEventId: randomUUID(), itemId: "ZERO_ITEM", category: "consultation", quantity: "1", unit: "session", tariffVersionId: item.id, status: "FINAL" };
       const results = await Promise.all([withTransaction((tx) => postChargeInTransaction(tx, f.ctx(), source)), withTransaction((tx) => postChargeInTransaction(tx, f.ctx(), source))]);

@@ -15,6 +15,9 @@ import { charges, chargeReversals } from "../billing/schema";
 import { quantityAmount } from "../billing/money";
 import { appendAudit } from "../audit";
 import { pharmacyBatches, pharmacyMovements, pharmacyPreparations, type PreparedItem } from "./schema";
+import { acquireTxLock } from "../locks";
+import { insertReturning } from "../sql";
+import { assertPharmacyLedger } from "../deferred-checks";
 // Supplied-Tx callers take shared 729104211 before staff/request/admission locks,
 // then admission followed by affected batches in sorted ID order. These primitives
 // compose directly on that transaction; no nested/global pool operation owns effects.
@@ -41,7 +44,7 @@ export function hospitalDate(now: Date, timezone: string): string {
   return ["year","month","day"].map(type => parts.find(p => p.type === type)!.value).join("-");
 }
 async function operator(tx: Transaction, ctx: CommandContext, adjustment = false) {
-  await tx.execute(sql`select pg_advisory_xact_lock_shared(729104211)`);
+  await acquireTxLock(tx, "729104211", "shared");
   return admissionOperator(ctx, adjustment ? ["ADMIN"] : ["PHARMACY", "ADMIN"], tx);
 }
 async function hospital(tx: Transaction) {
@@ -84,7 +87,7 @@ export async function recordStockReceiptInTransaction(tx: Transaction, ctx: Comm
   const staff = await operator(tx,ctx);
   return billingRequest(tx,ctx,"pharmacy.receipt",v,async () => {
     const h = await hospital(tx);
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`pharmacy-stock:${h.id}`},0))`);
+    await acquireTxLock(tx, `pharmacy-stock:${h.id}`);
     const [old] = await tx.select().from(pharmacyBatches).where(and(eq(pharmacyBatches.hospitalId,h.id),eq(pharmacyBatches.medicineId,v.medicineId),eq(pharmacyBatches.batchNo,v.batchNo))).for("update");
     if(old) {
       if(old.expiresOn !== v.expiresOn || old.unit !== v.unit || old.barcode !== v.barcode || (v.reorderThreshold !== undefined && (old.reorderThreshold === null || stockUnits(old.reorderThreshold) !== stockUnits(v.reorderThreshold,old.quantityScale)))) throw new DomainError("CONFLICT","Existing batch identity, unit, expiry or threshold differs; omit an unchanged batch threshold on later receipts");
@@ -106,9 +109,10 @@ export async function recordStockReceiptInTransaction(tx: Transaction, ctx: Comm
       if(identity.payload.name!==rate.policy.name) throw new DomainError("PRECONDITION","Existing batch medicine identity differs from the current catalogue; receive a distinct batch and obtain Doctor review");
       if(old.quantityScale !== rate.policy.quantityScale) throw new DomainError("CONFLICT","Existing batch quantity scale differs from the current catalogue");
     }
-    const batch = old ?? (await tx.insert(pharmacyBatches).values({ hospitalId:h.id, medicineId:v.medicineId,catalogVersionId:rate.version.id,batchNo:v.batchNo,expiresOn:v.expiresOn,unit:v.unit,quantityScale:rate.policy.quantityScale,barcode:v.barcode,reorderThreshold:v.reorderThreshold,signedBy:staff.id }).returning())[0];
-    await tx.update(pharmacyBatches).set({ availableQuantity: sql`${pharmacyBatches.availableQuantity} + ${v.quantity}::numeric` }).where(eq(pharmacyBatches.id,batch.id));
+    const batch = old ?? (await insertReturning(tx, pharmacyBatches, { hospitalId:h.id, medicineId:v.medicineId,catalogVersionId:rate.version.id,batchNo:v.batchNo,expiresOn:v.expiresOn,unit:v.unit,quantityScale:rate.policy.quantityScale,barcode:v.barcode,reorderThreshold:v.reorderThreshold,signedBy:staff.id }))[0];
     await tx.insert(pharmacyMovements).values({ batchId:batch.id,kind:"RECEIPT",quantity:v.quantity,reference:v.reference,signedBy:staff.id });
+    await tx.update(pharmacyBatches).set({ availableQuantity: sql`${pharmacyBatches.availableQuantity} + CAST(${v.quantity} AS DECIMAL(18,6))` }).where(eq(pharmacyBatches.id,batch.id));
+    await assertPharmacyLedger(tx, [batch.id]);
     await audit(tx,ctx,"stock-received",batch.id,v.reference);
     return { id:batch.id };
   });
@@ -141,8 +145,9 @@ async function issue(tx: Transaction, ctx: CommandContext, staffId: string, hosp
   if (rate.policy.quantityScale !== batch.quantityScale) throw new DomainError("PRECONDITION","Stock scale changed; explicit catalogue and stock reconciliation required");
   const id = crypto.randomUUID();
   const charge = await postChargeInTransaction(tx,ctx,{ admissionId:v.admissionId,sourceEventId:id,category:"medicine",itemId:order.medicineItemId,quantity:v.quantity,unit:v.unit,tariffVersionId:rate.version.id,status:"FINAL" },rate);
-  await tx.update(pharmacyBatches).set({ availableQuantity:sql`${pharmacyBatches.availableQuantity} - ${v.quantity}::numeric` }).where(eq(pharmacyBatches.id,batch.id));
   await tx.insert(pharmacyMovements).values({ id,batchId:batch.id,admissionId:v.admissionId,orderId:order.id,kind:"ISSUE",purpose,quantity:`-${v.quantity}`,chargeId:charge.id,reference:`${purpose} issue against signed Doctor order`,signedBy:staffId });
+  await tx.update(pharmacyBatches).set({ availableQuantity:sql`${pharmacyBatches.availableQuantity} - CAST(${v.quantity} AS DECIMAL(18,6))` }).where(eq(pharmacyBatches.id,batch.id));
+  await assertPharmacyLedger(tx, [batch.id]);
   batch.availableQuantity = stockQuantity(stockUnits(batch.availableQuantity)-q);
   await audit(tx,ctx,"medicine-issued",id,`${purpose} stock issue; nursing administration is a separate factual record`);
   return { id };
@@ -170,9 +175,10 @@ export async function returnMedicineInTransaction(tx: Transaction, ctx: CommandC
     const cumulative = quantityAmount(charge.ratePaise,stockQuantity(prior+q),batch.quantityScale);
     const amount = (cumulative > charge.amountPaise ? charge.amountPaise : cumulative) - previousReturnMoney;
     if (amount < 0n || oldReversals.reduce((n,r)=>n+r.amountPaise,0n)+amount > charge.amountPaise) throw new DomainError("PRECONDITION","Existing financial adjustment requires Billing reconciliation before this return");
-    const reversal = amount > 0n ? (await tx.insert(chargeReversals).values({ chargeId:charge.id,amountPaise:amount,reason:v.reason,...actorColumns(ctx) }).returning())[0] : undefined;
-    const [movement] = await tx.insert(pharmacyMovements).values({ batchId:batch.id,admissionId:issued.admissionId,orderId:issued.orderId,kind:"RETURN",purpose:issued.purpose,quantity:v.quantity,originalIssueId:issued.id,chargeId:charge.id,reversalId:reversal?.id,reference:v.reason,signedBy:staff.id }).returning();
-    await tx.update(pharmacyBatches).set({ availableQuantity:sql`${pharmacyBatches.availableQuantity} + ${v.quantity}::numeric` }).where(eq(pharmacyBatches.id,batch.id));
+    const reversal = amount > 0n ? (await insertReturning(tx, chargeReversals, { chargeId:charge.id,amountPaise:amount,reason:v.reason,...actorColumns(ctx) }))[0] : undefined;
+    const [movement] = await insertReturning(tx, pharmacyMovements, { batchId:batch.id,admissionId:issued.admissionId,orderId:issued.orderId,kind:"RETURN",purpose:issued.purpose,quantity:v.quantity,originalIssueId:issued.id,chargeId:charge.id,reversalId:reversal?.id,reference:v.reason,signedBy:staff.id });
+    await tx.update(pharmacyBatches).set({ availableQuantity:sql`${pharmacyBatches.availableQuantity} + CAST(${v.quantity} AS DECIMAL(18,6))` }).where(eq(pharmacyBatches.id,batch.id));
+    await assertPharmacyLedger(tx, [batch.id]);
     await bumpBillRevision(tx,issued.admissionId!);
     await audit(tx,ctx,"medicine-returned",movement.id,v.reason);
     return { id:movement.id };
@@ -187,8 +193,9 @@ export async function adjustStock(ctx: CommandContext, input: unknown) {
       const [batch] = await batches(tx,[v.batchId]);
       const q = stockUnits(v.quantity,batch.quantityScale)*(v.direction === "DECREASE" ? -1n : 1n);
       if (stockUnits(batch.availableQuantity)+q < 0n) throw new DomainError("PRECONDITION","Adjustment would make stock negative");
-      const [m] = await tx.insert(pharmacyMovements).values({ batchId:batch.id,kind:"ADJUSTMENT",quantity:stockQuantity(q),reference:v.reason,signedBy:staff.id }).returning();
-      await tx.update(pharmacyBatches).set({ availableQuantity:sql`${pharmacyBatches.availableQuantity}+${stockQuantity(q)}::numeric` }).where(eq(pharmacyBatches.id,batch.id));
+      const [m] = await insertReturning(tx, pharmacyMovements, { batchId:batch.id,kind:"ADJUSTMENT",quantity:stockQuantity(q),reference:v.reason,signedBy:staff.id });
+      await tx.update(pharmacyBatches).set({ availableQuantity:sql`${pharmacyBatches.availableQuantity}+CAST(${stockQuantity(q)} AS DECIMAL(18,6))` }).where(eq(pharmacyBatches.id,batch.id));
+      await assertPharmacyLedger(tx, [batch.id]); // commit-time stock/ledger rule
       await audit(tx,ctx,"stock-adjusted",m.id,v.reason);
       return { id:m.id };
     });
@@ -225,7 +232,7 @@ export async function prepareTakeHomeMedicinesInTransaction(tx: Transaction, ctx
       items.push({ orderId:item.orderId,batchId:item.batchId,quantity:stockQuantity(wanted),unit:item.unit,issueIds });
     }
     const [previous] = await tx.select({version:pharmacyPreparations.version}).from(pharmacyPreparations).where(eq(pharmacyPreparations.admissionId,e.id)).orderBy(desc(pharmacyPreparations.version)).limit(1);
-    const [prepared] = await tx.insert(pharmacyPreparations).values({ admissionId:e.id,version:(previous?.version ?? 0)+1,prescriptionVersionId:rx.id,items,signedBy:staff.id }).returning();
+    const [prepared] = await insertReturning(tx, pharmacyPreparations, { admissionId:e.id,version:(previous?.version ?? 0)+1,prescriptionVersionId:rx.id,items,signedBy:staff.id });
     await audit(tx,ctx,"take-home-prepared",prepared.id,"Stock issued against current signed prescription; collection and professional seal remain separate");
     return { id:prepared.id };
   });

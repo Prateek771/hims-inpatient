@@ -1,31 +1,25 @@
 import { sql } from "drizzle-orm";
-import {
-  check,
-  index,
-  jsonb,
-  text,
-  timestamp,
-  uuid,
-} from "drizzle-orm/pg-core";
-import { hims } from "../schema/core";
+import { check, index, json, mysqlTable, mysqlView, text } from "drizzle-orm/mysql-core";
+import { uuid, uuidDefault, utc, utcNow, key } from "../schema/columns";
+
 import { user } from "../schema/auth";
 import { admissions, beds, roomStays } from "../admissions/schema";
 import { careOccurrences } from "../clinical/schema";
-const time = (name: string) => timestamp(name, { withTimezone: true });
+const time = (name: string) => utc(name);
 const signed = () => ({
-  signedBy: text("signed_by")
+  signedBy: key("signed_by")
     .notNull()
     .references(() => user.id),
-  signedAt: time("signed_at").notNull().defaultNow(),
+  signedAt: time("signed_at").notNull().default(utcNow),
 });
-export const nurseAssignments = hims.table(
+export const nurseAssignments = mysqlTable(
   "nurse_assignments",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     admissionId: uuid("admission_id")
       .notNull()
       .references(() => admissions.id),
-    nurseId: text("nurse_id")
+    nurseId: key("nurse_id")
       .notNull()
       .references(() => user.id),
     authority: text("authority").notNull(),
@@ -37,10 +31,10 @@ export const nurseAssignments = hims.table(
     index("nurse_assignment_nurse_idx").on(t.nurseId),
   ],
 );
-export const nurseAssignmentRevocations = hims.table(
+export const nurseAssignmentRevocations = mysqlTable(
   "nurse_assignment_revocations",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     assignmentId: uuid("assignment_id")
       .notNull()
       .unique()
@@ -50,14 +44,14 @@ export const nurseAssignmentRevocations = hims.table(
     ...signed(),
   },
 );
-export const nursingShifts = hims.table(
+export const nursingShifts = mysqlTable(
   "nursing_shifts",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     admissionId: uuid("admission_id")
       .notNull()
       .references(() => admissions.id),
-    nurseId: text("nurse_id")
+    nurseId: key("nurse_id")
       .notNull()
       .references(() => user.id),
     startedAt: time("started_at").notNull(),
@@ -69,8 +63,8 @@ export const nursingShifts = hims.table(
     index("nursing_shift_nurse_idx").on(t.nurseId),
   ],
 );
-export const nursingShiftEnds = hims.table("nursing_shift_ends", {
-  id: uuid("id").primaryKey().defaultRandom(),
+export const nursingShiftEnds = mysqlTable("nursing_shift_ends", {
+  id: uuid("id").primaryKey().default(uuidDefault),
   shiftId: uuid("shift_id")
     .notNull()
     .unique()
@@ -79,10 +73,10 @@ export const nursingShiftEnds = hims.table("nursing_shift_ends", {
   handover: text("handover").notNull(),
   ...signed(),
 });
-export const nursingObservations = hims.table(
+export const nursingObservations = mysqlTable(
   "nursing_observations",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     admissionId: uuid("admission_id")
       .notNull()
       .references(() => admissions.id),
@@ -94,7 +88,7 @@ export const nursingObservations = hims.table(
       .unique()
       .references(() => careOccurrences.id),
     observedAt: time("observed_at").notNull(),
-    values: jsonb("values").$type<Record<string, number>>().notNull(),
+    values: json("values").$type<Record<string, number>>().notNull(),
     ...signed(),
   },
   (t) => [
@@ -102,10 +96,10 @@ export const nursingObservations = hims.table(
     index("nursing_observation_shift_idx").on(t.shiftId),
   ],
 );
-export const medicationAdministrations = hims.table(
+export const medicationAdministrations = mysqlTable(
   "medication_administrations",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     admissionId: uuid("admission_id")
       .notNull()
       .references(() => admissions.id),
@@ -129,14 +123,14 @@ export const medicationAdministrations = hims.table(
     check("mar_outcome", sql`${t.outcome} in ('GIVEN','HELD','REFUSED')`),
     check(
       "mar_reason",
-      sql`${t.outcome}='GIVEN' or length(trim(${t.reason}))>0`,
+      sql`${t.outcome}='GIVEN' or char_length(trim(${t.reason}))>0`,
     ),
   ],
 );
-export const nursingConsumables = hims.table(
+export const nursingConsumables = mysqlTable(
   "nursing_consumables",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     admissionId: uuid("admission_id")
       .notNull()
       .references(() => admissions.id),
@@ -163,10 +157,10 @@ export const nursingConsumables = hims.table(
     index("nursing_consumable_bed_idx").on(t.bedId),
   ],
 );
-export const nursingAddenda = hims.table(
+export const nursingAddenda = mysqlTable(
   "nursing_addenda",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidDefault),
     admissionId: uuid("admission_id")
       .notNull()
       .references(() => admissions.id),
@@ -186,6 +180,6 @@ export const nursingAddenda = hims.table(
   ],
 );
 
-export const effectiveShiftEnds = hims.view("effective_shift_ends", {
+export const effectiveShiftEnds = mysqlView("effective_shift_ends", {
  id:uuid("id").notNull(),shiftId:uuid("shift_id").notNull(),endedAt:time("ended_at").notNull(),handover:text("handover"),signedBy:text("signed_by").notNull(),signedAt:time("signed_at").notNull(),endKind:text("end_kind").notNull(),operationalEvidence:text("operational_evidence"),
 }).existing();

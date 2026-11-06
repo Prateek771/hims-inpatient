@@ -8,6 +8,7 @@ import { admissions } from "../admissions/schema";
 import { settingVersions } from "../schema/core";
 import { billingRequest,itemPolicyInput,postChargeInTransaction,resolveBillableRate } from "../billing/commands";
 import { appendAudit } from "../audit";
+import { assertExternalChargePair } from "../deferred-checks";
 import { ownMvpEpisode } from "./commands";
 import { mvpExternalServices } from "./services-schema";
 export const externalServiceCategories=["consultation","procedure","consumable","lab","radiology"] as const;
@@ -32,6 +33,7 @@ export async function recordExternalServiceCharge(ctx:CommandContext,input:unkno
       const id=randomUUID(),rate=await resolveBillableRate(tx,{itemId:v.itemId,eventKind:v.category,unit:v.unit,quantity:v.quantity});
       const charge=await postChargeInTransaction(tx,ctx,{admissionId:e.id,sourceEventId:id,category:v.category,itemId:v.itemId,quantity:v.quantity,unit:v.unit,tariffVersionId:v.expectedTariffVersionId,status:"FINAL"},rate);
       await tx.insert(mvpExternalServices).values({id,admissionId:e.id,chargeId:charge.id,category:v.category,itemId:v.itemId,quantity:v.quantity,unit:v.unit,tariffVersionId:rate.version.id,performedAt:performed,departmentIssuer:v.departmentIssuer,externalBillReference:v.externalBillReference,externalLineReference:v.externalLineReference,evidence:v.evidence,recordedBy:staff.id,recorderName:staff.name});
+      await assertExternalChargePair(tx,[charge.id]); // commit-time rule: the charge and its external source exist together
       await appendAudit(tx,ctx,{event:"mvp.external-service-recorded",entityType:"mvp-external-service",entityId:id,reason:"Staff recorded external performed-service billing evidence at the configured deterministic rate"});
       return {id};
     });

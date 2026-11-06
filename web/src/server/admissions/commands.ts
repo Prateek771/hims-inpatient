@@ -1,6 +1,6 @@
 import "server-only";
 import { createHash, randomInt } from "node:crypto";
-import { and, asc, desc, eq, getViewSelectedFields, ilike, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, getViewSelectedFields, inArray, isNull, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { appendAudit } from "../audit";
 import {
@@ -23,6 +23,9 @@ import { admissionTransfers, transferInsuranceTasks, transferOrders } from "./tr
 import { transferAuthority } from "./transfer-authority";
 import { doctorDirectoryVersions } from "../mvp/staff-schema";
 
+import { acquireTxLock } from "../locks";
+import { insertOrNothing, insertReturning, rowsOf } from "../sql";
+import { assertTransferEffects } from "../deferred-checks";
 const categoryCode = z
   .string()
   .trim()
@@ -118,7 +121,7 @@ export async function admissionOperator(
 ) {
   // All composed sources share this order with staff/settings administration.
   // Autocommit reads release it immediately; transaction commands retain it before staff locks.
-  await connection.execute(sql`select pg_advisory_xact_lock_shared(729104211)`);
+  await acquireTxLock(connection, "729104211", "shared");
   const actor = assertHumanActor(ctx);
   z.uuid().parse(ctx.requestId);
   if (!ctx.source.trim())
@@ -200,15 +203,11 @@ export async function createBed(ctx: CommandContext, input: unknown) {
         "PRECONDITION",
         "Configure an active room category first",
       );
-    const [bed] = await tx
-      .insert(beds)
-      .values({
-        label: value.label,
-        category: value.category,
-        categoryVersionId: category.id,
-      })
-      .onConflictDoNothing()
-      .returning();
+    const bed = await insertOrNothing(tx, beds, {
+      label: value.label,
+      category: value.category,
+      categoryVersionId: category.id,
+    });
     if (!bed) throw new DomainError("CONFLICT", "A bed already has this label");
     await appendAudit(tx, ctx, {
       event: "bed.created",
@@ -269,9 +268,7 @@ async function createAdmissionVersion(ctx:CommandContext,value:z.infer<typeof ad
   return withTransaction(async (tx) => {
     const operator = await admissionOperator(ctx, ["ADMISSION"], tx);
     // Serialize a retry key before checking its result. Other beds/patients remain concurrent.
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${`${operator.id}:admission:${value.requestId}`}, 0))`,
-    );
+    await acquireTxLock(tx, `${operator.id}:admission:${value.requestId}`);
     const [retry] = await tx
       .select()
       .from(admissions)
@@ -315,7 +312,7 @@ async function createAdmissionVersion(ctx:CommandContext,value:z.infer<typeof ad
         "Admitting and assessing clinicians must be active doctors",
       );
     } else {
-      await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`doctor-directory:${value.externalDoctorId}`},0))`);
+      await acquireTxLock(tx, `doctor-directory:${value.externalDoctorId}`);
       const [doctor] = await tx.select().from(doctorDirectoryVersions).where(eq(doctorDirectoryVersions.doctorId,value.externalDoctorId)).orderBy(desc(doctorDirectoryVersions.version)).limit(1);
       if(!doctor?.active) throw new DomainError("VALIDATION","Select an active Doctor from the directory");
     }
@@ -328,9 +325,7 @@ async function createAdmissionVersion(ctx:CommandContext,value:z.infer<typeof ad
     let patient;
     if (value.patientId) {
       // Immutable identities need no UPDATE grant; serialize episodes by patient identity.
-      await tx.execute(
-        sql`select pg_advisory_xact_lock(hashtextextended(${`patient:${value.patientId}`}, 0))`,
-      );
+      await acquireTxLock(tx, `patient:${value.patientId}`);
       [patient] = await tx
         .select()
         .from(patients)
@@ -354,16 +349,13 @@ async function createAdmissionVersion(ctx:CommandContext,value:z.infer<typeof ad
     } else {
       for(let attempt=0;attempt<20;attempt++) {
       const uhid=generatePatientUhid(value.patientDetails!.identityStatus==="TEMPORARY"?undefined:value.patientDetails!.name);
-      [patient] = await tx
-        .insert(originalPatients)
-        .values({
-          ...value.patientDetails!,
-          name:value.patientDetails!.name??`Unidentified ${uhid}`,
-          uhid,
-          registeredBy: operator.id,
-        })
-        .onConflictDoNothing({target:originalPatients.uhid}).returning();
-        if(patient) break;
+      patient = await insertOrNothing(tx, originalPatients, {
+        ...value.patientDetails!,
+        name:value.patientDetails!.name??`Unidentified ${uhid}`,
+        uhid,
+        registeredBy: operator.id,
+      });
+      if(patient) break;
       }
       if(!patient) throw new DomainError("CONFLICT","Could not allocate a unique UHID; retry registration");
     }
@@ -372,11 +364,11 @@ async function createAdmissionVersion(ctx:CommandContext,value:z.infer<typeof ad
       .from(beds)
       .where(eq(beds.id, value.bedId))
       .for("update");
-    const cleaning = await tx.execute(sql`select 1 from hims.effective_bed_turnovers t where t.bed_id=${value.bedId} and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id) limit 1`);
+    const cleaning = await tx.execute(sql`select 1 from effective_bed_turnovers t where t.bed_id=${value.bedId} and not exists(select 1 from bed_turnover_completions c where c.turnover_id=t.id) limit 1`);
     if (
       !bed ||
       !bed.active ||
-      cleaning.rows.length ||
+      rowsOf(cleaning).length ||
       (await tx.select().from(bedHolds).where(eq(bedHolds.bedId, value.bedId)))
         .length
     )
@@ -406,18 +398,16 @@ async function createAdmissionVersion(ctx:CommandContext,value:z.infer<typeof ad
         "Record a reason for overriding the clinician-selected destination",
       );
     const year = admissionYear(new Date(), hospital.timezone);
-    const [counter] = await tx
+    await tx
       .insert(admissionCounters)
       .values({ hospitalId: hospital.id, year, value: 1n })
-      .onConflictDoUpdate({
-        target: [admissionCounters.hospitalId, admissionCounters.year],
-        set: { value: sql`${admissionCounters.value} + 1` },
-      })
-      .returning();
+      .onDuplicateKeyUpdate({ set: { value: sql`${admissionCounters.value} + 1` } });
+    const [counter] = await tx
+      .select()
+      .from(admissionCounters)
+      .where(and(eq(admissionCounters.hospitalId, hospital.id), eq(admissionCounters.year, year)));
     const ipCode = `IP-${year}-${counter.value.toString().padStart(5, "0")}`;
-    const [admission] = await tx
-      .insert(admissions)
-      .values({
+    const [admission] = await insertReturning(tx, admissions, {
         hospitalId: hospital.id,
         patientId: patient.id,
         ipCode,
@@ -431,8 +421,7 @@ async function createAdmissionVersion(ctx:CommandContext,value:z.infer<typeof ad
         createdBy: operator.id,
         requestId: value.requestId,
         requestPayload: payload,
-      })
-      .returning();
+      });
     await tx
       .insert(bedHolds)
       .values({ bedId: bed.id, admissionId: admission.id });
@@ -505,7 +494,7 @@ export async function searchPatients(ctx: CommandContext, query: string) {
     })
     .from(patients)
     .where(
-      or(ilike(patients.name, `%${term}%`), ilike(patients.uhid, `%${term}%`)),
+      or(sql`lower(${patients.name}) like ${`%${term.toLowerCase()}%`}`, sql`lower(${patients.uhid}) like ${`%${term.toLowerCase()}%`}`),
     )
     .orderBy(asc(patients.name))
     .limit(20);
@@ -607,7 +596,7 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
   if (ctx.requestId !== value.requestId) throw new DomainError("VALIDATION", "Request keys disagree");
   // Staff administration takes this existing exclusive lock before updating user rows.
   // Acquire its shared form first, then authenticate, so settings and staff changes serialize.
-  await tx.execute(sql`select pg_advisory_xact_lock_shared(729104211)`);
+  await acquireTxLock(tx, "729104211", "shared");
   const { careEpisode, careRequest } = await import("../clinical/commands");
   const { shiftForCare } = await import("../nursing/commands");
   const { roomPolicyInput } = await import("../billing/commands");
@@ -639,18 +628,18 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
     // Future prescribed occurrences are obligations, not finalized history. Actual care must fit
     // the boundary; old consumables must remain within the original half-open source stay.
     const history = await tx.execute(sql`SELECT 1 FROM (
-      SELECT signed_at AS at FROM hims.clinical_rounds WHERE admission_id=${episode.id}
-      UNION ALL SELECT signed_at FROM hims.clinical_orders WHERE admission_id=${episode.id}
-      UNION ALL SELECT signed_at FROM hims.clinical_summaries WHERE admission_id=${episode.id}
-      UNION ALL SELECT e.signed_at FROM hims.clinical_task_events e JOIN hims.clinical_orders o ON o.id=e.order_id WHERE o.admission_id=${episode.id}
-      UNION ALL SELECT a.signed_at FROM hims.clinical_addenda a JOIN hims.clinical_rounds r ON r.id=a.note_id WHERE r.admission_id=${episode.id}
-      UNION ALL SELECT actual_at FROM hims.medication_administrations WHERE admission_id=${episode.id}
-      UNION ALL SELECT observed_at FROM hims.nursing_observations WHERE admission_id=${episode.id}
-      UNION ALL SELECT started_at FROM hims.nursing_shifts WHERE admission_id=${episode.id}
-      UNION ALL SELECT e.ended_at FROM hims.effective_shift_ends e JOIN hims.nursing_shifts s ON s.id=e.shift_id WHERE s.admission_id=${episode.id}
+      SELECT signed_at AS at FROM clinical_rounds WHERE admission_id=${episode.id}
+      UNION ALL SELECT signed_at FROM clinical_orders WHERE admission_id=${episode.id}
+      UNION ALL SELECT signed_at FROM clinical_summaries WHERE admission_id=${episode.id}
+      UNION ALL SELECT e.signed_at FROM clinical_task_events e JOIN clinical_orders o ON o.id=e.order_id WHERE o.admission_id=${episode.id}
+      UNION ALL SELECT a.signed_at FROM clinical_addenda a JOIN clinical_rounds r ON r.id=a.note_id WHERE r.admission_id=${episode.id}
+      UNION ALL SELECT actual_at FROM medication_administrations WHERE admission_id=${episode.id}
+      UNION ALL SELECT observed_at FROM nursing_observations WHERE admission_id=${episode.id}
+      UNION ALL SELECT started_at FROM nursing_shifts WHERE admission_id=${episode.id}
+      UNION ALL SELECT e.ended_at FROM effective_shift_ends e JOIN nursing_shifts s ON s.id=e.shift_id WHERE s.admission_id=${episode.id}
     ) history WHERE at > ${T} LIMIT 1`);
-    const uses = await tx.execute(sql`SELECT 1 FROM hims.nursing_consumables WHERE stay_id=${stay.id} AND used_at >= ${T} LIMIT 1`);
-    if (history.rows.length || uses.rows.length) throw new DomainError("CONFLICT", "Transfer cannot precede recorded clinical or source-unit care; use the attributable correction workflow");
+    const uses = await tx.execute(sql`SELECT 1 FROM nursing_consumables WHERE stay_id=${stay.id} AND used_at >= ${T} LIMIT 1`);
+    if (rowsOf(history).length || rowsOf(uses).length) throw new DomainError("CONFLICT", "Transfer cannot precede recorded clinical or source-unit care; use the attributable correction workflow");
     if (episode.bedId === value.targetBedId) throw new DomainError("VALIDATION", "Choose a different target bed");
     const lockedBeds = await tx.select().from(beds).where(inArray(beds.id, [episode.bedId, value.targetBedId].sort())).orderBy(asc(beds.id)).for("update");
     const target = lockedBeds.find(b => b.id === value.targetBedId);
@@ -659,10 +648,10 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
       throw new DomainError("CONFLICT", "Source occupancy or target availability changed. Choose an available bed");
     // A free bed now may still have been occupied at the supplied factual boundary.
     // The new stay is open-ended; any persisted target interval ending after T overlaps it.
-    const targetHistory = await tx.execute(sql`SELECT 1 FROM hims.effective_room_stays WHERE bed_id=${target.id} AND (ended_at IS NULL OR ended_at > ${T}) LIMIT 1`);
-    if (targetHistory.rows.length) throw new DomainError("CONFLICT", "Target bed was occupied at this actual transfer time. Preserve the factual time and use the correction workflow");
-    const cleaning=await tx.execute(sql`select 1 from hims.effective_bed_turnovers t left join hims.bed_turnover_completions c on c.turnover_id=t.id where t.bed_id=${target.id} and (c.id is null or c.completed_at>${T}) limit 1`);
-    if(cleaning.rows.length)throw new DomainError("CONFLICT","Target bed housekeeping was not complete at the actual transfer time");
+    const targetHistory = await tx.execute(sql`SELECT 1 FROM effective_room_stays WHERE bed_id=${target.id} AND (ended_at IS NULL OR ended_at > ${T}) LIMIT 1`);
+    if (rowsOf(targetHistory).length) throw new DomainError("CONFLICT", "Target bed was occupied at this actual transfer time. Preserve the factual time and use the correction workflow");
+    const cleaning=await tx.execute(sql`select 1 from effective_bed_turnovers t left join bed_turnover_completions c on c.turnover_id=t.id where t.bed_id=${target.id} and (c.id is null or c.completed_at>${T}) limit 1`);
+    if(rowsOf(cleaning).length)throw new DomainError("CONFLICT","Target bed housekeeping was not complete at the actual transfer time");
     if (target.category !== order.destinationCategory) throw new DomainError("VALIDATION", "Target bed must match the clinician-selected destination category");
     const versions = await tx.select().from(settingVersions).where(eq(settingVersions.hospitalId, episode.hospitalId)).orderBy(desc(settingVersions.version));
     const category = versions.find(v => v.payload.type === "bed-category" && v.payload.code === target.category);
@@ -673,14 +662,15 @@ export async function transferAdmissionInTransaction(tx: Transaction, ctx: Comma
     if (policy.graceMinutes > 0 && !policy.graceMode) throw new DomainError("PRECONDITION", "Configure explicit target room grace behavior");
     await reconcileRoomChargesInTransaction(tx, { admissionId: episode.id, cutoff: T, actorContext: ctx });
     await tx.update(originalRoomStays).set({ endedAt: T }).where(eq(originalRoomStays.id, stay.id));
-    const [next] = await tx.insert(originalRoomStays).values({ admissionId: episode.id, bedId: target.id, tariffVersionId: tariff.id, startedAt: T, lastReconciledAt: T }).returning();
+    const [next] = await insertReturning(tx, originalRoomStays, { admissionId: episode.id, bedId: target.id, tariffVersionId: tariff.id, startedAt: T, lastReconciledAt: T });
     await tx.delete(bedHolds).where(eq(bedHolds.admissionId, episode.id));
     await tx.insert(bedHolds).values({ admissionId: episode.id, bedId: target.id, heldAt: T });
     await tx.update(admissions).set({ bedId: target.id, version: sql`${admissions.version}+1`, billRevision: sql`${admissions.billRevision}+1` }).where(eq(admissions.id, episode.id));
-    const [transfer] = await tx.insert(admissionTransfers).values({ admissionId: episode.id, transferOrderId: "transferOrderId" in value ? order.id : null, mvpAuthorityId: "mvpAuthorityId" in value ? order.id : null, oldStayId: stay.id, newStayId: next.id, oldBedId: stay.bedId, targetBedId: target.id, shiftId: value.handover.shiftId, handover: value.handover.notes, transferredAt: T, signedBy: staff.id, signedAt: new Date() }).returning();
+    const [transfer] = await insertReturning(tx, admissionTransfers, { admissionId: episode.id, transferOrderId: "transferOrderId" in value ? order.id : null, mvpAuthorityId: "mvpAuthorityId" in value ? order.id : null, oldStayId: stay.id, newStayId: next.id, oldBedId: stay.bedId, targetBedId: target.id, shiftId: value.handover.shiftId, handover: value.handover.notes, transferredAt: T, signedBy: staff.id, signedAt: new Date() });
     const {bedTurnovers}=await import("../discharge/schema");
     await tx.insert(bedTurnovers).values({bedId:stay.bedId,stayId:stay.id,admissionId:episode.id,vacatedAt:T,reason:"Actual transfer vacated the previous physical bed",signedBy:staff.id,signedAt:new Date()});
     if (episode.paymentRoute === "INSURED") await tx.insert(transferInsuranceTasks).values({ admissionId: episode.id, transferId: transfer.id, reason: "Insurance staff must review the transfer's externally verified insurance implications using existing payer channels" });
+    await assertTransferEffects(tx, [transfer.id]); // commit-time rule: turnover and insurance follow-up exist with the transfer
     await appendAudit(tx, ctx, { event: "admission.transferred", entityType: "transfer", entityId: transfer.id, reason: value.handover.notes, beforeVersion: episode.version, afterVersion: episode.version + 1 });
     return { id: transfer.id };
   });
@@ -701,11 +691,18 @@ export async function admissionWorkspace(ctx: CommandContext) {
       category: beds.category,
       active: beds.active,
       admissionId: bedHolds.admissionId,
-      cleaning: sql<boolean>`exists(select 1 from hims.effective_bed_turnovers t where t.bed_id=${beds.id} and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id))`,
+      cleaning: sql<boolean>`exists(select 1 from effective_bed_turnovers t where t.bed_id=${beds.id} and not exists(select 1 from bed_turnover_completions c where c.turnover_id=t.id))`.mapWith(Boolean),
     })
     .from(beds)
     .leftJoin(bedHolds, eq(bedHolds.bedId, beds.id))
     .orderBy(asc(beds.label));
+  const recentClosed = db
+    .select({ id: admissions.id })
+    .from(admissions)
+    .where(and(doctorScope, inArray(admissions.status, ["CANCELLED", "DISCHARGED"])))
+    .orderBy(desc(admissions.registeredAt), desc(admissions.id))
+    .limit(50)
+    .as("recent_closed");
   const worklist = await db
     .select({
       id: admissions.id,
@@ -723,19 +720,10 @@ export async function admissionWorkspace(ctx: CommandContext) {
         doctorScope,
         or(
           inArray(admissions.status, ["PENDING", "ADMITTED"]),
+          // MariaDB rejects LIMIT directly inside an IN subquery: select from a derived table instead.
           inArray(
             admissions.id,
-            db
-              .select({ id: admissions.id })
-              .from(admissions)
-              .where(
-                and(
-                  doctorScope,
-                  inArray(admissions.status, ["CANCELLED", "DISCHARGED"]),
-                ),
-              )
-              .orderBy(desc(admissions.registeredAt), desc(admissions.id))
-              .limit(50),
+            db.select({ id: recentClosed.id }).from(recentClosed),
           ),
         ),
       ),

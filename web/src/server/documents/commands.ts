@@ -1,11 +1,10 @@
 import "server-only";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { z } from "zod";
 import { DomainError, type CommandContext } from "../contracts";
-import { withTransaction, type Transaction } from "../db";
+import { db, withTransaction, type Transaction } from "../db";
 import { admissionOperator } from "../admissions/commands";
 import { admissions } from "../admissions/schema";
 import { lockBillingAdmission } from "../billing/commands";
@@ -13,8 +12,9 @@ import { appendAudit } from "../audit";
 import { dischargeDocuments } from "./schema";
 import { renderDischargePDF } from "./pdf";
 import { canonicalJSON, documentSourceInTransaction, snapshotHash, type DischargeSnapshot, type DocumentSource } from "./snapshot";
-import { protectedStorageDirectory } from "../protected-storage";
+import { getFile, putFile } from "../file-store";
 
+import { rowsOf } from "../sql";
 const hashes = z.string().regex(/^[0-9a-f]{64}$/);
 const input = z.strictObject({ admissionId: z.uuid(), billVersion: z.number().int().positive(), clearanceVersions: z.strictObject({ DOCTOR: z.uuid().nullable(), PHARMACY: z.uuid().nullable(), NURSING: z.uuid().nullable(), BILLING: z.uuid().nullable() }), exceptionId: z.uuid().optional(), expectedSourceHash: hashes });
 const byteHash = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
@@ -23,20 +23,16 @@ async function documentOperator(tx: Transaction, ctx: CommandContext, allowNurse
 function binding(source: DocumentSource) {
   return { admissionId: source.admission.id, billVersion: source.money.bill.revision, clearanceVersions: Object.fromEntries(source.seals.map(s => [s.gate, s.seal?.id ?? null])) as z.infer<typeof input>["clearanceVersions"], ...(source.departure.exception ? { exceptionId: source.departure.exception.id } : {}), expectedSourceHash: snapshotHash(source) };
 }
-export function documentStorageDirectory() {
-  return protectedStorageDirectory("discharge");
-}
-function pathFor(key: string) { return resolve(documentStorageDirectory(), `${z.uuid().parse(key)}.pdf`); }
+const pdfName = (key: string) => `${z.uuid().parse(key)}.pdf`;
 type StoredDocument = Omit<typeof dischargeDocuments.$inferSelect, "snapshot"> & { snapshot: DischargeSnapshot };
 function assertSnapshot(row: StoredDocument) {
   if (row.hash !== snapshotHash(row.snapshot) || row.snapshot.documentId !== row.id || row.snapshot.version !== row.version || row.snapshot.sourceHash !== row.sourceHash || row.snapshot.admission.id !== row.admissionId) throw new DomainError("PRECONDITION", "Immutable document metadata is inconsistent; restore the original verified record");
 }
-async function readPDF(row: StoredDocument) {
+async function readPDF(row: StoredDocument, reader: Pick<Transaction, "select"> = db) {
   assertSnapshot(row);
   try {
-    const stat = await lstat(pathFor(row.storageKey));
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size !== row.sizeBytes || stat.size > 10_485_760) throw Error();
-    const bytes = await readFile(pathFor(row.storageKey));
+    const bytes = await getFile("discharge", pdfName(row.storageKey), reader);
+    if (!bytes || bytes.length !== row.sizeBytes || bytes.length > 10_485_760) throw Error();
     if (byteHash(bytes) !== row.pdfHash || !bytes.subarray(0,5).equals(Buffer.from("%PDF-")) || !bytes.subarray(-1024).includes(Buffer.from("%%EOF"))) throw Error();
     return bytes;
   } catch { throw new DomainError("PRECONDITION", "Protected final PDF is unavailable or changed; restore the verified original file"); }
@@ -64,10 +60,9 @@ export async function prepareDischargeDocumentInTransaction(tx: Transaction, ctx
   const v = input.parse(value); await documentOperator(tx, ctx); const e = await lockBillingAdmission(tx, v.admissionId);
   const source = await documentSourceInTransaction(tx, e), current = binding(source);
   if (canonicalJSON(v) !== canonicalJSON(current)) throw new DomainError("CONFLICT", "Reviewed document sources, bill or departure seals changed; refresh and review the current version");
-  documentStorageDirectory();
   const [previous] = await tx.select().from(dischargeDocuments).where(eq(dischargeDocuments.admissionId, e.id)).orderBy(desc(dischargeDocuments.version)).limit(1);
   const same = previous?.sourceHash === current.expectedSourceHash ? previous : undefined;
-  if (same) { await readPDF(same as StoredDocument); return { input: v, existing: { documentId: same.id, version: same.version, hash: same.hash } }; }
+  if (same) { await readPDF(same as StoredDocument, tx); return { input: v, existing: { documentId: same.id, version: same.version, hash: same.hash } }; }
   const documentId = randomUUID(), version = (previous?.version ?? 0) + 1, createdAt = new Date();
   const snapshot: DischargeSnapshot = { ...source, documentId, version, createdAt: createdAt.toISOString(), verificationUrl: verificationURL(documentId), sourceHash: current.expectedSourceHash };
   return { input: v, existing: null, snapshot, hash: snapshotHash(snapshot), replacesDocumentId: previous?.id ?? null };
@@ -79,21 +74,17 @@ export async function publishDischargeDocumentInTransaction(tx: Transaction, ctx
   if (canonicalJSON(v) !== canonicalJSON(current)) throw new DomainError("CONFLICT", "Sources changed during document preparation; review and generate the current copy");
   const [previous] = await tx.select().from(dischargeDocuments).where(eq(dischargeDocuments.admissionId, e.id)).orderBy(desc(dischargeDocuments.version)).limit(1);
   const same = previous?.sourceHash === current.expectedSourceHash ? previous : undefined;
-  if (same) { await readPDF(same as StoredDocument); return { documentId: same.id, version: same.version, hash: same.hash }; }
+  if (same) { await readPDF(same as StoredDocument, tx); return { documentId: same.id, version: same.version, hash: same.hash }; }
   if (prepared.existing || !bytes) throw new DomainError("CONFLICT", "Prepared document predecessor is no longer available");
   const { snapshot, hash } = prepared, { documentId, version, createdAt: captured, verificationUrl, sourceHash, ...source } = snapshot;
   if (prepared.replacesDocumentId !== (previous?.id ?? null) || version !== (previous?.version ?? 0) + 1) throw new DomainError("CONFLICT", "Document predecessor changed; review the current version");
   if (!z.uuid().safeParse(documentId).success || !z.iso.datetime().safeParse(captured).success || verificationUrl !== verificationURL(documentId) || sourceHash !== current.expectedSourceHash || snapshotHash(source) !== sourceHash || snapshotHash(snapshot) !== hash || bytes.length > 10_485_760 || !bytes.subarray(0,5).equals(Buffer.from("%PDF-")) || !bytes.subarray(-1024).includes(Buffer.from("%%EOF"))) throw new DomainError("PRECONDITION", "Prepared immutable document content or bytes are inconsistent");
-  const directory = documentStorageDirectory(), createdAt = new Date(captured), storageKey = randomUUID(), pdfHash = byteHash(bytes);
-  await mkdir(directory, { recursive: true });
-  const folder = await lstat(directory); if (!folder.isDirectory() || folder.isSymbolicLink()) throw new DomainError("PRECONDITION", "Protected storage must be a regular project directory");
-  // Minimal generated manifests retain identity even if file/metadata COMMIT is ambiguous.
-  // Never delete an orphan on COMMIT error: its matching document may actually have committed.
-  await writeFile(resolve(directory, `${storageKey}.manifest.json`), JSON.stringify({ storageKey, documentId, admissionId: e.id, version, sourceHash: snapshot.sourceHash, hash, pdfHash, sizeBytes: bytes.length, createdAt: snapshot.createdAt }), { flag: "wx", mode: 0o600 });
-  await writeFile(resolve(directory, `${storageKey}.staging`), bytes, { flag: "wx", mode: 0o600 });
-  await rename(resolve(directory, `${storageKey}.staging`), pathFor(storageKey));
+  const createdAt = new Date(captured), storageKey = randomUUID(), pdfHash = byteHash(bytes);
+  // Manifest and PDF commit or roll back together with the document record.
+  await putFile(tx, "discharge", `${storageKey}.manifest.json`, Buffer.from(JSON.stringify({ storageKey, documentId, admissionId: e.id, version, sourceHash: snapshot.sourceHash, hash, pdfHash, sizeBytes: bytes.length, createdAt: snapshot.createdAt })));
+  await putFile(tx, "discharge", pdfName(storageKey), bytes);
   const row: StoredDocument = { id: documentId, admissionId: e.id, version, schemaVersion:1,kind:"FINAL", replacesDocumentId: previous?.id ?? null, sourceHash: snapshot.sourceHash, hash, snapshot, storageKey, pdfHash, sizeBytes: bytes.length, createdBy: staff.id, createdAt };
-  await readPDF(row);
+  await readPDF(row, tx);
   await tx.insert(dischargeDocuments).values(row);
   await appendAudit(tx, ctx, { event: "document.created", entityType: "discharge-document", entityId: documentId, reason: "Immutable final-copy snapshot and protected PDF published from reviewed actual departure sources", beforeVersion: previous?.version, afterVersion: version });
   return { documentId, version, hash };
@@ -106,7 +97,7 @@ async function ownedDocument(tx: Transaction, ctx: CommandContext, documentId: s
   const e = await lockBillingAdmission(tx, located.admissionId);
   const [row] = await tx.select().from(dischargeDocuments).where(and(eq(dischargeDocuments.id, documentId), eq(dischargeDocuments.admissionId, e.id)));
   if (!row) throw new DomainError("FORBIDDEN", "Final document access denied");
-  if(staff.role==="NURSE"&&(row.schemaVersion!==2||!(await tx.execute(sql`select 1 from hims.nurse_assignments a where a.admission_id=${e.id} and a.nurse_id=${staff.id} and not exists(select 1 from hims.nurse_assignment_revocations r where r.assignment_id=a.id)`)).rows.length))throw new DomainError("FORBIDDEN","Current assigned Nurse may access MVP delivery papers only");
+  if(staff.role==="NURSE"&&(row.schemaVersion!==2||!rowsOf(await tx.execute(sql`select 1 from nurse_assignments a where a.admission_id=${e.id} and a.nurse_id=${staff.id} and not exists(select 1 from nurse_assignment_revocations r where r.assignment_id=a.id)`)).length))throw new DomainError("FORBIDDEN","Current assigned Nurse may access MVP delivery papers only");
   return { e, row: row as StoredDocument };
 }
 async function status(tx: Transaction, e: typeof admissions.$inferSelect, row: StoredDocument) {
@@ -128,7 +119,7 @@ export async function verifyDocument(ctx: CommandContext, documentId: string) { 
   return { documentId: row.id, version: row.version, hash: row.hash, pdfHash: row.pdfHash, status: currentStatus };
 }); }
 export async function downloadDischargeDocument(ctx: CommandContext, documentId: string) { return withTransaction(async tx => {
-  const { row } = await ownedDocument(tx, ctx, documentId), bytes = await readPDF(row);
+  const { row } = await ownedDocument(tx, ctx, documentId), bytes = await readPDF(row, tx);
   await appendAudit(tx, ctx, { event: "document.downloaded", entityType: "discharge-document", entityId: row.id, reason: "Authorized protected final-copy PDF download" });
   return { bytes, name: `discharge-${row.id}-v${row.version}.pdf`, pdfHash: row.pdfHash };
 }); }

@@ -17,7 +17,7 @@ process.env.BETTER_AUTH_SECRET = "SyntheticAdminBoundsOnlySecretAtLeast32Charact
 it("authenticates Admin before consuming JSON and bounds declared and streamed bodies without effects", async () => withTestDatabase(async ({ runtime }) => {
   process.env.DATABASE_URL = getTestDatabaseConfig().runtimeUrl;
   const f = await billingFixture();
-  const state = async () => (await runtime.query("select (select count(*) from hims.staff_user) staff,(select count(*) from hims.setting_versions) versions,(select count(*) from hims.audit_events) audit")).rows;
+  const state = async () => (await runtime.query("select (select count(*) from staff_user) staff,(select count(*) from setting_versions) versions,(select count(*) from audit_events) audit")).rows;
   for (const [method, handler] of [["POST", staffPost], ["PATCH", staffPatch], ["POST", settingPost]] as const) {
     let read = 0;
     const body = new ReadableStream<Uint8Array>({ pull(controller) { read++; controller.enqueue(new TextEncoder().encode("{}")); controller.close(); } }, { highWaterMark: 0 });

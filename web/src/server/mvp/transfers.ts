@@ -13,6 +13,8 @@ import { settingVersions } from "../schema/core";
 import { user } from "../schema/auth";
 import { doctorDirectoryVersions } from "./staff-schema";
 
+import { acquireTxLock } from "../locks";
+import { insertReturning, rowsOf } from "../sql";
 const note = z.string().trim().min(3).max(500);
 const externalSource = { externalDoctorId: z.uuid(), authorizerName: z.string().trim().min(2).max(150), sourceTime: z.iso.datetime(), evidence: note, reason: note };
 export const mvpTransferAuthorityInput = z.strictObject({ admissionId: z.uuid(), ...externalSource, destinationCategory: z.string().trim().regex(/^[A-Z0-9_-]{2,32}$/), expectedVersion: z.number().int().positive(), requestId: z.uuid() });
@@ -26,7 +28,7 @@ function requestKey(ctx: CommandContext, requestId: string) {
   if (ctx.requestId !== requestId) throw new DomainError("VALIDATION", "Request keys disagree");
 }
 async function externalDoctor(tx: Transaction, id: string, name: string) {
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`doctor-directory:${id}`},0))`);
+  await acquireTxLock(tx, `doctor-directory:${id}`);
   const [doctor] = await tx.select().from(doctorDirectoryVersions).where(eq(doctorDirectoryVersions.doctorId, id)).orderBy(desc(doctorDirectoryVersions.version)).limit(1);
   if (!doctor?.active || doctor.name !== name) throw new DomainError("VALIDATION", "Select the named active external Doctor from the directory");
 }
@@ -64,7 +66,7 @@ export async function recordMvpTransferAuthority(ctx: CommandContext, input: unk
       const versions = await tx.select().from(settingVersions).where(eq(settingVersions.hospitalId, episode.hospitalId)).orderBy(desc(settingVersions.version));
       const category = versions.find(v => v.payload.type === "bed-category" && v.payload.code === value.destinationCategory);
       if (category?.payload.active !== true) throw new DomainError("PRECONDITION", "Select an active configured destination category");
-      const [record] = await tx.insert(mvpTransferAuthorities).values({ admissionId: episode.id, sourceStayId: stay.id, externalDoctorId: value.externalDoctorId, authorizerName: value.authorizerName, sourceTime: actual, destinationCategory: value.destinationCategory, evidence: value.evidence, reason: value.reason, version: (latest?.version ?? 0) + 1, admissionVersion: episode.version, recordedBy: staff.id }).returning();
+      const [record] = await insertReturning(tx, mvpTransferAuthorities, { admissionId: episode.id, sourceStayId: stay.id, externalDoctorId: value.externalDoctorId, authorizerName: value.authorizerName, sourceTime: actual, destinationCategory: value.destinationCategory, evidence: value.evidence, reason: value.reason, version: (latest?.version ?? 0) + 1, admissionVersion: episode.version, recordedBy: staff.id });
       // The native insert guard advances the admission version with the immutable instruction.
       await appendAudit(tx, ctx, { event: "mvp.transfer-authority-recorded", entityType: "mvp-transfer-authority", entityId: record.id, reason: value.reason, beforeVersion: episode.version, afterVersion: episode.version + 1 });
       return { id: record.id };
@@ -89,7 +91,7 @@ export async function cancelMvpTransferAuthority(ctx: CommandContext, input: unk
       const authority = await currentMvpTransferAuthority(tx, episode, stay, value.authorityId);
       await externalDoctor(tx, value.externalDoctorId, value.authorizerName);
       const actual = sourceTime(value.sourceTime, authority.sourceTime);
-      const [record] = await tx.insert(mvpTransferCancellations).values({ admissionId: episode.id, authorityId: authority.id, externalDoctorId: value.externalDoctorId, authorizerName: value.authorizerName, sourceTime: actual, evidence: value.evidence, reason: value.reason, recordedBy: staff.id }).returning();
+      const [record] = await insertReturning(tx, mvpTransferCancellations, { admissionId: episode.id, authorityId: authority.id, externalDoctorId: value.externalDoctorId, authorizerName: value.authorizerName, sourceTime: actual, evidence: value.evidence, reason: value.reason, recordedBy: staff.id });
       await appendAudit(tx, ctx, { event: "mvp.transfer-cancelled", entityType: "mvp-transfer-cancellation", entityId: record.id, reason: value.reason, beforeVersion: episode.version, afterVersion: episode.version + 1 });
       return { id: record.id };
     });
@@ -101,14 +103,14 @@ export async function getMvpTransferState(ctx: CommandContext, admissionId: stri
     const staff = await admissionOperator(ctx, ["ADMIN", "ADMISSION", "NURSE"], tx);
     const [episode] = await tx.select().from(admissions).where(eq(admissions.id, z.uuid().parse(admissionId)));
     if (!episode || episode.workflowVersion !== 2) throw new DomainError("FORBIDDEN", "MVP transfer access denied");
-    if (staff.role === "NURSE" && !(await tx.execute(sql`select hims.mvp_assigned(${episode.id}::uuid,${staff.id}) allowed`)).rows[0]?.allowed) throw new DomainError("FORBIDDEN", "Current episode Nurse assignment required");
+    if (staff.role === "NURSE" && !rowsOf(await tx.execute(sql`select mvp_assigned(${episode.id},${staff.id}) allowed`))[0]?.allowed) throw new DomainError("FORBIDDEN", "Current episode Nurse assignment required");
     const stays = await tx.select().from(effectiveRoomStays).where(eq(effectiveRoomStays.admissionId, episode.id));
     const currentStay = stays.find(stay => stay.endedAt === null);
     const sources = await tx.select().from(mvpTransferAuthorities).where(eq(mvpTransferAuthorities.admissionId, episode.id)).orderBy(desc(mvpTransferAuthorities.version));
     const cancellations = await tx.select().from(mvpTransferCancellations).where(eq(mvpTransferCancellations.admissionId, episode.id));
     const history = await tx.select({ ...getTableColumns(admissionTransfers), recorderName: user.name }).from(admissionTransfers).leftJoin(user, eq(user.id, admissionTransfers.signedBy)).where(eq(admissionTransfers.admissionId, episode.id)).orderBy(desc(admissionTransfers.transferredAt));
     const authorities = sources.map((source, i) => ({ ...source, status: history.some(h => h.mvpAuthorityId === source.id) ? "COMPLETED" as const : cancellations.some(c => c.authorityId === source.id) ? "CANCELLED" as const : i === 0 && episode.status === "ADMITTED" && currentStay?.id === source.sourceStayId ? "PENDING" as const : "SUPERSEDED" as const }));
-    const targets = await tx.select({ id: beds.id, label: beds.label, category: beds.category, available: sql<boolean>`${beds.active} and not exists(select 1 from hims.bed_holds h where h.bed_id=${beds.id}) and not exists(select 1 from hims.effective_bed_turnovers t where t.bed_id=${beds.id} and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id))` }).from(beds).orderBy(asc(beds.label));
+    const targets = await tx.select({ id: beds.id, label: beds.label, category: beds.category, available: sql<boolean>`${beds.active} and not exists(select 1 from bed_holds h where h.bed_id=${beds.id}) and not exists(select 1 from effective_bed_turnovers t where t.bed_id=${beds.id} and not exists(select 1 from bed_turnover_completions c where c.turnover_id=t.id))`.mapWith(Boolean) }).from(beds).orderBy(asc(beds.label));
     const versions = await tx.select().from(settingVersions).where(eq(settingVersions.hospitalId, episode.hospitalId)).orderBy(desc(settingVersions.version));
     const seen = new Set<string>();
     const categories = versions.filter(v => { if (v.payload.type !== "bed-category" || typeof v.payload.code !== "string" || seen.has(v.payload.code)) return false; seen.add(v.payload.code); return v.payload.active === true; }).map(v => ({ code: String(v.payload.code), name: String(v.payload.name) }));

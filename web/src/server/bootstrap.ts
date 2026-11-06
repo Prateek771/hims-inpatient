@@ -5,12 +5,13 @@ import { withTransaction } from "./db";
 import { user } from "./schema/auth";
 import { appendAudit } from "./audit";
 import { DomainError } from "./contracts";
+import { acquireTxLock } from "./locks";
 export async function bootstrapAdmin(input: unknown, demo = false) {
   const value = createStaffInput.parse(input);
   if (value.role !== "ADMIN")
     throw new DomainError("VALIDATION", "Bootstrap requires an administrator");
   return withTransaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(729104211)`);
+    await acquireTxLock(tx, "729104211");
     if ((await tx.select({ id: user.id }).from(user).limit(1)).length)
       throw new DomainError(
         "PRECONDITION",

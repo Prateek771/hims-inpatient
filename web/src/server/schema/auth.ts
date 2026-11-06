@@ -1,66 +1,65 @@
-import { boolean, index, text, timestamp } from "drizzle-orm/pg-core";
-import { hims } from "./core";
-const date = (name: string) => timestamp(name, { withTimezone: true });
-export const user = hims.table("staff_user", {
-  id: text("id").primaryKey(),
+import { boolean, index, mysqlTable, text } from "drizzle-orm/mysql-core";
+import { key, utc, utcNow } from "./columns";
+export const user = mysqlTable("staff_user", {
+  id: key("id").primaryKey(),
   name: text("name").notNull(),
-  email: text("email").notNull().unique(),
+  email: key("email").notNull().unique(),
   emailVerified: boolean("email_verified").notNull().default(false),
   image: text("image"),
-  createdAt: date("created_at").notNull().defaultNow(),
-  updatedAt: date("updated_at").notNull().defaultNow(),
-  role: text("role").notNull().default("ADMISSION"),
+  createdAt: utc("created_at").notNull().default(utcNow),
+  updatedAt: utc("updated_at").notNull().default(utcNow),
+  role: key("role", 32).notNull().default("ADMISSION"),
   banned: boolean("banned").notNull().default(false),
   banReason: text("ban_reason"),
-  banExpires: date("ban_expires"),
+  banExpires: utc("ban_expires"),
 });
-export const session = hims.table(
+export const session = mysqlTable(
   "staff_session",
   {
-    id: text("id").primaryKey(),
-    expiresAt: date("expires_at").notNull(),
-    token: text("token").notNull().unique(),
-    createdAt: date("created_at").notNull().defaultNow(),
-    updatedAt: date("updated_at").notNull().defaultNow(),
+    id: key("id").primaryKey(),
+    expiresAt: utc("expires_at").notNull(),
+    token: key("token").notNull().unique(),
+    createdAt: utc("created_at").notNull().default(utcNow),
+    updatedAt: utc("updated_at").notNull().default(utcNow),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
-    userId: text("user_id")
+    userId: key("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     impersonatedBy: text("impersonated_by"),
   },
   (t) => [index("staff_session_user_idx").on(t.userId)],
 );
-export const account = hims.table(
+export const account = mysqlTable(
   "staff_account",
   {
-    id: text("id").primaryKey(),
+    id: key("id").primaryKey(),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
-    userId: text("user_id")
+    userId: key("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     accessToken: text("access_token"),
     refreshToken: text("refresh_token"),
     idToken: text("id_token"),
-    accessTokenExpiresAt: date("access_token_expires_at"),
-    refreshTokenExpiresAt: date("refresh_token_expires_at"),
+    accessTokenExpiresAt: utc("access_token_expires_at"),
+    refreshTokenExpiresAt: utc("refresh_token_expires_at"),
     scope: text("scope"),
     password: text("password"),
-    createdAt: date("created_at").notNull().defaultNow(),
-    updatedAt: date("updated_at").notNull().defaultNow(),
+    createdAt: utc("created_at").notNull().default(utcNow),
+    updatedAt: utc("updated_at").notNull().default(utcNow),
   },
   (t) => [index("staff_account_user_idx").on(t.userId)],
 );
-export const verification = hims.table(
+export const verification = mysqlTable(
   "staff_verification",
   {
-    id: text("id").primaryKey(),
-    identifier: text("identifier").notNull(),
+    id: key("id").primaryKey(),
+    identifier: key("identifier").notNull(),
     value: text("value").notNull(),
-    expiresAt: date("expires_at").notNull(),
-    createdAt: date("created_at").notNull().defaultNow(),
-    updatedAt: date("updated_at").notNull().defaultNow(),
+    expiresAt: utc("expires_at").notNull(),
+    createdAt: utc("created_at").notNull().default(utcNow),
+    updatedAt: utc("updated_at").notNull().default(utcNow),
   },
   (t) => [index("staff_verification_identifier_idx").on(t.identifier)],
 );

@@ -1,12 +1,12 @@
 function target(value: string) {
   try {
     const url = new URL(value);
-    if (!["postgres:", "postgresql:"].includes(url.protocol) || url.search || url.hash) throw new Error();
+    if (!["mysql:", "mariadb:"].includes(url.protocol) || url.search || url.hash) throw new Error();
     const host = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname.toLowerCase()) ? "loopback" : url.hostname.toLowerCase();
-    return { host, port: url.port || "5432", name: decodeURIComponent(url.pathname.slice(1)), role: decodeURIComponent(url.username) };
+    return { host, port: url.port || "3306", name: decodeURIComponent(url.pathname.slice(1)), role: decodeURIComponent(url.username) };
   } catch {
     // URL errors carry their original credential-bearing input. Never retain it.
-    throw new Error("Invalid PostgreSQL test URL");
+    throw new Error("Invalid MariaDB test URL");
   }
 }
 

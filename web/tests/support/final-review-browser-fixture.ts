@@ -12,6 +12,7 @@ import { sql } from "drizzle-orm";
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { rowsOf } from "../../src/server/sql";
 export async function prepareFinalReviewBrowserFixture(adminHeaders: Headers) {
   const staff=await db.select({id:user.id,email:user.email}).from(user), id=(role:string)=>staff.find(s=>s.email===`${role.toLowerCase()}@e2e.fixture.invalid`)!.id;
   const ctx=(role:string)=>({actor:{type:"staff" as const,staffId:id(role)},source:"synthetic-final-review-browser",requestId:crypto.randomUUID()});
@@ -46,7 +47,7 @@ export async function prepareFinalReviewBrowserFixture(adminHeaders: Headers) {
   const a=await authorizeException(ctx("ADMIN"),{admissionId:closedId,type:"EARLY_EXIT",disposition:"EXCEPTIONAL_EXIT",authority:"Synthetic actual Admin routing",reason:"Record actual exit and retain liabilities",evidence:"Actual assigned Nurse witness",evidenceIds:[physical.id],followUpOwnerId:id("DOCTOR")});
   await recordExceptionalDeparture(ctx("ADMIN"),{admissionId:closedId,exceptionId:a.id,physicalEvidenceId:physical.id});
   await setting({type:"billable-item",code:missingCode,name:"Original missing-price consultation",category:"consultation",department:"DOCTOR",unit:"visit",quantityScale:0,amount:"100",active:true});
-  const charge=(await db.execute(sql`select id from hims.charges where admission_id=${closedId} and item_id='FINAL_BROWSER_PRICED'`)).rows[0];
+  const charge=rowsOf(await db.execute(sql`select id from charges where admission_id=${closedId} and item_id='FINAL_BROWSER_PRICED'`))[0];
   const cancelledId=await episode("Synthetic final cancelled deposit patient",false),cash=ctx("BILLING");
   await recordReceipt(cash,{admissionId:cancelledId,party:"PATIENT",kind:"DEPOSIT",amountPaise:"5000",mode:"CASH",channel:"Synthetic final cashbook",sourceReference:crypto.randomUUID(),reference:"Actual initial synthetic deposit",requestId:cash.requestId});
   await cancelAdmission(ctx("ADMISSION"),{admissionId:cancelledId,reason:"Patient did not arrive"});

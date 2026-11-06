@@ -33,6 +33,7 @@ import {
   nursingShifts,
 } from "./schema";
 
+import { insertReturning } from "../sql";
 export async function assignmentWorkspace(ctx: CommandContext) {
   await admissionOperator(ctx, ["ADMIN"]);
   const episodes = await db
@@ -111,10 +112,7 @@ export async function assignNurse(ctx: CommandContext, input: unknown) {
           ),
         );
       if (old) return { id: old.id };
-      const [assignment] = await tx
-        .insert(nurseAssignments)
-        .values({ ...value, signedBy: staff.id, signedAt: new Date() })
-        .returning();
+      const [assignment] = await insertReturning(tx, nurseAssignments, { ...value, signedBy: staff.id, signedAt: new Date() });
       await appendAudit(tx, ctx, {
         event: "care.nurse-assigned",
         entityType: "nurse-assignment",
@@ -191,10 +189,7 @@ export async function revokeNurseAssignmentInTransaction(
           "PRECONDITION",
           "The assigned nurse must sign the open shift handover before ordinary revocation. Unavailable-nurse exceptions require the later exception workflow.",
         );
-      const [revocation] = await tx
-        .insert(nurseAssignmentRevocations)
-        .values({ ...value, signedBy: staff.id, signedAt: new Date() })
-        .returning();
+      const [revocation] = await insertReturning(tx, nurseAssignmentRevocations, { ...value, signedBy: staff.id, signedAt: new Date() });
       await appendAudit(tx, ctx, {
         event: "care.nurse-assignment-revoked",
         entityType: "nurse-assignment",
@@ -279,16 +274,13 @@ export async function recordShift(ctx: CommandContext, input: unknown) {
             "CONFLICT",
             "Close the prior shift; attendance boundaries cannot overlap",
           );
-        const [shift] = await tx
-          .insert(nursingShifts)
-          .values({
+        const [shift] = await insertReturning(tx, nursingShifts, {
             admissionId: value.admissionId,
             nurseId: staff.id,
             startedAt: start,
             handover: value.handover,
             signedBy: staff.id, signedAt: new Date(),
-          })
-          .returning();
+          });
         if (end)
           await tx.insert(originalShiftEnds).values({
             shiftId: shift.id,
@@ -356,10 +348,7 @@ export async function endShiftInTransaction(tx: Transaction, ctx: CommandContext
           );
         const { validateAttendanceEnd } = await import("../discharge/exceptions");
         await validateAttendanceEnd(tx, shift.id, endedAt);
-        const [end] = await tx
-          .insert(originalShiftEnds)
-          .values({ ...value, endedAt, signedBy: staff.id, signedAt: new Date() })
-          .returning();
+        const [end] = await insertReturning(tx, originalShiftEnds, { ...value, endedAt, signedBy: staff.id, signedAt: new Date() });
         await audit(tx, ctx, "shift-ended", end.id, value.handover);
         return { id: end.id };
       },
@@ -487,17 +476,14 @@ export async function recordObservation(ctx: CommandContext, input: unknown) {
             "CONFLICT",
             "This occurrence already has a signed reading",
           );
-        const [observation] = await tx
-          .insert(nursingObservations)
-          .values({
+        const [observation] = await insertReturning(tx, nursingObservations, {
             admissionId: value.admissionId,
             shiftId: value.shiftId,
             occurrenceId: occurrence.id,
             observedAt: actual,
             values: value.values as Record<string, number>,
             signedBy: staff.id, signedAt: new Date(),
-          })
-          .returning();
+          });
         await audit(
           tx,
           ctx,
@@ -593,9 +579,7 @@ export async function recordAdministrationInTransaction(
         "CONFLICT",
         "This occurrence already has a signed administration outcome",
       );
-    const [mar] = await tx
-      .insert(medicationAdministrations)
-      .values({
+    const [mar] = await insertReturning(tx, medicationAdministrations, {
         admissionId: order.admissionId,
         shiftId: value.shiftId,
         occurrenceId: occurrence.id,
@@ -605,8 +589,7 @@ export async function recordAdministrationInTransaction(
         outcome: value.outcome,
         reason: value.reason,
         signedBy: staff.id, signedAt: new Date(),
-      })
-      .returning();
+      });
     await audit(
       tx,
       ctx,
@@ -657,16 +640,13 @@ export async function recordConsumable(ctx: CommandContext, input: unknown) {
             "VALIDATION",
             "Consumable use must belong to an actual room stay",
           );
-        const [use] = await tx
-          .insert(nursingConsumables)
-          .values({
+        const [use] = await insertReturning(tx, nursingConsumables, {
             ...value,
             usedAt: actual,
             bedId: stay.bedId,
             stayId: stay.id,
             signedBy: staff.id, signedAt: new Date(),
-          })
-          .returning();
+          });
         await createCareBillingEvent(
           tx,
           ctx,
@@ -724,10 +704,7 @@ export async function addNursingAddendumInTransaction(
         "FORBIDDEN",
         "Nursing record must belong to this admission",
       );
-    const [addendum] = await tx
-      .insert(nursingAddenda)
-      .values({ ...value, signedBy: staff.id, signedAt: new Date() })
-      .returning();
+    const [addendum] = await insertReturning(tx, nursingAddenda, { ...value, signedBy: staff.id, signedAt: new Date() });
     await audit(tx, ctx, "addendum-signed", addendum.id, value.reason);
     return { id: addendum.id };
   });

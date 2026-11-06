@@ -27,7 +27,7 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     for (const status of ["NONE", "PARTIAL", "REJECTED"] as const) {
       const a = await f.episode("INSURED"), create = context(f.admin);
       const c = await insurance.createInsuranceCase(create, { admissionId: a.admissionId, assignedStaffId: clerk.id, reason: "Current retained case", requestId: create.requestId });
-      await runtime.query("insert into hims.charges(admission_id,source_event_id,source_payload,category,item_id,description,quantity,unit,tariff_version_id,rate_paise,amount_paise,initial_status,actor_type,actor_id) values($1,$2,'synthetic','room','GENERAL','Synthetic conversion bill','1','hour',$3,100000,100000,'FINAL','staff',$4)", [a.admissionId, `conversion-${a.admissionId}`, f.room.id, f.cashier.id]);
+      await runtime.query("insert into charges(admission_id,source_event_id,source_payload,category,item_id,description,quantity,unit,tariff_version_id,rate_paise,amount_paise,initial_status,actor_type,actor_id) values($1,$2,'synthetic','room','GENERAL','Synthetic conversion bill','1','hour',$3,100000,100000,'FINAL','staff',$4)", [a.admissionId, `conversion-${a.admissionId}`, f.room.id, f.cashier.id]);
       const cash = context(f.cashier);
       await billing.recordReceipt(cash, { admissionId: a.admissionId, party: "INSURER", kind: "PAYMENT", amountPaise: "40000", mode: "BANK", channel: "Synthetic received money", sourceReference: `cash-${a.admissionId}`, reference: "Actual retained insurer cash", requestId: cash.requestId });
       if (status !== "NONE") {
@@ -38,7 +38,7 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
       }
       const workId = crypto.randomUUID(), beforeWork = await insurance.getInsuranceCase(context(clerk), c.id), open = context(clerk);
       await insurance.recordInsuranceFollowup(open, { caseId: c.id, expectedCaseVersion: beforeWork.case.version, requestId: open.requestId, workId, kind: "APPEAL", status: "OPEN", reference: "FIX1-INDEPENDENT", reason: "Human explicitly retained follow-up" });
-      const prior = await insurance.getInsuranceCase(context(clerk), c.id), priorCash = (await runtime.query("select * from hims.receipts where admission_id=$1 order by id", [a.admissionId])).rows, convert = context(f.admin);
+      const prior = await insurance.getInsuranceCase(context(clerk), c.id), priorCash = (await runtime.query("select * from receipts where admission_id=$1 order by id", [a.admissionId])).rows, convert = context(f.admin);
       await insurance.convertToSelfPay(convert, { caseId: c.id, expectedCaseVersion: prior.case.version, requestId: convert.requestId, reason: "Verified self-pay conversion after external response", decisionReference: "FIX1-CONVERSION", verifiedBy: "External human", verifiedAt: new Date().toISOString(), allocation: { billRevision: prior.money.revision, netBillPaise: "100000", retainedInsurerLiabilityPaise: "40000", verifiedPatientLiabilityPaise: "60000", sourceReference: "Every paise explicitly resolved" } });
       const own = await getStaffWorklist(context(clerk)), obsolete = new Set(["MISSING_PAPERWORK", "PAYER_DECISION", "PAPERWORK_REVIEW", "INSURER_LIMIT", "INSURANCE_TRANSFER"]);
       expect(own.alerts.filter(a => a.caseId === c.id && obsolete.has(a.kind))).toHaveLength(0);
@@ -52,7 +52,7 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
       expect(retained.episode.paymentRoute).toBe("SELF_PAY");
       expect(retained.decisions).toEqual(prior.decisions);
       expect(retained.events).toEqual(prior.events);
-      expect((await runtime.query("select * from hims.receipts where admission_id=$1 order by id", [a.admissionId])).rows).toEqual(priorCash);
+      expect((await runtime.query("select * from receipts where admission_id=$1 order by id", [a.admissionId])).rows).toEqual(priorCash);
       const complete = context(clerk);
       await insurance.recordInsuranceFollowup(complete, { caseId: c.id, expectedCaseVersion: retained.case.version, requestId: complete.requestId, workId, kind: "APPEAL", status: "COMPLETED", reference: "FIX1-OUTCOME", reason: "Human completed retained follow-up" });
       expect((await getStaffWorklist(context(clerk))).alerts.some(a => a.id === `INSURANCE_FOLLOWUP:${c.id}:${workId}`)).toBe(false);
@@ -78,7 +78,7 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     }
     const review = await insurance.getInsuranceCase(context(clerk), c.id), assign = context(f.admin);
     await insurance.assignInsuranceCase(assign, { caseId: c.id, expectedCaseVersion: review.case.version, requestId: assign.requestId, assignedStaffId: clerk.id, reason: "Unrelated current assignment reaffirmed" });
-    const effects = async () => (await runtime.query("select (select count(*) from hims.insurance_events) events,(select count(*) from hims.insurance_cases) cases,(select count(*) from hims.paperwork_runs) runs,(select count(*) from hims.audit_events) audit,(select count(*) from hims.care_tasks) tasks,(select count(*) from hims.charges) charges,(select count(*) from hims.receipts) receipts,(select count(*) from hims.clearance_invalidations) invalidations")).rows;
+    const effects = async () => (await runtime.query("select (select count(*) from insurance_events) events,(select count(*) from insurance_cases) cases,(select count(*) from paperwork_runs) runs,(select count(*) from audit_events) audit,(select count(*) from care_tasks) tasks,(select count(*) from charges) charges,(select count(*) from receipts) receipts,(select count(*) from clearance_invalidations) invalidations")).rows;
     const before = await effects(), ids = items.map(item => `INSURANCE_FOLLOWUP:${c.id}:${item.workId}`).sort();
     for (let i = 0; i < 2; i++) {
       const work = await getStaffWorklist(context(clerk));
@@ -128,12 +128,12 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     expect(overview.metrics).toMatchObject({ activeAdmissions: 1, pendingAdmissions: 0, occupiedBeds: 1, reservedBeds: 0 });
     expect(overview.bedOccupancy).toEqual([{ code: "GENERAL", name: "Synthetic General", total: 1, occupied: 1, reserved: 0, cleaning: 0, ready: 0, disabled: 0 }]);
     expect(overview.physicalBeds).toEqual([{ id: expect.any(String), category: "GENERAL", occupied: true, reserved: false, cleaning: false, ready: false, disabled: false }]);
-    const before = (await runtime.query("select (select count(*) from hims.audit_events) audit,(select count(*) from hims.clearance_invalidations) invalidations,(select count(*) from hims.care_tasks) tasks,(select count(*) from hims.charges) charges")).rows;
+    const before = (await runtime.query("select (select count(*) from audit_events) audit,(select count(*) from clearance_invalidations) invalidations,(select count(*) from care_tasks) tasks,(select count(*) from charges) charges")).rows;
     const first = await getStaffWorklist(context(f.admin));
     const second = await getStaffWorklist(context(f.admin));
     expect(first.alerts.map(a => a.id)).toEqual(second.alerts.map(a => a.id));
     expect(new Set(first.alerts.map(a => a.id)).size).toBe(first.alerts.length);
-    expect((await runtime.query("select (select count(*) from hims.audit_events) audit,(select count(*) from hims.clearance_invalidations) invalidations,(select count(*) from hims.care_tasks) tasks,(select count(*) from hims.charges) charges")).rows).toEqual(before);
+    expect((await runtime.query("select (select count(*) from audit_events) audit,(select count(*) from clearance_invalidations) invalidations,(select count(*) from care_tasks) tasks,(select count(*) from charges) charges")).rows).toEqual(before);
     expect(JSON.stringify(first)).not.toContain("Synthetic complaint");
     expect((await getStaffWorklist(context(f.nurse))).episodes).toHaveLength(0);
     const n = await import("../../src/server/nursing/commands");
@@ -141,7 +141,7 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     expect((await getStaffWorklist(context(f.nurse))).episodes).toHaveLength(1);
     await n.revokeNurseAssignment(context(f.admin), { assignmentId: assignment.id, authority: "Synthetic owner", reason: "Synthetic handoff complete" });
     expect((await getStaffWorklist(context(f.nurse))).episodes).toHaveLength(0);
-    await owner.query("update hims.staff_user set banned=true where id=$1", [f.doctor.id]);
+    await owner.query("update staff_user set banned=true where id=$1", [f.doctor.id]);
     await expect(getStaffWorklist(context(f.doctor))).rejects.toMatchObject({ code: "FORBIDDEN" });
   }));
 
@@ -165,7 +165,7 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     expect(work.alerts.filter(a => a.kind === "OVERDUE_MAR")).toHaveLength(2);
     expect(work.alerts.every(a => a.ownerRole === "NURSE")).toBe(true);
     const sc = context(f.nurse), shift = await n.recordShift(sc, { admissionId: a.admissionId, startedAt: start.toISOString(), handover: "Synthetic incoming handover", requestId: sc.requestId });
-    const occurrence = (await runtime.query("select c.order_id,c.scheduled_at from hims.care_occurrences c join hims.clinical_orders o on o.id=c.order_id where o.kind='VITALS' order by scheduled_at")).rows[0];
+    const occurrence = (await runtime.query("select c.order_id,c.scheduled_at from care_occurrences c join clinical_orders o on o.id=c.order_id where o.kind='VITALS' order by scheduled_at")).rows[0];
     const observation = context(f.nurse);
     await n.recordObservation(observation, { admissionId: a.admissionId, shiftId: shift.id, orderId: occurrence.order_id, scheduledFor: occurrence.scheduled_at.toISOString(), observedAt: new Date().toISOString(), values: { pulse: 78 }, requestId: observation.requestId });
     expect((await getStaffWorklist(context(f.nurse), { asOf })).alerts.filter(a => a.kind === "OVERDUE_OBSERVATION")).toHaveLength(1);
@@ -177,7 +177,7 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     const afterHandover = await getStaffWorklist(context(f.nurse), { asOf });
     expect(afterHandover.alerts.filter(a => a.kind === "HANDOVER")).toHaveLength(0);
     expect(afterHandover.alerts.filter(a => a.kind === "OVERDUE_OBSERVATION")).toHaveLength(1);
-    const order = (await runtime.query("select id from hims.clinical_orders where kind='MEDICINE'")).rows[0].id;
+    const order = (await runtime.query("select id from clinical_orders where kind='MEDICINE'")).rows[0].id;
     await care.stopClinicalOrder(context(f.doctor), { orderId: order, reason: "Synthetic Doctor stopped prescription" });
     expect((await getStaffWorklist(context(f.nurse), { asOf })).alerts.filter(a => a.kind === "OVERDUE_MAR")).toHaveLength(0);
     expect(JSON.stringify(await getStaffWorklist(context(f.admin)))).not.toContain("PRIVATE clinical content");
@@ -232,7 +232,7 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     expect(work.alerts.filter(a => a.kind === "INSURER_LIMIT")).toHaveLength(0);
     const p = context(clerk);
     await insurance.recordPolicyVerification(p, { caseId: c.id, expectedCaseVersion: 1, requestId: p.requestId, insurer: "Synthetic payer", tpa: "", policyNumber: "OV-POL", memberNumber: "OV-MEM", validFrom: "2026-01-01", validTo: "2027-01-01", verifiedBy: "External staff", verifiedAt: new Date().toISOString(), reference: "OV-VERIFY", documentIds: [] });
-    await runtime.query("insert into hims.charges(admission_id,source_event_id,source_payload,category,item_id,description,quantity,unit,tariff_version_id,rate_paise,amount_paise,initial_status,actor_type,actor_id) values($1,'overview-insured-bill','synthetic','room','GENERAL','Synthetic bill','1','hour',$2,100000,100000,'FINAL','staff',$3)", [a.admissionId, f.room.id, f.cashier.id]);
+    await runtime.query("insert into charges(admission_id,source_event_id,source_payload,category,item_id,description,quantity,unit,tariff_version_id,rate_paise,amount_paise,initial_status,actor_type,actor_id) values($1,'overview-insured-bill','synthetic','room','GENERAL','Synthetic bill','1','hour',$2,100000,100000,'FINAL','staff',$3)", [a.admissionId, f.room.id, f.cashier.id]);
     const d = context(clerk);
     await insurance.recordPayerDecision(d, { caseId: c.id, expectedCaseVersion: 2, requestId: d.requestId, status: "APPROVED", kind: "PREAUTH", verifiedBy: "External staff", verifiedAt: new Date().toISOString(), reference: "OV-AUTH", reason: "Staff recorded external decision", approvedPaise: "90000", coPayBps: 0, documentIds: [], allocation: { billRevision: 1, netBillPaise: "100000", eligibleBillPaise: "90000", nonPayablePaise: "10000", sourceReference: "Synthetic reviewed bill" } });
     const deposit = context(f.cashier);
@@ -250,7 +250,7 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     expect((await getStaffWorklist(context(f.cashier))).alerts.filter(a => a.kind === "INSURER_RECEIPT")).toHaveLength(0);
     await f.setting({ type: "alert", basis: "insurer-limit", percent: 100 });
     expect((await getStaffWorklist(context(clerk))).configuration.insurerThreshold).toMatchObject({ percent: 100, configured: true });
-    await owner.query("update hims.insurance_cases set assigned_staff_id=null,version=version+1 where id=$1", [c.id]);
+    await owner.query("update insurance_cases set assigned_staff_id=null,version=version+1 where id=$1", [c.id]);
     expect((await getStaffWorklist(context(clerk))).episodes).toHaveLength(0);
   }));
 
@@ -259,11 +259,11 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     const f = await billingFixture(), { hospitalFormInstant } = await import("../../src/server/hospital-time");
     expect(await hospitalFormInstant("2026-10-10T00:00:00.123", "Asia/Kolkata")).toBe("2026-10-09T18:30:00.123Z");
     await f.setting({ type: "hospital", name: "Synthetic clock hospital", address: "Synthetic address", timezone: "America/New_York" });
-    const before = (await runtime.query("select (select count(*) from hims.admissions) episodes,(select count(*) from hims.nursing_shifts) shifts,(select count(*) from hims.audit_events) audit")).rows;
+    const before = (await runtime.query("select (select count(*) from admissions) episodes,(select count(*) from nursing_shifts) shifts,(select count(*) from audit_events) audit")).rows;
     await expect(hospitalFormInstant("2026-10-10T00:00:00.123", "Asia/Kolkata")).rejects.toMatchObject({ code: "CONFLICT" });
     for (const local of ["2026-03-08T02:30", "2026-11-01T01:30", "2026-02-30T09:00"])
       await expect(hospitalFormInstant(local, "America/New_York")).rejects.toMatchObject({ code: "VALIDATION" });
-    expect((await runtime.query("select (select count(*) from hims.admissions) episodes,(select count(*) from hims.nursing_shifts) shifts,(select count(*) from hims.audit_events) audit")).rows).toEqual(before);
+    expect((await runtime.query("select (select count(*) from admissions) episodes,(select count(*) from nursing_shifts) shifts,(select count(*) from audit_events) audit")).rows).toEqual(before);
   }));
 
   it("classifies actual diagnostic collection, processing, stopped reports and dispositions", async () => withTestDatabase(async () => {
@@ -299,8 +299,8 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     await (await import("../../src/server/admissions/commands")).activateAdmission(arrival, { admissionId: a.admissionId, arrivedAt: new Date().toISOString(), expectedVersion: 1, requestId: arrival.requestId });
     await care.signClinicalSummary(context(f.doctor), { admissionId: a.admissionId, expectedVersion: 0, diagnosis: "Synthetic diagnosis", course: "Synthetic course", condition: "Stable", followUp: "Human review", advice: "Human advice", prescriptionOrderIds: [] });
     // Deliberately stale synthetic stored candidate exercises the source/hash check itself.
-    await runtime.query("insert into hims.clearance_seals(admission_id,gate,role,review_hash,inputs,reason,signed_by) values($1,'DOCTOR','DOCTOR','stale-synthetic-source','{}','Synthetic legacy stale candidate',$2)", [a.admissionId, f.doctor.id]);
-    const effects = async () => (await runtime.query("select (select count(*) from hims.clearance_seals) seals,(select count(*) from hims.clearance_invalidations) invalidations,(select count(*) from hims.charges) charges,(select count(*) from hims.audit_events) audit")).rows;
+    await runtime.query("insert into clearance_seals(admission_id,gate,role,review_hash,inputs,reason,signed_by) values($1,'DOCTOR','DOCTOR','stale-synthetic-source','{}','Synthetic legacy stale candidate',$2)", [a.admissionId, f.doctor.id]);
+    const effects = async () => (await runtime.query("select (select count(*) from clearance_seals) seals,(select count(*) from clearance_invalidations) invalidations,(select count(*) from charges) charges,(select count(*) from audit_events) audit")).rows;
     const before = await effects();
     for (let i = 0; i < 2; i++) {
       const work = await getOverview(context(f.admin), { asOf: new Date() });
@@ -309,6 +309,6 @@ describe("current authorized hospital work on actual PostgreSQL", () => {
     }
     expect(await effects()).toEqual(before);
     await discharge.getClearanceReview(context(f.doctor), a.admissionId, "DOCTOR");
-    expect((await runtime.query("select count(*)::int n from hims.clearance_invalidations")).rows[0].n).toBe(1);
+    expect((await runtime.query("select count(*) n from clearance_invalidations")).rows[0].n).toBe(1);
   }));
 });

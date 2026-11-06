@@ -13,6 +13,8 @@ import { paise } from "../billing/money";
 import { appendAudit } from "../audit";
 import { computeResponsibilities } from "./responsibility";
 import { insuranceCases, insuranceConversions, insuranceDecisions, insuranceDocuments, insuranceEvents, insuranceTransferResolutions } from "./schema";
+import { acquireTxLock } from "../locks";
+import { insertReturning, updateReturning } from "../sql";
 export { computeResponsibilities } from "./responsibility";
 const text=z.string().trim().min(1).max(250),reason=z.string().trim().min(3).max(1000);
 const money=z.string().regex(/^\d{1,19}$/).refine(v=>BigInt(v)<=9223372036854775807n,"Amount out of range");
@@ -21,11 +23,11 @@ export const caseInput={caseId:z.uuid(),expectedCaseVersion:z.number().int().pos
 const documents=z.array(z.uuid()).max(100).refine(v=>new Set(v).size===v.length,"Repeated document");
 const allocationInput=z.strictObject({billRevision:z.number().int().positive(),netBillPaise:money,eligibleBillPaise:money,nonPayablePaise:money,verifiedPatientLiabilityPaise:money.optional(),sourceReference:text});
 export async function insuranceOperator(tx:Transaction,ctx:CommandContext,roles:readonly StaffRole[]=["ADMIN","BILLING","INSURANCE"]){
-  await tx.execute(sql`select pg_advisory_xact_lock_shared(729104211)`);return admissionOperator(ctx,roles,tx);
+  await acquireTxLock(tx, "729104211", "shared");return admissionOperator(ctx,roles,tx);
 }
 export async function requestLock(tx:Transaction,ctx:CommandContext,requestId:string){
   if(ctx.actor.type!=="staff"||ctx.requestId!==requestId)throw new DomainError("VALIDATION","Request keys disagree");
-  await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing-request:${ctx.actor.staffId}:${requestId}`},0))`);
+  await acquireTxLock(tx, `billing-request:${ctx.actor.staffId}:${requestId}`);
 }
 /** Current staff and assignment are rechecked under the owning episode lock, including old retries. */
 export async function insuranceCaseSource(tx:Transaction,ctx:CommandContext,caseId:string){
@@ -50,7 +52,7 @@ export async function insuranceCommand(tx:Transaction,ctx:CommandContext,action:
   });
 }
 export async function bumpInsuranceCase(tx:Transaction,caseId:string,review=false,document=false){
-  return (await tx.update(insuranceCases).set({version:sql`${insuranceCases.version}+1`,...(review?{reviewRevision:sql`${insuranceCases.reviewRevision}+1`}:{}),...(document?{documentSetRevision:sql`${insuranceCases.documentSetRevision}+1`}:{})}).where(eq(insuranceCases.id,caseId)).returning())[0];
+  return (await updateReturning(tx, insuranceCases, {version:sql`${insuranceCases.version}+1`,...(review?{reviewRevision:sql`${insuranceCases.reviewRevision}+1`}:{}),...(document?{documentSetRevision:sql`${insuranceCases.documentSetRevision}+1`}:{})}, eq(insuranceCases.id,caseId)))[0];
 }
 export async function insuranceAudit(tx:Transaction,ctx:CommandContext,event:string,caseId:string,why:string,version?:number){await appendAudit(tx,ctx,{event:`insurance.${event}`,entityType:"insurance-case",entityId:caseId,reason:why,...(version?{afterVersion:version}:{})});}
 function verifiedAt(value:string){const at=new Date(value);if(at>new Date())throw new DomainError("VALIDATION","External verification cannot be in the future");return at;}
@@ -60,14 +62,14 @@ export async function createInsuranceCase(ctx:CommandContext,input:unknown){
   return withTransaction(async tx=>{const staff=await insuranceOperator(tx,ctx,["ADMIN","ADMISSION","BILLING"]);await requestLock(tx,ctx,v.requestId);
     return billingRequest(tx,ctx,"insurance.create",v,async()=>{const e=await lockBillingAdmission(tx,v.admissionId);if(e.paymentRoute!=="INSURED"||!["PENDING","ADMITTED"].includes(e.status))throw new DomainError("PRECONDITION","Create a case for an open insured admission");await assignee(tx,v.assignedStaffId);
       const [old]=await tx.select().from(insuranceCases).where(eq(insuranceCases.admissionId,e.id));if(old)throw new DomainError("CONFLICT","Admission already has an insurance case");
-      const [c]=await tx.insert(insuranceCases).values({admissionId:e.id,assignedStaffId:v.assignedStaffId,recordedBy:staff.id,recordedAt:new Date()}).returning();
+      const [c]=await insertReturning(tx, insuranceCases, {admissionId:e.id,assignedStaffId:v.assignedStaffId,recordedBy:staff.id,recordedAt:new Date()});
       await tx.insert(insuranceEvents).values({caseId:c.id,caseVersion:1,kind:"ASSIGNMENT",reason:v.reason,payload:{assignedStaffId:v.assignedStaffId},recordedBy:staff.id,recordedAt:new Date()});await insuranceAudit(tx,ctx,"case-created",c.id,v.reason,1);return {id:c.id};
     });
   });
 }
 export async function assignInsuranceCase(ctx:CommandContext,input:unknown){
   const v=z.strictObject({...caseInput,assignedStaffId:text.nullable(),reason}).parse(input);
-  return withTransaction(tx=>insuranceCommand(tx,ctx,"assignment",v,async s=>{await assignee(tx,v.assignedStaffId);await tx.update(insuranceCases).set({assignedStaffId:v.assignedStaffId}).where(eq(insuranceCases.id,s.record.id));const c=await bumpInsuranceCase(tx,s.record.id);const [event]=await tx.insert(insuranceEvents).values({caseId:c.id,caseVersion:c.version,kind:"ASSIGNMENT",reason:v.reason,payload:{assignedStaffId:v.assignedStaffId},recordedBy:s.staff.id,recordedAt:new Date()}).returning();await insuranceAudit(tx,ctx,"assignment-changed",c.id,v.reason,c.version);return {id:event.id};},["ADMIN","BILLING"]));
+  return withTransaction(tx=>insuranceCommand(tx,ctx,"assignment",v,async s=>{await assignee(tx,v.assignedStaffId);await tx.update(insuranceCases).set({assignedStaffId:v.assignedStaffId}).where(eq(insuranceCases.id,s.record.id));const c=await bumpInsuranceCase(tx,s.record.id);const [event]=await insertReturning(tx, insuranceEvents, {caseId:c.id,caseVersion:c.version,kind:"ASSIGNMENT",reason:v.reason,payload:{assignedStaffId:v.assignedStaffId},recordedBy:s.staff.id,recordedAt:new Date()});await insuranceAudit(tx,ctx,"assignment-changed",c.id,v.reason,c.version);return {id:event.id};},["ADMIN","BILLING"]));
 }
 export async function validateCaseDocuments(tx:Transaction,caseId:string,ids:string[]){
   if(!ids.length)return;
@@ -77,7 +79,7 @@ export async function validateCaseDocuments(tx:Transaction,caseId:string,ids:str
 }
 export async function recordPolicyVerification(ctx:CommandContext,input:unknown){
   const date=z.iso.date();const v=z.strictObject({...caseInput,insurer:text,tpa:z.string().trim().max(250),policyNumber:text,memberNumber:text,validFrom:date,validTo:date,...provenance,documentIds:documents}).parse(input);const at=verifiedAt(v.verifiedAt);if(v.validTo<v.validFrom)throw new DomainError("VALIDATION","Policy validity dates are reversed");
-  return withTransaction(tx=>insuranceCommand(tx,ctx,"policy",v,async s=>{if(s.episode.paymentRoute!=="INSURED")throw new DomainError("PRECONDITION","Case was converted to self-pay");await validateCaseDocuments(tx,v.caseId,v.documentIds);const c=await bumpInsuranceCase(tx,v.caseId,true);const [event]=await tx.insert(insuranceEvents).values({caseId:c.id,caseVersion:c.version,kind:"POLICY",reason:`External policy verification: ${v.reference}`,payload:{insurer:v.insurer,tpa:v.tpa,policyNumber:v.policyNumber,memberNumber:v.memberNumber,validFrom:v.validFrom,validTo:v.validTo,verifiedBy:v.verifiedBy,verifiedAt:at.toISOString(),reference:v.reference,documentIds:v.documentIds},recordedBy:s.staff.id,recordedAt:new Date()}).returning();await insuranceAudit(tx,ctx,"policy-recorded",c.id,event.reason,c.version);return {id:event.id};}));
+  return withTransaction(tx=>insuranceCommand(tx,ctx,"policy",v,async s=>{if(s.episode.paymentRoute!=="INSURED")throw new DomainError("PRECONDITION","Case was converted to self-pay");await validateCaseDocuments(tx,v.caseId,v.documentIds);const c=await bumpInsuranceCase(tx,v.caseId,true);const [event]=await insertReturning(tx, insuranceEvents, {caseId:c.id,caseVersion:c.version,kind:"POLICY",reason:`External policy verification: ${v.reference}`,payload:{insurer:v.insurer,tpa:v.tpa,policyNumber:v.policyNumber,memberNumber:v.memberNumber,validFrom:v.validFrom,validTo:v.validTo,verifiedBy:v.verifiedBy,verifiedAt:at.toISOString(),reference:v.reference,documentIds:v.documentIds},recordedBy:s.staff.id,recordedAt:new Date()});await insuranceAudit(tx,ctx,"policy-recorded",c.id,event.reason,c.version);return {id:event.id};}));
 }
 export async function recordPayerDecision(ctx:CommandContext,input:unknown){return withTransaction(tx=>recordPayerDecisionInTransaction(tx,ctx,input));}
 export async function recordPayerDecisionInTransaction(tx:Transaction,ctx:CommandContext,input:unknown,exceptionId?:string){
@@ -89,7 +91,7 @@ export async function recordPayerDecisionInTransaction(tx:Transaction,ctx:Comman
     const bill=await insuranceMoneyInTransaction(tx,s.episode);if(v.allocation.billRevision!==bill.revision||paise(v.allocation.netBillPaise)!==bill.netPaise)throw new DomainError("CONFLICT","Allocation must identify the current posted bill revision and amount");
     const r=computeResponsibilities({netBillPaise:bill.netPaise,eligibleBillPaise:paise(v.allocation.eligibleBillPaise),coPayBps:v.coPayBps,insurerAuthorizedPaise:paise(v.approvedPaise),...(v.allocation.verifiedPatientLiabilityPaise===undefined?{}:{verifiedPatientLiabilityPaise:paise(v.allocation.verifiedPatientLiabilityPaise)})});if(r.nonPayablePaise!==paise(v.allocation.nonPayablePaise))throw new DomainError("VALIDATION","Eligible plus non-payable amounts must match the bill");
     await validateCaseDocuments(tx,v.caseId,v.documentIds);const c=await bumpInsuranceCase(tx,v.caseId,true);
-    const [d]=await tx.insert(insuranceDecisions).values({caseId:c.id,caseVersion:c.version,policyEventId:policy.id,status:v.status,kind:v.kind,verifiedBy:v.verifiedBy,verifiedAt:at,reference:v.reference,reason:v.reason,approvedPaise:paise(v.approvedPaise),coPayBps:v.coPayBps,allocation:{...v.allocation,billBasis:bill.allocationBasis},documentIds:v.documentIds,recordedBy:s.staff.id,recordedAt:new Date()}).returning();await insuranceAudit(tx,ctx,"decision-recorded",c.id,v.reason,c.version);return {id:d.id};
+    const [d]=await insertReturning(tx, insuranceDecisions, {caseId:c.id,caseVersion:c.version,policyEventId:policy.id,status:v.status,kind:v.kind,verifiedBy:v.verifiedBy,verifiedAt:at,reference:v.reference,reason:v.reason,approvedPaise:paise(v.approvedPaise),coPayBps:v.coPayBps,allocation:{...v.allocation,billBasis:bill.allocationBasis},documentIds:v.documentIds,recordedBy:s.staff.id,recordedAt:new Date()});await insuranceAudit(tx,ctx,"decision-recorded",c.id,v.reason,c.version);return {id:d.id};
   },["ADMIN","BILLING","INSURANCE"],exceptionId);
 }
 export async function recordInsuranceFollowup(ctx:CommandContext,input:unknown){
@@ -99,7 +101,7 @@ export async function recordInsuranceFollowup(ctx:CommandContext,input:unknown){
     const old=prior.find(e=>e.payload.workId===v.workId);
     if((v.status==="COMPLETED"&&(!old||old.payload.status!=="OPEN"))||(old&&old.payload.kind!==v.kind))throw new DomainError("PRECONDITION","Complete only this case's current open follow-up with its original request type");
     if(v.status==="OPEN"&&old)throw new DomainError("CONFLICT","Use a new work item for a new staff follow-up; prior history remains");
-    const c=await bumpInsuranceCase(tx,v.caseId);const [e]=await tx.insert(insuranceEvents).values({caseId:c.id,caseVersion:c.version,kind:"FOLLOWUP",reason:v.reason,payload:{workId:v.workId,kind:v.kind,status:v.status,reference:v.reference},recordedBy:s.staff.id,recordedAt:new Date()}).returning();await insuranceAudit(tx,ctx,"followup-recorded",c.id,v.reason,c.version);return {id:e.id};}));
+    const c=await bumpInsuranceCase(tx,v.caseId);const [e]=await insertReturning(tx, insuranceEvents, {caseId:c.id,caseVersion:c.version,kind:"FOLLOWUP",reason:v.reason,payload:{workId:v.workId,kind:v.kind,status:v.status,reference:v.reference},recordedBy:s.staff.id,recordedAt:new Date()});await insuranceAudit(tx,ctx,"followup-recorded",c.id,v.reason,c.version);return {id:e.id};}));
 }
 export async function resolveTransferInsuranceTask(ctx:CommandContext,input:unknown){
   const v=z.strictObject({...caseInput,...provenance,taskId:z.uuid(),decisionId:z.uuid(),reason}).parse(input);const at=verifiedAt(v.verifiedAt);
@@ -109,7 +111,7 @@ export async function resolveTransferInsuranceTask(ctx:CommandContext,input:unkn
     if(!task||!d)throw new DomainError("FORBIDDEN","Resolution requires this case's transfer and decision");
     const [latest]=await tx.select().from(insuranceDecisions).where(eq(insuranceDecisions.caseId,v.caseId)).orderBy(desc(insuranceDecisions.caseVersion)).limit(1);
     if(d.id!==latest.id||d.status==="PENDING"||d.recordedAt<task.createdAt)throw new DomainError("PRECONDITION","Record a current external decision after the transfer");
-    const c=await bumpInsuranceCase(tx,v.caseId);const [r]=await tx.insert(insuranceTransferResolutions).values({caseId:c.id,taskId:task.id,decisionId:d.id,verifiedBy:v.verifiedBy,verifiedAt:at,reference:v.reference,reason:v.reason,recordedBy:s.staff.id,recordedAt:new Date()}).returning();await insuranceAudit(tx,ctx,"transfer-resolved",c.id,v.reason,c.version);return {id:r.id};
+    const c=await bumpInsuranceCase(tx,v.caseId);const [r]=await insertReturning(tx, insuranceTransferResolutions, {caseId:c.id,taskId:task.id,decisionId:d.id,verifiedBy:v.verifiedBy,verifiedAt:at,reference:v.reference,reason:v.reason,recordedBy:s.staff.id,recordedAt:new Date()});await insuranceAudit(tx,ctx,"transfer-resolved",c.id,v.reason,c.version);return {id:r.id};
   }));
 }
 export async function convertToSelfPay(ctx:CommandContext,input:unknown){return withTransaction(tx=>convertToSelfPayInTransaction(tx,ctx,input));}
@@ -120,7 +122,7 @@ export async function convertToSelfPayInTransaction(tx:Transaction,ctx:CommandCo
     const bill=await insuranceMoneyInTransaction(tx,s.episode),a=v.allocation;
     if(a.billRevision!==bill.revision||paise(a.netBillPaise)!==bill.netPaise)throw new DomainError("CONFLICT","Conversion must resolve the current posted bill");
     if(paise(a.retainedInsurerLiabilityPaise)!==bill.insurerCashPaise||paise(a.verifiedPatientLiabilityPaise)+paise(a.retainedInsurerLiabilityPaise)!==bill.netPaise)throw new DomainError("PRECONDITION","Explicit verified responsibility must resolve the whole bill and retain insurer cash; no insurer debt may disappear by changing route");
-    const c=await bumpInsuranceCase(tx,v.caseId,true);const [conversion]=await tx.insert(insuranceConversions).values({caseId:c.id,caseVersion:c.version,reason:v.reason,decisionReference:v.decisionReference,verifiedBy:v.verifiedBy,verifiedAt:at,allocation:{...a,billBasis:bill.allocationBasis},recordedBy:s.staff.id,recordedAt:new Date()}).returning();
+    const c=await bumpInsuranceCase(tx,v.caseId,true);const [conversion]=await insertReturning(tx, insuranceConversions, {caseId:c.id,caseVersion:c.version,reason:v.reason,decisionReference:v.decisionReference,verifiedBy:v.verifiedBy,verifiedAt:at,allocation:{...a,billBasis:bill.allocationBasis},recordedBy:s.staff.id,recordedAt:new Date()});
     await tx.update(admissions).set({paymentRoute:"SELF_PAY",version:sql`${admissions.version}+1`}).where(eq(admissions.id,s.episode.id));
     const pending=await pendingTransferTasks(tx,s.episode.id);for(const t of pending)await tx.insert(insuranceTransferResolutions).values({caseId:c.id,taskId:t.id,conversionId:conversion.id,verifiedBy:v.verifiedBy,verifiedAt:at,reference:v.decisionReference,reason:v.reason,recordedBy:s.staff.id,recordedAt:new Date()});
     await insuranceAudit(tx,ctx,"converted-to-self-pay",c.id,v.reason,c.version);return {id:conversion.id};

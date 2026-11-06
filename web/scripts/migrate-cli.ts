@@ -1,25 +1,17 @@
-import { Client } from "pg";
-import { loadLocalEnvironment, migrate } from "./migrate.ts";
+import { connectForMigration, loadLocalEnvironment, migrate } from "./migrate.ts";
 
 loadLocalEnvironment();
 const url = process.env.MIGRATION_DATABASE_URL;
-if (!url)
-  throw new Error(
-    "MIGRATION_DATABASE_URL is required; runtime credentials are never a fallback",
-  );
-const client = new Client({
-  connectionString: url,
-  connectionTimeoutMillis: 3000,
-});
+if (!url) throw new Error("MIGRATION_DATABASE_URL is required; set it to the same mysql:// URL as DATABASE_URL when one database user is used");
+let connection;
 try {
-  await client.connect();
-  await migrate(client);
-  console.log("HIMS migrations applied");
-} catch {
-  console.error(
-    "HIMS migration failed; inspect database access and migration state without exposing credentials",
-  );
+  connection = await connectForMigration(url);
+  const applied = await migrate(connection);
+  console.log(applied.length ? `HIMS migrations applied: ${applied.join(", ")}` : "HIMS migrations are up to date");
+} catch (error) {
+  console.error("HIMS migration failed; inspect database access and migration state without exposing credentials");
+  if (error instanceof Error && /checksum mismatch|Another migration/.test(error.message)) console.error(error.message);
   process.exitCode = 1;
 } finally {
-  await client.end();
+  await connection?.end();
 }

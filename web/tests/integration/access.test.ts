@@ -298,7 +298,7 @@ describe("staff access and settings on real PostgreSQL", () => {
       );
       expect(denied.ok).toBe(false);
       const audit = await runtime.query(
-        "SELECT actor_id,source FROM hims.audit_events WHERE event='staff.created'",
+        "SELECT actor_id,source FROM audit_events WHERE event='staff.created'",
       );
       expect(audit.rows).toEqual([
         { actor_id: admin, source: "staff-management" },
@@ -360,7 +360,7 @@ describe("staff access and settings on real PostgreSQL", () => {
       expect(
         (
           await runtime.query(
-            "SELECT count(*)::int AS count FROM hims.staff_user",
+            "SELECT count(*) AS count FROM staff_user",
           )
         ).rows[0].count,
       ).toBe(1);
@@ -373,14 +373,14 @@ describe("staff access and settings on real PostgreSQL", () => {
       expect(
         (
           await runtime.query(
-            "SELECT count(*)::int AS count FROM hims.staff_user",
+            "SELECT count(*) AS count FROM staff_user",
           )
         ).rows[0].count,
       ).toBe(1);
       expect(
         (
           await runtime.query(
-            "SELECT source FROM hims.audit_events WHERE event='staff.initialized'",
+            "SELECT source FROM audit_events WHERE event='staff.initialized'",
           )
         ).rows,
       ).toEqual([{ source: "local-bootstrap" }]);
@@ -447,7 +447,7 @@ describe("staff access and settings on real PostgreSQL", () => {
         rejected?.status === "rejected" ? rejected.reason : null,
       ).toMatchObject({ code: "PRECONDITION" });
       const admins = await runtime.query(
-        "SELECT id FROM hims.staff_user WHERE role='ADMIN' AND banned=false",
+        "SELECT id FROM staff_user WHERE role='ADMIN' AND banned=false",
       );
       expect(admins.rowCount).toBe(1);
       const survivorHeaders =

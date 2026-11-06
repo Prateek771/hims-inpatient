@@ -7,6 +7,7 @@ import { db, withTransaction } from "./db";
 import { user, session } from "./schema/auth";
 import { appendAudit } from "./audit";
 import { DomainError } from "./contracts";
+import { acquireTxLock } from "./locks";
 const updateInput = z.strictObject({
   id: z.string().min(1).max(100),
   name: z.string().trim().min(2).max(100),
@@ -32,7 +33,7 @@ export async function createStaff(h: Headers, input: unknown) {
   const staff = await requireAdmin(h);
   const value = createStaffInput.parse(input);
   return withTransaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(729104211)`);
+    await acquireTxLock(tx, "729104211");
     const current = await tx.select().from(user).where(eq(user.id, staff.id));
     if (current[0]?.banned || current[0]?.role !== "ADMIN")
       throw new DomainError("FORBIDDEN", "Administrator access required");
@@ -58,7 +59,7 @@ export async function updateStaff(h: Headers, input: unknown) {
   const staff = await requireAdmin(h);
   const value = updateInput.parse(input);
   await withTransaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(729104211)`);
+    await acquireTxLock(tx, "729104211");
     const [operator] = await tx
       .select()
       .from(user)

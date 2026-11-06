@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { useStaffSession } from "../support/browser-session";
 import { openWorkflowTab } from "../support/workflow-tabs";
-import { Client } from "pg";
+import { TestClient as Client } from "../../scripts/test-client.ts";
 import { getTestDatabaseConfig } from "../../scripts/test-database-guard";
 const origin="http://127.0.0.1:3100";
 async function fixture(){return JSON.parse(await readFile(resolve("tmp/e2e-paperwork.json"),"utf8")) as {caseId:string;documentId:string;wrongCaseId:string};}
@@ -52,14 +52,14 @@ test("an actual failed local packet save stays visible and recovers its recorded
   const config=getTestDatabaseConfig(),owner=new Client({connectionString:config.ownerUrl,connectionTimeoutMillis:3000});
   await owner.connect();let created=false;
   try{
-    const identity=(await owner.query("select current_database() name,current_user role from pg_roles where rolname=current_user")).rows[0];expect(identity).toEqual({name:config.databaseName,role:"hims_test_owner"});
+    const identity=(await owner.query("select database() name, substring_index(user(),'@',1) role")).rows[0];expect(identity).toEqual({name:config.databaseName,role:"hims_test_owner"});
     // Actual DB failure after official graph completion, scoped to this synthetic run only.
-    await owner.query(`create function hims.synthetic_browser_packet_failure() returns trigger language plpgsql as $$ begin if NEW.run_id='${run.id}'::uuid then raise exception 'Synthetic packet unavailable'; end if; return NEW; end $$; create trigger synthetic_browser_packet_failure before insert on hims.paperwork_packets for each row execute function hims.synthetic_browser_packet_failure()`);created=true;
+    await owner.query(`create trigger synthetic_browser_packet_failure before insert on paperwork_packets for each row begin if NEW.run_id='${run.id}' then signal sqlstate '45000' set message_text='Synthetic packet unavailable'; end if; end`);created=true;
     await page.goto(`/insurance?caseId=${f.caseId}`);await openWorkflowTab(page,"Paperwork");const workspace=page.getByTestId("paperwork-workspace");await workspace.getByRole("button",{name:"Load retained runs"}).click();await workspace.getByRole("button",{name:new RegExp(run.id)}).click();
     const review=page.getByTestId("paperwork-review");await review.getByLabel("Review comment").fill("Recorded human decision to retry after capability recovery");await review.getByRole("button",{name:"Save staff decision"}).click();await expect(workspace.getByRole("status")).toContainText("Paperwork is unavailable");await expect(workspace.getByRole("button",{name:"Retry same request"})).toBeVisible();
     await page.reload();await openWorkflowTab(page,"Paperwork");await workspace.getByRole("button",{name:"Load retained runs"}).click();await workspace.getByRole("button",{name:new RegExp(run.id)}).click();await expect(workspace.getByRole("button",{name:"Load retained runs"})).toBeEnabled({timeout:15_000});await expect(workspace.getByRole("button",{name:"Retry recorded staff decision"})).toBeVisible();await workspace.screenshot({path:testInfo.outputPath("paperwork-recovery-desktop.png")});
-    await owner.query("drop trigger synthetic_browser_packet_failure on hims.paperwork_packets; drop function hims.synthetic_browser_packet_failure()");created=false;
+    await owner.query("drop trigger synthetic_browser_packet_failure");created=false;
     await workspace.getByRole("button",{name:"Retry recorded staff decision"}).click();await expect(workspace.getByRole("heading",{name:"Reviewed local packet",exact:true})).toBeVisible();
     const recovered=await (await page.request.get(`${endpoint}?runId=${run.id}`)).json();expect(recovered.reviews).toHaveLength(1);expect(recovered.followups).toHaveLength(1);expect(recovered.packet).not.toBe(null);
-  }finally{if(created)await owner.query("drop trigger synthetic_browser_packet_failure on hims.paperwork_packets; drop function hims.synthetic_browser_packet_failure()");await owner.end();}
+  }finally{if(created)await owner.query("drop trigger synthetic_browser_packet_failure");await owner.end();}
 });

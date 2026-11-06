@@ -6,8 +6,9 @@ import { user } from "../../src/server/schema/auth";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import assert from "node:assert/strict";
+import { rowsOf } from "../../src/server/sql";
 async function prepare() {
-  const identity = (await db.execute<{ database: string; role: string; port: number }>(sql`select current_database() database,current_user role,inet_server_port() port`)).rows[0];
+  const identity = rowsOf<{ database: string; role: string; port: number }>(await db.execute(sql`select database() database, substring_index(user(),'@',1) role, @@port port`))[0];
   assert(identity.role === "hims_test_runtime" && (identity.database === "hims_test" || (process.env.CI === "true" && /^hims_test_ci_[a-z0-9]{8,40}$/.test(identity.database))));
   assert(process.env.HIMS_SYNTHETIC_TEST_RUN === "1" && process.env.HIMS_INSURANCE_STORAGE === "synthetic" && process.env.HIMS_DOCUMENT_STORAGE === "synthetic");
   mkdirSync(resolve("tmp"), { recursive: true }); writeFileSync(resolve("tmp/e2e-database-identity.json"), JSON.stringify(identity, null, 2));

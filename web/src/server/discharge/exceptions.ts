@@ -15,12 +15,15 @@ import { shiftForCare } from "../nursing/commands";
 import { reconcileRoomChargesInTransaction, correctAmendedRoomCharges } from "../billing/room-charges";
 import { effectiveBedTurnovers as bedTurnovers, bedTurnovers as originalBedTurnovers, departures, effectiveRoomVacations as roomVacations } from "./schema";
 import { correctionKinds, correctionRoles, validateCorrectionSource, applyCorrectionEffect } from "./exception-corrections";
+import { acquireTxLock } from "../locks";
+import { insertReturning, rowsOf } from "../sql";
+import { assertClosedFinancialResultsForException } from "../deferred-checks";
 const reason = z.string().trim().min(3).max(1000);
 /** Caller owns admission; financial routing cannot override a current clinical instruction. */
 async function plannedExitInstruction(tx: Transaction, admissionId: string, evidence: typeof exceptionEvidence.$inferSelect[]) {
-  const pending = await tx.execute(sql`select p.id from hims.exception_evidence p where p.admission_id=${admissionId} and p.kind='RETURN_TO_BED' and not exists(select 1 from hims.exception_evidence c where c.kind='RETURN_CANCELLED' and c.source_id=p.id) and not exists(select 1 from hims.room_returns r where r.doctor_evidence_id=p.id)`);
-  if (pending.rows.length) throw new DomainError("PRECONDITION", "Current Doctor return instruction requires actual return or explicit source-bound reconsideration before planned departure");
-  const [returned] = await tx.execute<{ returned_at: Date | string }>(sql`select returned_at from hims.room_returns where admission_id=${admissionId} order by returned_at desc limit 1`).then(r => r.rows);
+  const pending = await tx.execute(sql`select p.id from exception_evidence p where p.admission_id=${admissionId} and p.kind='RETURN_TO_BED' and not exists(select 1 from exception_evidence c where c.kind='RETURN_CANCELLED' and c.source_id=p.id) and not exists(select 1 from room_returns r where r.doctor_evidence_id=p.id)`);
+  if (rowsOf(pending).length) throw new DomainError("PRECONDITION", "Current Doctor return instruction requires actual return or explicit source-bound reconsideration before planned departure");
+  const [returned] = rowsOf<{ returned_at: Date | string }>(await tx.execute(sql`select returned_at from room_returns where admission_id=${admissionId} order by returned_at desc limit 1`));
   if (returned && !evidence.some(p => p.role === "DOCTOR" && p.kind === "PLANNED_EXIT" && p.actualAt >= new Date(returned.returned_at) && p.signedAt >= new Date(returned.returned_at)))
     throw new DomainError("PRECONDITION", "Actual return requires a fresh appropriate Doctor exit disposition");
 }
@@ -68,7 +71,7 @@ export async function authorizeExceptionInTransaction(tx: Transaction, ctx: Comm
     admissionId: z.uuid(), type: z.enum(exceptionTypes), authority: reason, reason, evidenceIds: z.array(z.uuid()).max(30), evidence: reason, disposition: z.enum(exceptionDispositions), followUpOwnerId: z.string().min(1), sourceId: z.uuid().optional(), correctionKind: z.string().max(60).optional()
   }).parse(input);
   const staff = await admissionOperator(ctx, ["ADMIN"], tx);
-  await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+  await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
   const e = await lockBillingAdmission(tx, v.admissionId);
   return billingRequest(tx, ctx, "exception.authorized", v, async () => {
     const [owner] = await tx.select().from(user).where(eq(user.id, v.followUpOwnerId));
@@ -87,13 +90,13 @@ export async function authorizeExceptionInTransaction(tx: Transaction, ctx: Comm
       await validateCorrectionSource(tx, e.id, z.enum(correctionKinds).parse(v.correctionKind), v.sourceId);
     }
     else if (v.type === "CANCELLED_DEPOSIT") {
-      const original = await tx.execute(sql `select id from hims.receipts where id=${v.sourceId ?? null} and admission_id=${e.id} and party='PATIENT' and kind<>'PAYMENT'`);
-      if (e.status !== "CANCELLED" || e.admittedAt || v.disposition !== "RETURN_DEPOSIT" || !original.rows.length)
+      const original = await tx.execute(sql `select id from receipts where id=${v.sourceId ?? null} and admission_id=${e.id} and party='PATIENT' and kind<>'PAYMENT'`);
+      if (e.status !== "CANCELLED" || e.admittedAt || v.disposition !== "RETURN_DEPOSIT" || !rowsOf(original).length)
         throw new DomainError("PRECONDITION", "Cancelled return requires this never-occupied original deposit receipt");
     }
     else if (v.type === "UNAVAILABLE_APPROVER" && v.disposition === "CLOSE_ATTENDANCE") {
-      const shift = await tx.execute(sql `select id from hims.nursing_shifts where id=${v.sourceId ?? null} and admission_id=${e.id}`);
-      if (!["ADMITTED", "DISCHARGED"].includes(e.status) || !shift.rows.length)
+      const shift = await tx.execute(sql `select id from nursing_shifts where id=${v.sourceId ?? null} and admission_id=${e.id}`);
+      if (!["ADMITTED", "DISCHARGED"].includes(e.status) || !rowsOf(shift).length)
         throw new DomainError("PRECONDITION", "Attendance authority requires the original same-episode shift");
     }
     else if (v.type === "ROOM_CUTOFF_CORRECTION") {
@@ -107,7 +110,7 @@ export async function authorizeExceptionInTransaction(tx: Transaction, ctx: Comm
     }
     else if (v.type === "RETURN_TO_BED") {
       const [vacation] = await tx.select().from(roomVacations).where(eq(roomVacations.admissionId, e.id));
-      const cancelled = (await tx.execute(sql`select source_id from hims.exception_evidence where admission_id=${e.id} and kind='RETURN_CANCELLED'`)).rows;
+      const cancelled = rowsOf(await tx.execute(sql`select source_id from exception_evidence where admission_id=${e.id} and kind='RETURN_CANCELLED'`));
       if (e.status !== "ADMITTED" || v.disposition !== "RETURN_TO_BED" || !vacation || !evidence.some(r => r.kind === "RETURN_TO_BED" && r.sourceId === vacation.id && r.signedAt > vacation.vacatedAt && !cancelled.some(c => c.source_id === r.id)))
         throw new DomainError("PRECONDITION", "Return requires an active off-bed wait and fresh Doctor instruction for the retained vacancy");
       const [turnover] = await tx.select().from(bedTurnovers).where(eq(bedTurnovers.stayId, vacation.stayId));
@@ -136,9 +139,9 @@ export async function authorizeExceptionInTransaction(tx: Transaction, ctx: Comm
         throw new DomainError("PRECONDITION", "Insurance exception requires the actual same-episode external case and applicable denial evidence");
     }
     const snapshot = await exceptionObligationsInTransaction(tx, e);
-    const [record] = await tx.insert(adminExceptions).values({
+    const [record] = await insertReturning(tx, adminExceptions, {
       ...v, snapshot, signedBy: staff.id, signedAt: new Date()
-    }).returning();
+    });
     await appendAudit(tx, ctx, {
       event: "exception.authorized", entityType: "administrator-exception", entityId: record.id, reason: v.reason
     });
@@ -165,7 +168,7 @@ export async function recordExceptionEvidenceInTransaction(tx: Transaction, ctx:
   }).parse(input);
   const physical = ["PHYSICAL_EXIT", "TRANSFER_HANDOVER", "RETURN_HANDOVER", "ROOM_CUTOFF"].includes(v.kind);
   const staff = await admissionOperator(ctx, physical ? ["NURSE"] : ["DOCTOR"], tx);
-  await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+  await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
   const e = await careEpisode(tx, staff, v.admissionId, false);
   return billingRequest(tx, ctx, "exception.evidence", v, async () => {
     if (v.kind === "ROOM_CUTOFF") {
@@ -191,14 +194,14 @@ export async function recordExceptionEvidenceInTransaction(tx: Transaction, ctx:
       const [vacation] = await tx.select().from(roomVacations).where(eq(roomVacations.id, sourceId ?? "00000000-0000-0000-0000-000000000000"));
       if (!vacation || vacation.admissionId !== e.id || actual < vacation.vacatedAt)
         throw new DomainError("PRECONDITION", "Return evidence must bind the current factual vacancy");
-      const pending = (await tx.execute(sql`select p.* from hims.exception_evidence p where p.admission_id=${e.id} and p.kind='RETURN_TO_BED' and p.source_id=${vacation.id} and not exists(select 1 from hims.exception_evidence c where c.kind='RETURN_CANCELLED' and c.source_id=p.id) and not exists(select 1 from hims.room_returns r where r.doctor_evidence_id=p.id)`)).rows;
+      const pending = rowsOf(await tx.execute(sql`select p.* from exception_evidence p where p.admission_id=${e.id} and p.kind='RETURN_TO_BED' and p.source_id=${vacation.id} and not exists(select 1 from exception_evidence c where c.kind='RETURN_CANCELLED' and c.source_id=p.id) and not exists(select 1 from room_returns r where r.doctor_evidence_id=p.id)`));
       if (v.kind === "RETURN_TO_BED" && pending.length)
         throw new DomainError("CONFLICT", "Review the existing return instruction before issuing another");
       if (v.kind === "RETURN_HANDOVER" && (!pending.length || actual < (pending[0].signed_at as Date)))
         throw new DomainError("PRECONDITION", "Actual handover requires a current Doctor return instruction");
       if (v.kind === "RETURN_CANCELLED") {
-        const witnessed = await tx.execute(sql`select id from hims.exception_evidence where admission_id=${e.id} and kind='RETURN_HANDOVER' and source_id=${vacation.id} and actual_at>=${instruction?.signedAt ?? actual} limit 1`);
-        if (!instruction || instruction.admissionId !== e.id || instruction.kind !== "RETURN_TO_BED" || !pending.some(p => p.id === instruction.id) || actual < instruction.signedAt || witnessed.rows.length)
+        const witnessed = await tx.execute(sql`select id from exception_evidence where admission_id=${e.id} and kind='RETURN_HANDOVER' and source_id=${vacation.id} and actual_at>=${instruction?.signedAt ?? actual} limit 1`);
+        if (!instruction || instruction.admissionId !== e.id || instruction.kind !== "RETURN_TO_BED" || !pending.some(p => p.id === instruction.id) || actual < instruction.signedAt || rowsOf(witnessed).length)
           throw new DomainError("PRECONDITION", "Only an unconsumed, unwitnessed current return instruction can be reconsidered; record the actual return first");
       }
     }
@@ -210,9 +213,9 @@ export async function recordExceptionEvidenceInTransaction(tx: Transaction, ctx:
     const vacancy = v.vacatedAt ? actualTime(v.vacatedAt, e.admittedAt, actual) : null;
     if (v.kind === "PHYSICAL_EXIT" && !vacancy)
       throw new DomainError("VALIDATION", "Record actual bed vacancy separately from hospital exit");
-    const [record] = await tx.insert(exceptionEvidence).values({
+    const [record] = await insertReturning(tx, exceptionEvidence, {
       ...v, role: staff.role, actualAt: actual, vacatedAt: vacancy, signedBy: staff.id, signedAt: new Date()
-    }).returning();
+    });
     await invalidateAffectedClearances(tx, { admissionId: e.id, changeKind: staff.role === "DOCTOR" ? "CLINICAL" : "NURSING", changedRecordIds: [record.id] });
     await appendAudit(tx, ctx, {
       event: "exception.professional-evidence", entityType: "exception-evidence", entityId: record.id, reason: v.notes
@@ -234,7 +237,7 @@ export async function recordExceptionalDepartureInTransaction(tx: Transaction, c
     admissionId: z.uuid(), exceptionId: z.uuid(), physicalEvidenceId: z.uuid()
   }).parse(input);
   const staff = await admissionOperator(ctx, ["ADMIN"], tx);
-  await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+  await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
   const e = await lockBillingAdmission(tx, v.admissionId);
   const result = await billingRequest(tx, ctx, "exception.departure", v, async () => {
     const [authority] = await tx.select().from(adminExceptions).where(eq(adminExceptions.id, v.exceptionId));
@@ -260,8 +263,8 @@ export async function recordExceptionalDepartureInTransaction(tx: Transaction, c
     const [stay] = await tx.select().from(roomStays).where(and(eq(roomStays.admissionId, e.id), vacation ? eq(roomStays.id, vacation.stayId) : isNull(roomStays.endedAt)));
     if (!stay || evidence.vacatedAt <= stay.startedAt || (vacation && vacation.vacatedAt.getTime() !== evidence.vacatedAt.getTime()))
       throw new DomainError("VALIDATION", "Actual physical bed boundary conflicts with retained vacancy");
-    const later = await tx.execute(sql `select 1 from hims.nursing_consumables where stay_id=${stay.id} and used_at>=${evidence.vacatedAt} limit 1`);
-    if (later.rows.length)
+    const later = await tx.execute(sql `select 1 from nursing_consumables where stay_id=${stay.id} and used_at>=${evidence.vacatedAt} limit 1`);
+    if (rowsOf(later).length)
       throw new DomainError("CONFLICT", "Recorded source-unit use contradicts the supplied vacancy");
     await tx.select().from(beds).where(eq(beds.id, e.bedId)).for("update");
     const [hold] = await tx.select().from(bedHolds).where(eq(bedHolds.admissionId, e.id));
@@ -282,11 +285,11 @@ export async function recordExceptionalDepartureInTransaction(tx: Transaction, c
         await tx.update(originalRoomStays).set({ endedAt: evidence.vacatedAt }).where(eq(originalRoomStays.id, stay.id));
     }
     const current = await lockBillingAdmission(tx, e.id), snapshot = await exceptionObligationsInTransaction(tx, current), seals = await latestSeals(tx, e.id);
-    const [exit] = await tx.insert(exceptionalDepartures).values({
+    const [exit] = await insertReturning(tx, exceptionalDepartures, {
       admissionId: e.id, exceptionId: authority.id, physicalEvidenceId: evidence.id, stayId: stay.id, departedAt: evidence.actualAt, snapshot: jsonSnapshot({
         ...snapshot, clinicalStatus: authority.type === "EARLY_EXIT" ? "UNREVIEWED_EARLY_EXIT" : authority.type, professionalFollowUp: authority.type === "EARLY_EXIT", seals: seals.all, followUpOwnerId: authority.followUpOwnerId
       }), signedBy: staff.id, signedAt: new Date()
-    }).returning();
+    });
     await tx.update(admissions).set({ status: "DISCHARGED", version: sql `${admissions.version}+1` }).where(eq(admissions.id, e.id));
     await tx.delete(bedHolds).where(eq(bedHolds.admissionId, e.id));
     const [turnover] = await tx.select().from(bedTurnovers).where(eq(bedTurnovers.stayId, stay.id));
@@ -319,7 +322,7 @@ export async function applyPostDischargeCorrectionInTransaction(tx: Transaction,
     admissionId: z.uuid(), exceptionId: z.uuid(), kind: z.enum(correctionKinds), sourceId: z.uuid(), data: z.record(z.string(), z.unknown())
   }).parse(input);
   const staff = await admissionOperator(ctx, correctionRoles(v.kind), tx);
-  await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+  await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
   const e = await lockBillingAdmission(tx, v.admissionId);
   await requireCorrectionAuthority(tx, e, v.exceptionId, v.kind, v.sourceId);
   // Internal cash command owns the shared actor/request identity. The outer amendment
@@ -330,9 +333,10 @@ export async function applyPostDischargeCorrectionInTransaction(tx: Transaction,
   if (old)
     return { id: old.id };
   const after = await exceptionObligationsInTransaction(tx, await lockBillingAdmission(tx, e.id));
-  const [amendment] = await tx.insert(postDischargeAmendments).values({
+  const [amendment] = await insertReturning(tx, postDischargeAmendments, {
     admissionId: e.id, exceptionId: v.exceptionId, kind: v.kind, sourceId: v.sourceId, resultId: result.id, beforeSnapshot: before, afterSnapshot: after, signedBy: staff.id, signedAt: new Date()
-  }).returning();
+  });
+  await assertClosedFinancialResultsForException(tx, v.exceptionId); // commit-time rule: closed-episode money is backed by this amendment
   await appendAudit(tx, ctx, {
     event: "exception.amendment", entityType: "post-discharge-amendment", entityId: amendment.id, reason: "Attributable correction retains original departure and money history"
   });
@@ -367,7 +371,7 @@ export async function returnCancelledDeposit(ctx: CommandContext, input: unknown
   void _exceptionId;
   return withTransaction(async (tx) => {
     const staff = await admissionOperator(ctx, ["ADMIN", "BILLING"], tx);
-    await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+    await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
     const e = await lockBillingAdmission(tx, v.admissionId), authority = await requireException(tx, e.id, v.exceptionId, "CANCELLED_DEPOSIT", "RETURN_DEPOSIT");
     if (authority.sourceId !== cash.receiptId)
       throw new DomainError("VALIDATION", "Return must use the authorized original receipt");
@@ -382,7 +386,7 @@ export async function closeUnavailableAttendance(ctx: CommandContext, input: unk
   }).parse(input);
   return withTransaction(async (tx) => {
     const staff = await admissionOperator(ctx, ["ADMIN"], tx);
-    await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+    await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
     const e = await lockBillingAdmission(tx, v.admissionId), authority = await requireException(tx, e.id, v.exceptionId, "UNAVAILABLE_APPROVER", "CLOSE_ATTENDANCE");
     if (authority.sourceId !== v.shiftId)
       throw new DomainError("VALIDATION", "Use the authorized original shift");
@@ -397,9 +401,9 @@ export async function closeUnavailableAttendance(ctx: CommandContext, input: unk
       if (end <= shift.startedAt || !['ADMITTED', 'DISCHARGED'].includes(e.status) || (departure && end > departure))
         throw new DomainError("VALIDATION", "Actual attendance must follow its start and end no later than actual departure");
       await validateAttendanceEnd(tx, shift.id, end);
-      const [record] = await tx.insert(administrativeShiftEnds).values({
+      const [record] = await insertReturning(tx, administrativeShiftEnds, {
         ...v, endedAt: end, signedBy: staff.id, signedAt: new Date()
-      }).returning();
+      });
       await appendAudit(tx, ctx, {
         event: "exception.attendance-closed", entityType: "administrative-shift-end", entityId: record.id, reason: v.evidence
       });
@@ -408,13 +412,13 @@ export async function closeUnavailableAttendance(ctx: CommandContext, input: unk
   });
 }
 export async function validateAttendanceEnd(tx: Transaction, shiftId: string, end: Date) {
-  const later = await tx.execute(sql `select actual_at t from hims.medication_administrations where shift_id=${shiftId} and actual_at>${end}
-union all select observed_at from hims.nursing_observations where shift_id=${shiftId} and observed_at>${end}
-union all select used_at from hims.nursing_consumables where shift_id=${shiftId} and used_at>${end}
-union all select transferred_at from hims.admission_transfers where shift_id=${shiftId} and transferred_at>${end}
-union all select vacated_at from hims.effective_vacation_facts where shift_id=${shiftId} and vacated_at>${end}
-union all select actual_at from hims.exception_evidence where shift_id=${shiftId} and actual_at>${end} limit 1`);
-  if (later.rows.length)
+  const later = await tx.execute(sql `select actual_at t from medication_administrations where shift_id=${shiftId} and actual_at>${end}
+union all select observed_at from nursing_observations where shift_id=${shiftId} and observed_at>${end}
+union all select used_at from nursing_consumables where shift_id=${shiftId} and used_at>${end}
+union all select transferred_at from admission_transfers where shift_id=${shiftId} and transferred_at>${end}
+union all select vacated_at from effective_vacation_facts where shift_id=${shiftId} and vacated_at>${end}
+union all select actual_at from exception_evidence where shift_id=${shiftId} and actual_at>${end} limit 1`);
+  if (rowsOf(later).length)
     throw new DomainError("VALIDATION", "Attendance cannot end before recorded actual care or physical handover");
 }
 export async function identifyTemporaryPatient(ctx: CommandContext, input: unknown): Promise<{
@@ -425,11 +429,11 @@ export async function identifyTemporaryPatient(ctx: CommandContext, input: unkno
   }).refine(v => (v.dateOfBirth !== undefined) !== (v.ageYearsAtRegistration !== undefined), "Record known DOB or age").parse(input);
   return withTransaction(async (tx) => {
     const staff = await admissionOperator(ctx, ["ADMISSION"], tx);
-    await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+    await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
     const e = await lockBillingAdmission(tx, v.admissionId);
     // Final copies and later episodes share this patient's effective identity. Acquire its
     // exclusive source lock before rereading the latest version, not only during INSERT.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`document-identity:${e.patientId}`},0))`);
+    await acquireTxLock(tx, `document-identity:${e.patientId}`);
     await requireException(tx, e.id, v.exceptionId, "URGENT_ADMISSION", "ACTIVATE");
     return billingRequest(tx, ctx, "exception.patient-identified", v, async () => {
       const { patients } = await import("../admissions/schema");
@@ -437,9 +441,9 @@ export async function identifyTemporaryPatient(ctx: CommandContext, input: unkno
       const [last] = await tx.select().from(patientIdentifications).where(eq(patientIdentifications.patientId, e.patientId)).orderBy(desc(patientIdentifications.version)).limit(1);
       if (original.identityStatus !== "TEMPORARY" || (last?.version ?? 0) !== v.expectedVersion)
         throw new DomainError("CONFLICT", "Review the current temporary identity history");
-      const [record] = await tx.insert(patientIdentifications).values({
+      const [record] = await insertReturning(tx, patientIdentifications, {
         ...v, patientId: e.patientId, version: v.expectedVersion + 1, signedBy: staff.id, signedAt: new Date()
-      }).returning();
+      });
       await appendAudit(tx, ctx, {
         event: "exception.patient-identified", entityType: "patient-identification", entityId: record.id, reason: v.reason
       });
@@ -457,7 +461,7 @@ export async function recordExceptionFollowup(ctx: CommandContext, input: unknow
   }).parse(input);
   return withTransaction(async (tx) => {
     const staff = await admissionOperator(ctx, ["ADMIN", "BILLING", "INSURANCE", "DOCTOR", "NURSE", "ADMISSION", "PHARMACY", "LAB"], tx);
-    await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+    await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
     const [authority] = await tx.select().from(adminExceptions).where(eq(adminExceptions.id, v.exceptionId));
     if (!authority)
       throw new DomainError("FORBIDDEN", "Exception access denied");
@@ -469,9 +473,9 @@ export async function recordExceptionFollowup(ctx: CommandContext, input: unknow
     if (!owner || owner.banned || (staff.role !== "ADMIN" && owner.id !== staff.id))
       throw new DomainError("FORBIDDEN", "Only an administrator can route follow-up to another active staff owner");
     return billingRequest(tx, ctx, "exception.followup", v, async () => {
-      const [record] = await tx.insert(exceptionFollowups).values({
+      const [record] = await insertReturning(tx, exceptionFollowups, {
         ...v, admissionId: authority.admissionId, signedBy: staff.id, signedAt: new Date()
-      }).returning();
+      });
       await appendAudit(tx, ctx, {
         event: "exception.followup", entityType: "exception-followup", entityId: record.id, reason: v.note
       });

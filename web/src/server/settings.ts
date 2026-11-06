@@ -6,6 +6,8 @@ import { db, withTransaction } from "./db";
 import { hospitalSettings, settingVersions, user } from "./schema";
 import { appendAudit } from "./audit";
 import { DomainError } from "./contracts";
+import { acquireTxLock } from "./locks";
+import { insertReturning } from "./sql";
 const key = z
   .string()
   .trim()
@@ -95,7 +97,7 @@ export async function saveSetting(h: Headers, input: unknown) {
   const staff = await requireAdmin(h);
   const value = settingInput.parse(input);
   return withTransaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(729104211)`);
+    await acquireTxLock(tx, "729104211");
     const [operator] = await tx
       .select()
       .from(user)
@@ -109,14 +111,11 @@ export async function saveSetting(h: Headers, input: unknown) {
           "PRECONDITION",
           "Configure hospital details first",
         );
-      [hospital] = await tx
-        .insert(hospitalSettings)
-        .values({
+      [hospital] = await insertReturning(tx, hospitalSettings, {
           name: value.value.name,
           timezone: value.value.timezone,
           identity: { address: value.value.address },
-        })
-        .returning();
+        });
     }
     if (value.value.type === "hospital")
       await tx
@@ -175,9 +174,7 @@ export async function saveSetting(h: Headers, input: unknown) {
         "CONFLICT",
         "Settings changed. Refresh the page and review the latest version before saving.",
       );
-    const [record] = await tx
-      .insert(settingVersions)
-      .values({
+    const [record] = await insertReturning(tx, settingVersions, {
         hospitalId: hospital.id,
         kind,
         version: previous + 1,
@@ -185,8 +182,7 @@ export async function saveSetting(h: Headers, input: unknown) {
         actorType: "staff",
         actorId: staff.id,
         reason: value.reason,
-      })
-      .returning();
+      });
     await appendAudit(tx, staffContext(staff, "hospital-settings"), {
       event: "settings.version-created",
       entityType: "setting-version",

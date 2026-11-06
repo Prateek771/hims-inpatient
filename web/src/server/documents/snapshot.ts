@@ -13,6 +13,8 @@ import { billProjection, financialResponsibilityInTransaction } from "../billing
 import { dischargeStatement } from "../billing/statement";
 
 import { assertDocumentSourceSize } from "./content";
+import { acquireTxLock } from "../locks";
+import { rowsOf } from "../sql";
 export { canonicalJSON, snapshotHash, assertDocumentSourceSize } from "./content";
 type Json<T> = T extends Date ? string : T extends bigint ? string : T extends (infer V)[] ? Json<V>[] : T extends object ? { [K in keyof T]: Json<T[K]> } : T;
 function json<T>(value: T): Json<T> { return jsonSnapshot(value) as Json<T>; }
@@ -47,28 +49,28 @@ export async function documentSourceInTransaction(tx: Transaction, e: typeof adm
     }
   }
   // Identity versions are shared across this patient's episodes; own that source as well.
-  await tx.execute(sql`select pg_advisory_xact_lock_shared(hashtextextended(${`document-identity:${e.patientId}`},0))`);
+  await acquireTxLock(tx, `document-identity:${e.patientId}`, "shared");
   const [patient] = await tx.select().from(effectivePatients).where(eq(effectivePatients.id, e.patientId));
-  const [hospital] = await tx.select().from(settingVersions).where(and(eq(settingVersions.hospitalId, e.hospitalId), sql`${settingVersions.payload}->>'type'='hospital'`)).orderBy(desc(settingVersions.version)).limit(1);
+  const [hospital] = await tx.select().from(settingVersions).where(and(eq(settingVersions.hospitalId, e.hospitalId), sql`JSON_VALUE(${settingVersions.payload},'$.type')='hospital'`)).orderBy(desc(settingVersions.version)).limit(1);
   const [summary] = await tx.select().from(clinicalSummaries).where(eq(clinicalSummaries.admissionId, e.id)).orderBy(desc(clinicalSummaries.version)).limit(1);
   const clinical = await clinicalClearanceInputs(tx, e.id), nursing = await nursingClearanceInputs(tx, e.id);
   const physicalBeds = await tx.select({ bedId: effectiveRoomStays.bedId }).from(effectiveRoomStays).where(eq(effectiveRoomStays.admissionId, e.id));
-  if (physicalBeds.length) await tx.select({ id: beds.id }).from(beds).where(inArray(beds.id, [...new Set(physicalBeds.map(s => s.bedId))])).orderBy(asc(beds.id)).for("share");
+  if (physicalBeds.length) await tx.execute(sql`select id from beds where id in (${sql.join([...new Set(physicalBeds.map(s => s.bedId))].sort().map(id => sql`${id}`), sql`, `)}) order by id lock in share mode`);
   // Bed identity is mutable; fetch it only AFTER the sorted physical-source locks.
   const stayRows = await tx.select({ stay: getViewSelectedFields(effectiveRoomStays), bedLabel: beds.label, category: beds.category, originalStartedAt: originalRoomStays.startedAt, originalTariff: settingVersions.payload }).from(effectiveRoomStays).innerJoin(beds, eq(beds.id, effectiveRoomStays.bedId)).innerJoin(originalRoomStays, eq(originalRoomStays.id, effectiveRoomStays.id)).innerJoin(settingVersions, eq(settingVersions.id, effectiveRoomStays.tariffVersionId)).where(eq(effectiveRoomStays.admissionId, e.id)).orderBy(asc(effectiveRoomStays.startedAt), asc(effectiveRoomStays.id));
   const stays = stayRows.map(r => ({ ...r.stay, bedLabel: r.bedLabel, category: r.category, originalStartedAt: r.originalStartedAt, originalTariff: r.originalTariff }));
-  const transfers = (await tx.execute(sql`select t.*,b.label as target_bed_label from hims.admission_transfers t join hims.beds b on b.id=t.target_bed_id where t.admission_id=${e.id} order by t.transferred_at,t.id`)).rows;
-  const amendments = (await tx.execute(sql`select * from hims.post_discharge_amendments where admission_id=${e.id} order by signed_at,id`)).rows;
-  const identities = (await tx.execute(sql`select * from hims.patient_identifications where patient_id=${e.patientId} order by version`)).rows;
-  const boundaries = (await tx.execute(sql`select * from hims.stay_boundary_amendments where admission_id=${e.id} order by stay_id,version`)).rows;
-  const vacancy = (await tx.execute(sql`select * from hims.effective_vacation_facts where admission_id=${e.id} order by vacated_at,id`)).rows;
-  const evidence = (await tx.execute(sql`select * from hims.exception_evidence where admission_id=${e.id} order by signed_at,id`)).rows;
-  const authorities = (await tx.execute(sql`select * from hims.admin_exceptions where admission_id=${e.id} order by signed_at,id`)).rows;
-  const followups = (await tx.execute(sql`select * from hims.exception_followups where admission_id=${e.id} order by signed_at,id`)).rows;
+  const transfers = rowsOf(await tx.execute(sql`select t.*,b.label as target_bed_label from admission_transfers t join beds b on b.id=t.target_bed_id where t.admission_id=${e.id} order by t.transferred_at,t.id`));
+  const amendments = rowsOf(await tx.execute(sql`select * from post_discharge_amendments where admission_id=${e.id} order by signed_at,id`));
+  const identities = rowsOf(await tx.execute(sql`select * from patient_identifications where patient_id=${e.patientId} order by version`));
+  const boundaries = rowsOf(await tx.execute(sql`select * from stay_boundary_amendments where admission_id=${e.id} order by stay_id,version`));
+  const vacancy = rowsOf(await tx.execute(sql`select * from effective_vacation_facts where admission_id=${e.id} order by vacated_at,id`));
+  const evidence = rowsOf(await tx.execute(sql`select * from exception_evidence where admission_id=${e.id} order by signed_at,id`));
+  const authorities = rowsOf(await tx.execute(sql`select * from admin_exceptions where admission_id=${e.id} order by signed_at,id`));
+  const followups = rowsOf(await tx.execute(sql`select * from exception_followups where admission_id=${e.id} order by signed_at,id`));
   const [authority] = exceptional ? await tx.select().from(adminExceptions).where(eq(adminExceptions.id, exceptional.exceptionId)) : [];
   // Match the existing accountable-owner command's latest signed follow-up rule.
   const [currentFollowup] = authority ? await tx.select().from(exceptionFollowups).where(eq(exceptionFollowups.exceptionId, authority.id)).orderBy(desc(exceptionFollowups.signedAt)).limit(1) : [];
-  const names = await tx.select({ id: user.id, name: user.name }).from(user).orderBy(asc(user.id)).for("share");
+  const names = rowsOf<{ id: string; name: string }>(await tx.execute(sql`select id, name from staff_user order by id lock in share mode`));
   const name = (id: string) => names.find(n => n.id === id)?.name ?? id;
   const bill = await billProjection(tx, e, actual.departedAt), financial = await financialResponsibilityInTransaction(tx, e, bill);
   const { asOf: _asOf, ...billColumns } = bill; void _asOf;

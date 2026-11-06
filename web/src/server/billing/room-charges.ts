@@ -11,6 +11,7 @@ import { settingVersions } from "../schema/core";
 import { charges, chargeReversals } from "./schema";
 import { actorColumns, bumpBillRevision, fingerprint, roomPolicyInput } from "./commands";
 import { paise, roomDue } from "./money";
+import { insertReturning, rowsOf } from "../sql";
 function validateCutoff(cutoff: Date) {
   if (!(cutoff instanceof Date) || !Number.isFinite(cutoff.getTime()) || cutoff.getTime() > Date.now())
     throw new DomainError("VALIDATION", "Use a valid cutoff no later than now");
@@ -24,7 +25,7 @@ async function roomDeltas(tx: Transaction, admissionId: string, cutoff: Date) {
       throw new DomainError("CONFLICT", "Cutoff precedes the stay or committed charge cursor; history cannot be repriced backwards");
     const policy = roomPolicyInput.parse(version.payload);
     const due = roomDue(policy, end.getTime() - stay.startedAt.getTime());
-    const net = stay.amendmentId ? (await tx.execute(sql`select coalesce(sum(c.amount_paise-coalesce((select sum(r.amount_paise) from hims.charge_reversals r where r.charge_id=c.id),0)),0)::text amount from hims.charges c where c.admission_id=${admissionId} and c.source_event_id like ${`room:${stay.id}:%`}`)).rows[0] : undefined;
+    const net = stay.amendmentId ? rowsOf(await tx.execute(sql`select coalesce(sum(c.amount_paise-coalesce((select sum(r.amount_paise) from charge_reversals r where r.charge_id=c.id),0)),0) amount from charges c where c.admission_id=${admissionId} and c.source_event_id like ${`room:${stay.id}:%`}`))[0] : undefined;
     const posted = net ? BigInt(String(net.amount)) : stay.postedPaise;
     if (due < posted)
       throw new DomainError("CONFLICT", "Room charge history exceeds the computed cumulative amount");
@@ -54,9 +55,9 @@ export async function reconcileRoomChargesInTransaction(tx: Transaction, input: 
   for (const { stay, policy, end, due, delta } of deltas) {
     if (delta > 0n) {
       const sourceEventId = `room:${stay.id}:${due}${stay.amendmentId?`:${stay.amendmentId}`:""}`;
-      const [line] = await tx.insert(charges).values({
+      const [line] = await insertReturning(tx, charges, {
         admissionId: stay.admissionId, sourceEventId, sourcePayload: fingerprint({ stayId: stay.id, cutoff: end.toISOString(), due: due.toString() }), category: "room", itemId: stay.bedId, description: `Room · ${policy.category}`, quantity: (end.getTime() - stay.startedAt.getTime()).toString(), unit: "elapsed-ms-cumulative", tariffVersionId: stay.tariffVersionId, ratePaise: paise(policy.amount), amountPaise: delta, initialStatus: "FINAL", ...actorColumns(ctx)
-      }).returning();
+      });
       const revision = await bumpBillRevision(tx, stay.admissionId);
       await appendAudit(tx, ctx, {
         event: "billing.room-reconciled", entityType: "charge", entityId: line.id, reason: `Cumulative room due through ${end.toISOString()}; append delta only`, afterVersion: revision
@@ -82,9 +83,9 @@ export async function correctAmendedRoomCharges(tx: Transaction, ctx: CommandCon
       break;
     const available = line.amountPaise - reversals.filter(r => r.chargeId === line.id).reduce((n, r) => n + r.amountPaise, 0n), amount = available < remaining ? available : remaining;
     if (amount > 0n) {
-      const [reversal] = await tx.insert(chargeReversals).values({
+      const [reversal] = await insertReturning(tx, chargeReversals, {
         chargeId: line.id, amountPaise: amount, physicalAmendmentId: stay.amendmentId, reason: `Actual physical correction ${stay.amendmentId}; original pinned tariff retained`, ...actorColumns(ctx)
-      }).returning();
+      });
       await bumpBillRevision(tx, admissionId);
       await appendAudit(tx, ctx, {
         event: "exception.room-overcharge-corrected", entityType: "charge-reversal", entityId: reversal.id, reason: `Retained actual boundary and original source ${line.id}`

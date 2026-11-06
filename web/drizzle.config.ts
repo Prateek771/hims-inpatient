@@ -1,8 +1,8 @@
 import { defineConfig } from "drizzle-kit";
 
+// MariaDB DDL is hand-written and idempotent in ./drizzle-maria; this config is only for introspection tooling.
 export default defineConfig({
-  dialect: "postgresql",
+  dialect: "mysql",
   schema: "./src/server/schema/index.ts",
-  out: "./drizzle",
-  schemaFilter: ["hims"],
+  out: "./drizzle-maria",
 });

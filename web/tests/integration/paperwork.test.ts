@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { mkdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { Pool } from "pg";
-import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import { TestClient as Client } from "../../scripts/test-client.ts";
+import { MariaDbSaver } from "../../src/server/insurance/mariadb-saver";
+import { createMariaPool } from "../../src/server/db";
 import { Command } from "@langchain/langgraph";
 import { withTestDatabase } from "../../scripts/test-database";
 import { loadLocalEnvironment } from "../../scripts/migrate";
@@ -16,15 +17,15 @@ import { Client as TraceClient } from "langsmith/client";
 import { ROOT } from "langsmith/traceable";
 import type { LangChainTracer as Tracer } from "@langchain/core/tracers/tracer_langchain";
 import { createInsuranceCase, assignInsuranceCase, getInsuranceCase, recordPolicyVerification } from "../../src/server/insurance/commands";
-import { attachCaseDocument, insuranceStorageDirectory } from "../../src/server/insurance/documents";
+import { attachCaseDocument } from "../../src/server/insurance/documents";
 import { startPaperworkRun, getPaperworkRun, reviewPaperworkRun } from "../../src/server/insurance/paperwork-commands";
 import * as paperworkGraph from "../../src/server/insurance/paperwork-graph";
+import { ruleViolation } from "../support/errors";
 loadLocalEnvironment();
 const appUrl=process.env.DATABASE_URL, testConfig=getTestDatabaseConfig(),testUrl=testConfig.runtimeUrl;
 afterEach(()=>{process.env.DATABASE_URL=appUrl;});
 process.env.BETTER_AUTH_URL="http://127.0.0.1:3100";
 process.env.BETTER_AUTH_SECRET="SyntheticPaperworkOnlySecretAtLeast32Characters12345";
-process.env.HIMS_INSURANCE_STORAGE="synthetic";
 async function fixture(){
   process.env.DATABASE_URL=testUrl;
   const f=await billingFixture();
@@ -45,24 +46,24 @@ describe("durable human-reviewed insurance paperwork",()=>{
     const f=await fixture(),run=await f.start();
     expect(run.status).toBe("AWAITING_REVIEW");expect(run.proposals).toHaveLength(1);expect(run.proposals[0].packet.quotedSources[0].text).toContain("IGNORE ALL RULES");
     const {setupPaperworkCheckpointer}=await import("../../scripts/paperwork-checkpointer");
-    await expect(setupPaperworkCheckpointer(testUrl)).rejects.toThrow("dedicated migration owner");
-    const checkpointCount=(await runtime.query("select count(*)::int n from hims_paperwork_checkpoints.checkpoints where thread_id=$1",[run.id])).rows[0].n;
+    await expect(setupPaperworkCheckpointer(testUrl)).rejects.toThrow();
+    const checkpointCount=(await runtime.query("select count(*) n from lg_checkpoints where thread_id=$1",[run.id])).rows[0].n;
     await setupPaperworkCheckpointer(testConfig.ownerUrl);
-    expect((await runtime.query("select count(*)::int n from hims_paperwork_checkpoints.checkpoints where thread_id=$1",[run.id])).rows[0].n).toBe(checkpointCount);
-    await expect(runtime.query("update hims_paperwork_checkpoints.checkpoint_blobs set blob=blob where thread_id=$1",[run.id])).rejects.toMatchObject({code:"42501"});
-    const {createPaperworkGraph,CHECKPOINT_SCHEMA}=await import("../../src/server/insurance/paperwork-graph");
-    const firstPool=new Pool({connectionString:testUrl}),firstSaver=new PostgresSaver(firstPool,undefined,{schema:CHECKPOINT_SCHEMA});
+    expect((await runtime.query("select count(*) n from lg_checkpoints where thread_id=$1",[run.id])).rows[0].n).toBe(checkpointCount);
+    await expect(runtime.query("update lg_checkpoint_blobs set type=$2 where thread_id=$1",[run.id,"changed"])).rejects.toSatisfy(ruleViolation);
+    const {createPaperworkGraph}=await import("../../src/server/insurance/paperwork-graph");
+    const firstPool=createMariaPool(testUrl),firstSaver=new MariaDbSaver(firstPool);
     const first=createPaperworkGraph(firstSaver),config={configurable:{thread_id:run.id}};
     const paused=await first.getState(config);expect(paused.tasks.some(t=>t.interrupts?.length)).toBe(true);
     await firstPool.end();
-    const secondPool=new Pool({connectionString:testUrl});try{
-      const second=createPaperworkGraph(new PostgresSaver(secondPool,undefined,{schema:CHECKPOINT_SCHEMA}));
+    const secondPool=createMariaPool(testUrl);try{
+      const second=createPaperworkGraph(new MariaDbSaver(secondPool));
       expect((await second.getState(config)).values.revision).toBe(1);
       await second.invoke(new Command({resume:{decision:"REQUEST_CHANGES",comment:"Clarify the manually quoted source",reviewId:randomUUID()}}),config);
       const next=await second.getState(config);expect(next.values.revision).toBe(2);expect(next.tasks.some(t=>t.interrupts?.length)).toBe(true);
     }finally{await secondPool.end();}
-    expect((await runtime.query("select count(*)::int n from hims.paperwork_packets")).rows[0].n).toBe(0);
-    expect((await runtime.query("select count(*)::int n from hims.clearance_seals")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from paperwork_packets")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from clearance_seals")).rows[0].n).toBe(0);
   }));
   it("accepts once under concurrent review/retry and never interprets hostile source as an action",async()=>withTestDatabase(async({runtime})=>{
     const f=await fixture(),ctx=f.ic(),input=f.input(ctx),run=await startPaperworkRun(ctx,input);
@@ -74,11 +75,11 @@ describe("durable human-reviewed insurance paperwork",()=>{
     const accepted=await reviewPaperworkRun(winner.ctx,winner.input);expect(accepted.status).toBe("ACCEPTED");expect(accepted.packet?.packet.quotedSources[0].text).toContain("IGNORE ALL RULES");
     expect((await Promise.all(Array.from({length:6},()=>reviewPaperworkRun(winner.ctx,winner.input)))).every(r=>r.packet?.id===accepted.packet?.id)).toBe(true);
     await expect(reviewPaperworkRun(winner.ctx,{...winner.input,comment:"Different payload under old request"})).rejects.toMatchObject({code:"CONFLICT"});
-    for(const table of ["paperwork_packets","paperwork_followups"])expect((await runtime.query(`select count(*)::int n from hims.${table} where run_id=$1`,[run.id])).rows[0].n).toBe(1);
-    for(const table of ["insurance_decisions","clearance_seals","clinical_orders","receipts"])expect((await runtime.query(`select count(*)::int n from hims.${table}`)).rows[0].n).toBe(0);
-    await expect(runtime.query("update hims.paperwork_packets set recorded_by=$1 where run_id=$2",[f.admin.id,run.id])).rejects.toThrow();
-    await expect(runtime.query("insert into hims.paperwork_packets(run_id,proposal_id,review_id,packet,recorded_by) select run_id,proposal_id,review_id,packet,recorded_by from hims.paperwork_packets where run_id=$1",[run.id])).rejects.toMatchObject({code:"23514"});
-    await expect(runtime.query("insert into hims.paperwork_followups(run_id,packet_id,owner_id,action,recorded_by) select run_id,packet_id,$2,action,recorded_by from hims.paperwork_followups where run_id=$1",[run.id,f.admin.id])).rejects.toMatchObject({code:"23514"});
+    for(const table of ["paperwork_packets","paperwork_followups"])expect((await runtime.query(`select count(*) n from ${table} where run_id=$1`,[run.id])).rows[0].n).toBe(1);
+    for(const table of ["insurance_decisions","clearance_seals","clinical_orders","receipts"])expect((await runtime.query(`select count(*) n from ${table}`)).rows[0].n).toBe(0);
+    await expect(runtime.query("update paperwork_packets set recorded_by=$1 where run_id=$2",[f.admin.id,run.id])).rejects.toThrow();
+    await expect(runtime.query("insert into paperwork_packets(run_id,proposal_id,review_id,packet,recorded_by) select run_id,proposal_id,review_id,packet,recorded_by from paperwork_packets where run_id=$1",[run.id])).rejects.toSatisfy(ruleViolation);
+    await expect(runtime.query("insert into paperwork_followups(run_id,packet_id,owner_id,action,recorded_by) select run_id,packet_id,$2,action,recorded_by from paperwork_followups where run_id=$1",[run.id,f.admin.id])).rejects.toSatisfy(ruleViolation);
     const s=f.ac();await assignInsuranceCase(s,{caseId:f.caseId,expectedCaseVersion:2,assignedStaffId:null,reason:"Revoke current purpose",requestId:s.requestId});
     await expect(reviewPaperworkRun(winner.ctx,winner.input)).rejects.toMatchObject({code:"FORBIDDEN"});
     await expect(getPaperworkRun(f.ic(),run.id)).rejects.toMatchObject({code:"FORBIDDEN"});
@@ -89,8 +90,8 @@ describe("durable human-reviewed insurance paperwork",()=>{
     const stale=f.review(run.id,"ACCEPT",1);await expect(reviewPaperworkRun(stale.ctx,stale.input)).rejects.toMatchObject({code:"CONFLICT"});
     const capped=f.review(run.id,"REQUEST_CHANGES",3);await expect(reviewPaperworkRun(capped.ctx,capped.input)).rejects.toMatchObject({code:"PRECONDITION"});
     const r=f.review(run.id,"REJECT",3);expect((await reviewPaperworkRun(r.ctx,r.input)).status).toBe("REJECTED");
-    expect((await runtime.query("select count(*)::int n from hims.paperwork_reviews")).rows[0].n).toBe(3);
-    expect((await runtime.query("select count(*)::int n from hims.paperwork_packets")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from paperwork_reviews")).rows[0].n).toBe(3);
+    expect((await runtime.query("select count(*) n from paperwork_packets")).rows[0].n).toBe(0);
     const retained=await getPaperworkRun(f.ic(),run.id);expect(retained.proposals[0].revision).toBe(1);expect(retained.proposals[0].packet.quotedSources[0].text).toBe(f.input(f.ic()).manualSources[0].text);
   }));
   it("rejects wrong roles, guessed runs/cases, replacements, policy changes, departed or converted episodes and missing bytes without effects",async()=>withTestDatabase(async({owner,runtime})=>{
@@ -98,64 +99,67 @@ describe("durable human-reviewed insurance paperwork",()=>{
     await expect(getPaperworkRun(staffContext(f.nurse,"wrong-purpose"),run.id)).rejects.toMatchObject({code:"FORBIDDEN"});
     await expect(getPaperworkRun(f.ic(),randomUUID())).rejects.toMatchObject({code:"FORBIDDEN"});
     const wrong=f.ic();await expect(startPaperworkRun(wrong,{...f.input(wrong),caseId:randomUUID()})).rejects.toMatchObject({code:"FORBIDDEN"});
-    const [row]=(await runtime.query("select storage_key from hims.insurance_documents where id=$1",[f.file.id])).rows;
-    const path=resolve(insuranceStorageDirectory(),`${row.storage_key}.bin`);await rename(path,`${path}.held`);try{await expect(reviewPaperworkRun(r.ctx,r.input)).rejects.toMatchObject({code:"PRECONDITION"});}finally{await rename(`${path}.held`,path);}
+    const [row]=(await runtime.query("select storage_key from insurance_documents where id=$1",[f.file.id])).rows;
+    const name=`${row.storage_key}.bin`,park=(from:string,to:string)=>owner.query("update protected_files set name=$1 where kind='insurance' and name=$2",[to,from]);await park(name,`${name}.held`);try{await expect(reviewPaperworkRun(r.ctx,r.input)).rejects.toMatchObject({code:"PRECONDITION"});}finally{await park(`${name}.held`,name);}
     const p=f.ic();await recordPolicyVerification(p,{caseId:f.caseId,expectedCaseVersion:2,requestId:p.requestId,insurer:"Synthetic insurer",tpa:"",policyNumber:"POL",memberNumber:"MEM",validFrom:"2026-01-01",validTo:"2027-01-01",verifiedBy:"External staff",verifiedAt:new Date().toISOString(),reference:"SYNTHETIC",documentIds:[]});
     await expect(reviewPaperworkRun(r.ctx,r.input)).rejects.toMatchObject({code:"CONFLICT"});
     const second=await f.start(),s=f.review(second.id);
     const c=(await getInsuranceCase(f.ic(),f.caseId)).case,doc=f.ic();await attachCaseDocument(doc,{caseId:f.caseId,expectedCaseVersion:c.version,requestId:doc.requestId,file:new File(["%PDF-1.4\nReplacement\n%%EOF"],"new.pdf",{type:"application/pdf"}),replacesDocumentId:f.file.id});
     await expect(reviewPaperworkRun(s.ctx,s.input)).rejects.toMatchObject({code:"CONFLICT"});
-    await owner.query("update hims.admissions set payment_route='SELF_PAY' where id=$1",[f.admissionId]);
+    await owner.query("update admissions set payment_route='SELF_PAY' where id=$1",[f.admissionId]);
     const t=f.ic();await expect(startPaperworkRun(t,{...f.input(t),expectedDocumentVersion:2,manualSources:[]})).rejects.toMatchObject({code:"PRECONDITION"});
-    await owner.query("update hims.admissions set payment_route='INSURED',status='DISCHARGED',admitted_at=now() where id=$1",[f.admissionId]);
+    await owner.query("update admissions set payment_route='INSURED',status='DISCHARGED',admitted_at=UTC_TIMESTAMP(6) where id=$1",[f.admissionId]);
     await expect(startPaperworkRun(t,{...f.input(t),expectedDocumentVersion:2,manualSources:[]})).rejects.toMatchObject({code:"PRECONDITION"});
     expect((await getPaperworkRun(f.ic(),second.id)).stale).toBe(true);
     await expect(reviewPaperworkRun(s.ctx,s.input)).rejects.toMatchObject({code:"PRECONDITION"});
-    await owner.query("update hims.admissions set payment_route='INSURED',status='CANCELLED',admitted_at=null,cancelled_at=now(),cancellation_reason='Synthetic cancellation' where id=$1",[f.admissionId]);
+    await owner.query("update admissions set payment_route='INSURED',status='CANCELLED',admitted_at=null,cancelled_at=UTC_TIMESTAMP(6),cancellation_reason='Synthetic cancellation' where id=$1",[f.admissionId]);
     await expect(startPaperworkRun(t,{...f.input(t),expectedDocumentVersion:2,manualSources:[]})).rejects.toMatchObject({code:"PRECONDITION"});
-    expect((await runtime.query("select count(*)::int n from hims.paperwork_packets")).rows[0].n).toBe(0);
-    expect((await runtime.query("select count(*)::int n from hims.paperwork_reviews")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from paperwork_packets")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from paperwork_reviews")).rows[0].n).toBe(0);
   }));
   it("recovers after completed graph and rolled-back local effects with the original review intent",async()=>withTestDatabase(async({owner,runtime})=>{
     const f=await fixture(),run=await f.start(),r=f.review(run.id);
-    await owner.query("create function hims.synthetic_packet_failure() returns trigger language plpgsql as $$ begin raise exception 'Synthetic unavailable packet'; end $$; create trigger synthetic_packet_failure before insert on hims.paperwork_packets for each row execute function hims.synthetic_packet_failure()");
+    await owner.query("create trigger synthetic_packet_failure before insert on paperwork_packets for each row begin signal sqlstate '45000' set message_text='Synthetic unavailable packet'; end");
     await expect(reviewPaperworkRun(r.ctx,r.input)).rejects.toMatchObject({code:"PRECONDITION"});
-    expect((await runtime.query("select count(*)::int n from hims.paperwork_packets")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from paperwork_packets")).rows[0].n).toBe(0);
     const persisted=await getPaperworkRun(f.ic(),run.id);expect(persisted.status).toBe("PROCESSING");expect(persisted.reviews).toHaveLength(1);
-    await owner.query("drop trigger synthetic_packet_failure on hims.paperwork_packets; drop function hims.synthetic_packet_failure()");
+    await owner.query("drop trigger synthetic_packet_failure");
     const recovered=await reviewPaperworkRun(r.ctx,r.input);expect(recovered.status).toBe("ACCEPTED");expect(recovered.reviews).toHaveLength(1);expect(recovered.followups).toHaveLength(1);
     expect((await reviewPaperworkRun(r.ctx,r.input)).packet?.id).toBe(recovered.packet?.id);
-    expect((await runtime.query("select array_agg(v order by v) versions from hims_paperwork_checkpoints.checkpoint_migrations")).rows[0].versions).toEqual([0,1,2,3,4]);
-    await expect(runtime.query("create table hims_paperwork_checkpoints.forbidden(id int)")).rejects.toThrow();
-    await expect(runtime.query("delete from hims_paperwork_checkpoints.checkpoints where thread_id=$1",[run.id])).rejects.toThrow();
+    expect((await runtime.query("select group_concat(v order by v) versions from lg_checkpoint_migrations")).rows[0].versions).toBe("0,1,2,3,4");
+    await expect(runtime.query("create table forbidden_checkpoint_table(id int)")).rejects.toThrow();
+    await expect(runtime.query("delete from lg_checkpoints where thread_id=$1",[run.id])).rejects.toSatisfy(ruleViolation);
   }));
   it("rereads current assignment after graph work and saves no packet after mid-resume revocation",async()=>withTestDatabase(async({owner,runtime})=>{
     const f=await fixture(),run=await f.start(),r=f.review(run.id);
-    await owner.query("create function hims_paperwork_checkpoints.synthetic_slow_checkpoint() returns trigger language plpgsql as $$ begin perform pg_sleep(0.2); return new; end $$; create trigger synthetic_slow_checkpoint before insert on hims_paperwork_checkpoints.checkpoints for each row execute function hims_paperwork_checkpoints.synthetic_slow_checkpoint()");
+    await owner.query("drop trigger if exists synthetic_slow_checkpoint");
+    await owner.query("create trigger synthetic_slow_checkpoint before insert on lg_checkpoints for each row begin do sleep(0.2); end");
     const pending=reviewPaperworkRun(r.ctx,r.input);const caught=pending.catch(e=>e);
-    for(let n=0;n<100;n++){if((await runtime.query("select pending_review_id from hims.paperwork_runs where id=$1",[run.id])).rows[0].pending_review_id)break;await new Promise(resolve=>setTimeout(resolve,10));}
+    for(let n=0;n<100;n++){if((await runtime.query("select pending_review_id from paperwork_runs where id=$1",[run.id])).rows[0].pending_review_id)break;await new Promise(resolve=>setTimeout(resolve,10));}
     const c=f.ac();await assignInsuranceCase(c,{caseId:f.caseId,expectedCaseVersion:2,assignedStaffId:null,reason:"Revoke during checkpoint work",requestId:c.requestId});
     expect(await caught).toMatchObject({code:"FORBIDDEN"});
-    expect((await runtime.query("select count(*)::int n from hims.paperwork_packets")).rows[0].n).toBe(0);
-    expect((await runtime.query("select count(*)::int n from hims.paperwork_followups")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from paperwork_packets")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from paperwork_followups")).rows[0].n).toBe(0);
+    await owner.query("drop trigger if exists synthetic_slow_checkpoint"); // DDL is not rolled back with the test
   }));
   it("fails closed on actual advisory-session loss and recovers the recorded review without duplicate effects",async()=>withTestDatabase(async({owner,runtime})=>{
     const f=await fixture(),run=await f.start(),r=f.review(run.id);
-    await owner.query("create function hims_paperwork_checkpoints.synthetic_slow_checkpoint() returns trigger language plpgsql as $$ begin perform pg_sleep(0.2); return new; end $$; create trigger synthetic_slow_checkpoint before insert on hims_paperwork_checkpoints.checkpoints for each row execute function hims_paperwork_checkpoints.synthetic_slow_checkpoint()");
+    await owner.query("drop trigger if exists synthetic_slow_checkpoint");
+    await owner.query("create trigger synthetic_slow_checkpoint before insert on lg_checkpoints for each row begin do sleep(0.2); end");
     const pending=reviewPaperworkRun(r.ctx,r.input),caught=pending.catch(e=>e);
     let pid:number|undefined;
     for(let n=0;n<100;n++){
-      if((await runtime.query("select pending_review_id from hims.paperwork_runs where id=$1",[run.id])).rows[0].pending_review_id){
-        pid=(await runtime.query("select pid from pg_stat_activity where datname=current_database() and usename=current_user and state='idle' and query like 'select array_agg(v order by v) versions from hims_paperwork_checkpoints.checkpoint_migrations%' ")).rows[0]?.pid;if(pid)break;
+      if((await runtime.query("select pending_review_id from paperwork_runs where id=$1",[run.id])).rows[0].pending_review_id){
+        pid=(await runtime.query("select is_used_lock($1) as pid",[`paperwork:${run.id}`])).rows[0]?.pid;if(pid)break;
       }
       await new Promise(resolve=>setTimeout(resolve,10));
     }
-    expect(pid).toBeTypeOf("number");expect((await runtime.query("select pg_terminate_backend($1) terminated",[pid])).rows[0].terminated).toBe(true);
+    expect(pid).toBeTypeOf("number");await runtime.query(`kill ${Number(pid)}`);
     expect(await caught).toMatchObject({code:"PRECONDITION"});
-    expect((await runtime.query("select count(*)::int n from hims.paperwork_packets")).rows[0].n).toBe(0);
-    expect((await runtime.query("select count(*)::int n from hims.paperwork_followups")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from paperwork_packets")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from paperwork_followups")).rows[0].n).toBe(0);
     expect((await getInsuranceCase(f.ic(),f.caseId)).case.id).toBe(f.caseId);
-    await owner.query("drop trigger synthetic_slow_checkpoint on hims_paperwork_checkpoints.checkpoints; drop function hims_paperwork_checkpoints.synthetic_slow_checkpoint()");
+    await owner.query("drop trigger synthetic_slow_checkpoint");
     const recovered=await reviewPaperworkRun(r.ctx,r.input);expect(recovered.status).toBe("ACCEPTED");expect(recovered.reviews).toHaveLength(1);expect(recovered.followups).toHaveLength(1);
     expect((await reviewPaperworkRun(r.ctx,r.input)).packet?.id).toBe(recovered.packet?.id);
   }));
@@ -165,7 +169,7 @@ describe("durable human-reviewed insurance paperwork",()=>{
     const aBefore=barrier(),bBefore=barrier(),aGo=barrier(),bGo=barrier(),aPersisted=barrier(),bPersisted=barrier(),aReturn=barrier();
     const timeline:Record<string,unknown>[]=[],event=(name:string,data:Record<string,unknown>={})=>timeline.push({step:timeline.length+1,event:name,...data});
     const wait=async(b:ReturnType<typeof barrier>)=>{let timer:ReturnType<typeof setTimeout>|undefined;try{await Promise.race([b.promise,new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error("Synthetic overlap barrier timeout")),5000);})]);}finally{clearTimeout(timer);}};
-    const inspect=async()=>{const pool=new Pool({connectionString:testUrl,max:1});try{const state=await original(new PostgresSaver(pool,undefined,{schema:paperworkGraph.CHECKPOINT_SCHEMA})).getState({configurable:{thread_id:run.id}});return {revision:state.values.revision,reviewId:state.values.review?.reviewId,checkpointId:state.config.configurable?.checkpoint_id,interrupted:state.tasks.some(t=>t.interrupts?.length)};}finally{await pool.end();}};
+    const inspect=async()=>{const pool=createMariaPool(testUrl);try{const state=await original(new MariaDbSaver(pool)).getState({configurable:{thread_id:run.id}});return {revision:state.values.revision,reviewId:state.values.review?.reviewId,checkpointId:state.config.configurable?.checkpoint_id,interrupted:state.tasks.some(t=>t.interrupts?.length)};}finally{await pool.end();}};
     let delegates=0,aFinished=false,a:Promise<unknown>|undefined,b:Promise<unknown>|undefined;
     const spy=vi.spyOn(paperworkGraph,"createPaperworkGraph").mockImplementation(saver=>{
       const graph=original(saver);return {...graph,invoke:async(...args:Parameters<typeof graph.invoke>)=>{
@@ -179,15 +183,15 @@ describe("durable human-reviewed insurance paperwork",()=>{
     const outcome=(v:unknown)=>v instanceof Error?{code:(v as Error&{code?:string}).code,message:v.message}:v;
     try{
       a=reviewPaperworkRun(r.ctx,r.input).catch(e=>e).finally(()=>{aFinished=true;});await wait(aBefore);
-      const pending=(await runtime.query("select pending_review_id from hims.paperwork_runs where id=$1",[run.id])).rows[0].pending_review_id;expect(pending).toBeTruthy();event("A intent persisted",{reviewId:pending});
-      const sessions=(await runtime.query("with target as (select hashtextextended($1,0) k) select a.pid from pg_stat_activity a join pg_locks l on l.pid=a.pid cross join target where a.datname=current_database() and a.usename=current_user and a.state='idle' and a.query like 'select array_agg(v order by v) versions from hims_paperwork_checkpoints.checkpoint_migrations%' and l.locktype='advisory' and l.granted and l.objsubid=1 and l.classid::bigint=((target.k >> 32)&4294967295) and l.objid::bigint=(target.k&4294967295)",[`paperwork:${run.id}`])).rows;
-      expect(sessions).toHaveLength(1);expect((await runtime.query("select pg_terminate_backend($1) terminated",[sessions[0].pid])).rows[0].terminated).toBe(true);event("A native advisory backend terminated",{pid:sessions[0].pid});
+      const pending=(await runtime.query("select pending_review_id from paperwork_runs where id=$1",[run.id])).rows[0].pending_review_id;expect(pending).toBeTruthy();event("A intent persisted",{reviewId:pending});
+      const sessions=[{pid:(await runtime.query("select is_used_lock($1) as pid",[`paperwork:${run.id}`])).rows[0].pid}];
+      expect(sessions).toHaveLength(1);await runtime.query(`kill ${Number(sessions[0].pid)}`);event("A native advisory backend terminated",{pid:sessions[0].pid});
       b=reviewPaperworkRun(r.ctx,r.input).catch(e=>e);await wait(bBefore);expect(aFinished).toBe(false);event("B prechecked revision 1 while A unfinished",await inspect());
       aGo.release();await wait(aPersisted);const afterA=await inspect();event("Independent saver after A persistence",afterA);expect(afterA).toMatchObject({revision:2,interrupted:true,reviewId:pending});expect(aFinished).toBe(false);
       bGo.release();await wait(bPersisted);event("Independent saver after B delegation",await inspect());aReturn.release();
       const results=await Promise.all([a,b]);const after=await inspect(),retained=await getPaperworkRun(f.ic(),run.id);
       const retry=await reviewPaperworkRun(r.ctx,r.input).catch(e=>e),afterRetry=await inspect();
-      const packets=(await runtime.query("select count(*)::int n from hims.paperwork_packets where run_id=$1",[run.id])).rows[0].n,followups=(await runtime.query("select count(*)::int n from hims.paperwork_followups where run_id=$1",[run.id])).rows[0].n;
+      const packets=(await runtime.query("select count(*) n from paperwork_packets where run_id=$1",[run.id])).rows[0].n,followups=(await runtime.query("select count(*) n from paperwork_followups where run_id=$1",[run.id])).rows[0].n;
       event("Public outcomes",{A:outcome(results[0]),B:results[1] instanceof Error?outcome(results[1]):{status:(results[1] as {status:string}).status},native:after,retained:{status:retained.status,revision:retained.revision,proposals:retained.proposals.map(p=>p.revision),reviews:retained.reviews.map(q=>({id:q.id,revision:q.revision,decision:q.decision}))},retry:retry instanceof Error?outcome(retry):{status:retry.status,revision:retry.revision},afterRetry,packets,followups});
       await mkdir(resolve("../tmp/task14/fix1"),{recursive:true});await writeFile(resolve("../tmp/task14/fix1/overlap-probe.json"),JSON.stringify({runId:run.id,timeline},null,2));
       expect(results[0]).toMatchObject({code:"PRECONDITION"});expect(after).toMatchObject({revision:2,interrupted:true,reviewId:pending});expect(afterRetry).toMatchObject({revision:2,interrupted:true,reviewId:pending});expect(retry).toMatchObject({status:"AWAITING_REVIEW",revision:2});
@@ -204,29 +208,29 @@ describe("durable human-reviewed insurance paperwork",()=>{
     expect((await reviewPaperworkRun(first.ctx,first.input)).revision).toBe(2);
     const alias=f.review(run.id.toUpperCase(),"ACCEPT",2),result=await reviewPaperworkRun(alias.ctx,alias.input).catch(e=>e);
     const retained=await getPaperworkRun(f.ic(),run.id),retry=await reviewPaperworkRun(alias.ctx,{...alias.input,runId:run.id}).catch(e=>e);
-    const pool=new Pool({connectionString:testUrl,max:1});let canonical,uppercase;
-    try{const graph=paperworkGraph.createPaperworkGraph(new PostgresSaver(pool,undefined,{schema:paperworkGraph.CHECKPOINT_SCHEMA}));canonical=await graph.getState({configurable:{thread_id:run.id}});uppercase=await graph.getState({configurable:{thread_id:run.id.toUpperCase()}});}finally{await pool.end();}
-    const threads=(await runtime.query("select distinct thread_id from hims_paperwork_checkpoints.checkpoints where thread_id in ($1,$2) order by thread_id",[run.id,run.id.toUpperCase()])).rows.map(r=>r.thread_id);
+    const pool=createMariaPool(testUrl);let canonical,uppercase;
+    try{const graph=paperworkGraph.createPaperworkGraph(new MariaDbSaver(pool));canonical=await graph.getState({configurable:{thread_id:run.id}});uppercase=await graph.getState({configurable:{thread_id:run.id.toUpperCase()}});}finally{await pool.end();}
+    const threads=(await runtime.query("select distinct thread_id from lg_checkpoints where thread_id in ($1,$2) order by thread_id",[run.id,run.id.toUpperCase()])).rows.map(r=>r.thread_id);
     const outcome=(v:unknown)=>v instanceof Error?{code:(v as Error&{code?:string}).code,message:v.message}:{status:(v as {status:string}).status};
     await mkdir(resolve("../tmp/task14/fix1"),{recursive:true});await writeFile(resolve("../tmp/task14/fix1/uuid-alias-probe.json"),JSON.stringify({canonicalId:run.id,callerAlias:alias.input.runId,outcome:outcome(result),canonicalPayloadRetry:outcome(retry),retained:{id:retained.id,status:retained.status,revision:retained.revision,reviews:retained.reviews.map(r=>({revision:r.revision,decision:r.decision})),packets:retained.packet?1:0,followups:retained.followups.length},native:{threads,canonicalRevision:canonical.values.revision,uppercaseRevision:uppercase.values.revision??null}},null,2));
     expect(result).toMatchObject({status:"ACCEPTED",revision:2});expect(retry).toMatchObject({status:"ACCEPTED",revision:2});expect(retry.packet?.id).toBe(result.packet?.id);expect(retained.reviews.map(r=>r.revision)).toEqual([1,2]);expect(retained.followups).toHaveLength(1);expect(threads).toEqual([run.id]);expect(uppercase.values.source).toBeUndefined();
   }));
   it("rejects disabled staff and changed bytes; missing setup never auto-migrates or breaks core case work",async()=>withTestDatabase(async({owner,runtime})=>{
     const f=await fixture(),run=await f.start();
-    await owner.query("update hims.staff_user set banned=true where id=$1",[f.insurance.id]);
+    await owner.query("update staff_user set banned=true where id=$1",[f.insurance.id]);
     const r=f.review(run.id);await expect(reviewPaperworkRun(r.ctx,r.input)).rejects.toMatchObject({code:"FORBIDDEN"});
-    await owner.query("update hims.staff_user set banned=false where id=$1",[f.insurance.id]);
-    const {writeFile,readFile}=await import("node:fs/promises"),row=(await runtime.query("select storage_key from hims.insurance_documents where id=$1",[f.file.id])).rows[0];
-    const path=resolve(insuranceStorageDirectory(),`${row.storage_key}.bin`),bytes=await readFile(path);
-    await writeFile(path,Buffer.alloc(bytes.length,65));try{await expect(reviewPaperworkRun(r.ctx,r.input)).rejects.toMatchObject({code:"PRECONDITION"});expect((await getPaperworkRun(f.ic(),run.id)).stale).toBe(true);}finally{await writeFile(path,bytes);}
-    await owner.query("alter schema hims_paperwork_checkpoints rename to synthetic_unavailable_checkpoints");
+    await owner.query("update staff_user set banned=false where id=$1",[f.insurance.id]);
+    const row=(await runtime.query("select storage_key from insurance_documents where id=$1",[f.file.id])).rows[0],name=`${row.storage_key}.bin`;
+    const bytes=(await runtime.query("select content from protected_files where kind='insurance' and name=$1",[name])).rows[0].content,store=(content:Buffer)=>owner.query("update protected_files set content=$1 where kind='insurance' and name=$2",[content,name]);
+    await store(Buffer.alloc(bytes.length,65));try{await expect(reviewPaperworkRun(r.ctx,r.input)).rejects.toMatchObject({code:"PRECONDITION"});expect((await getPaperworkRun(f.ic(),run.id)).stale).toBe(true);}finally{await store(bytes);}
+    await owner.query("rename table lg_checkpoints to synthetic_unavailable_checkpoints");
     const s=f.ic(),v=f.input(s);await expect(startPaperworkRun(s,v)).rejects.toMatchObject({code:"PRECONDITION"});
-    expect((await runtime.query("select to_regnamespace('hims_paperwork_checkpoints') value")).rows[0].value).toBe(null);
+    expect((await runtime.query("select count(*) n from information_schema.tables where table_schema=database() and table_name='lg_checkpoints'")).rows[0].n).toBe(0);
     expect((await getInsuranceCase(f.ic(),f.caseId)).case.id).toBe(f.caseId);
-    await owner.query("alter schema synthetic_unavailable_checkpoints rename to hims_paperwork_checkpoints");
+    await owner.query("rename table synthetic_unavailable_checkpoints to lg_checkpoints");
     expect((await startPaperworkRun(s,v)).status).toBe("AWAITING_REVIEW");
-    expect((await runtime.query("select count(*)::int n from hims.paperwork_packets")).rows[0].n).toBe(0);
-    expect((await runtime.query("select count(*)::int n from hims.paperwork_reviews")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from paperwork_packets")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from paperwork_reviews")).rows[0].n).toBe(0);
   }));
   it("disables ambient and inherited external tracing locally while durable interrupt and review still work",async()=>withTestDatabase(async({runtime})=>{
     const f=await fixture();
@@ -255,7 +259,7 @@ describe("durable human-reviewed insurance paperwork",()=>{
       expect(callback.mock.contexts.every(value=>{const tracer=value as Tracer,client=observedClient(tracer.client);return client.apiUrl===LOCAL_PAPERWORK_TRACE_URL&&client.tracingMode==="langsmith"&&!tracer.replicas?.length;}),"Every child client stays local with OTEL and replica transport excluded").toBe(true);
       expect(foreignCreate,"External trace creates").toBe(0);expect(foreignUpdate,"External trace updates").toBe(0);expect(network.mock.calls.length,"External network exports").toBe(0);
       expect(create.mock.calls.length).toBeGreaterThan(0);expect(update.mock.calls.length).toBeGreaterThan(0);
-      expect((await runtime.query("select count(*)::int n from hims_paperwork_checkpoints.checkpoints where thread_id=$1",[run.id])).rows[0].n).toBeGreaterThan(5);
+      expect((await runtime.query("select count(*) n from lg_checkpoints where thread_id=$1",[run.id])).rows[0].n).toBeGreaterThan(5);
       for(const name of ["LANGSMITH_TRACING_V2","LANGCHAIN_TRACING_V2","LANGSMITH_TRACING","LANGCHAIN_TRACING"])expect(process.env[name]).toBe("true");
     }finally{vi.unstubAllEnvs();vi.unstubAllGlobals();vi.restoreAllMocks();}
   }));

@@ -4,6 +4,7 @@ import { db, withTransaction } from "../db";
 import { admissions } from "../admissions/schema";
 import { lockBillingAdmission } from "./commands";
 import { reconcileRoomChargesInTransaction } from "./room-charges";
+import { acquireTxLock } from "../locks";
 /** Explicit one-pass job; importing this module never starts work. Restart uses persisted stay cursors. */
 export async function postDueRoomCharges(cutoff: Date) {
   const work = await db.select({ id: admissions.id }).from(admissions).where(eq(admissions.status, "ADMITTED")).orderBy(asc(admissions.id));
@@ -11,7 +12,7 @@ export async function postDueRoomCharges(cutoff: Date) {
   for (const row of work) {
     delta += await withTransaction(async (tx) => {
       // Per-admission job lock lets independent stays progress without a long global transaction.
-      await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`room-worker:${row.id}`},0))`);
+      await acquireTxLock(tx, `room-worker:${row.id}`);
       const episode = await lockBillingAdmission(tx, row.id);
       if (episode.status !== "ADMITTED")
         return 0n;

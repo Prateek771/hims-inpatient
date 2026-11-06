@@ -16,6 +16,8 @@ import { appendAudit } from "../audit";
 import { careEpisode } from "../clinical/commands";
 import { transferAuthority } from "../admissions/transfer-authority";
 import { invalidateAffectedClearances } from "./dependencies";
+import { acquireTxLock } from "../locks";
+import { insertReturning, rowsOf } from "../sql";
 export async function applyDelayedTransfer(ctx: CommandContext, input: unknown): Promise<{
   oldStayId: string;
   newStayId: string;
@@ -25,7 +27,7 @@ export async function applyDelayedTransfer(ctx: CommandContext, input: unknown):
   }).parse(input);
   return withTransaction(async (tx) => {
     const staff = await admissionOperator(ctx, ["ADMIN"], tx);
-    await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+    await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
     const e = await lockBillingAdmission(tx, v.admissionId), authority = await requireException(tx, e.id, v.exceptionId, "DELAYED_TRANSFER", "TRANSFER");
     const result = await billingRequest(tx, ctx, "exception.delayed-transfer", v, async () => {
       if (e.status !== "ADMITTED")
@@ -46,12 +48,12 @@ export async function applyDelayedTransfer(ctx: CommandContext, input: unknown):
       const target = physical.find(b => b.id === v.targetBedId), holds = await tx.select().from(bedHolds).where(inArray(bedHolds.bedId, [stay.bedId, v.targetBedId]));
       if (!target?.active || target.id === stay.bedId || target.category !== order.destinationCategory || holds.find(h => h.bedId === stay.bedId)?.admissionId !== e.id || holds.some(h => h.bedId === target.id))
         throw new DomainError("CONFLICT", "Original occupancy or clinician-selected available target changed");
-      const conflicts = await tx.execute(sql `select 1 from hims.effective_room_stays where bed_id=${target.id} and (ended_at is null or ended_at>${T}) limit 1`);
-      const cleaning = await tx.execute(sql `select 1 from hims.effective_bed_turnovers t left join hims.bed_turnover_completions c on c.turnover_id=t.id where t.bed_id=${target.id} and (c.id is null or c.completed_at>${T}) limit 1`);
-      if (conflicts.rows.length || cleaning.rows.length)
+      const conflicts = await tx.execute(sql `select 1 from effective_room_stays where bed_id=${target.id} and (ended_at is null or ended_at>${T}) limit 1`);
+      const cleaning = await tx.execute(sql `select 1 from effective_bed_turnovers t left join bed_turnover_completions c on c.turnover_id=t.id where t.bed_id=${target.id} and (c.id is null or c.completed_at>${T}) limit 1`);
+      if (rowsOf(conflicts).length || rowsOf(cleaning).length)
         throw new DomainError("CONFLICT", "Target was occupied or not cleaned at the actual physical time");
-      const uses = await tx.execute(sql `select 1 from hims.nursing_consumables where stay_id=${stay.id} and used_at>=${T} limit 1`);
-      if (uses.rows.length)
+      const uses = await tx.execute(sql `select 1 from nursing_consumables where stay_id=${stay.id} and used_at>=${T} limit 1`);
+      if (rowsOf(uses).length)
         throw new DomainError("CONFLICT", "Recorded old-unit consumables require their own factual correction; no silent reassignment");
       const versions = await tx.select().from(settingVersions).where(and(eq(settingVersions.hospitalId, e.hospitalId), lte(settingVersions.createdAt, T))).orderBy(desc(settingVersions.version));
       const tariff = versions.find(s => s.payload.type === "tariff" && s.payload.category === target.category), category = versions.find(s => s.payload.type === "bed-category" && s.payload.code === target.category);
@@ -63,9 +65,9 @@ export async function applyDelayedTransfer(ctx: CommandContext, input: unknown):
         admissionId: e.id, stayId: stay.id, exceptionId: authority.id, evidenceId: evidence.id, version: (prior[0]?.version ?? 0) + 1, startedAt: stay.startedAt, endedAt: T, reason: authority.reason, signedBy: staff.id, signedAt: new Date()
       });
       await correctAmendedRoomCharges(tx, ctx, e.id, stay.id, T);
-      const [next] = await tx.insert(roomStays).values({
+      const [next] = await insertReturning(tx, roomStays, {
         admissionId: e.id, bedId: target.id, tariffVersionId: tariff.id, startedAt: T, lastReconciledAt: T
-      }).returning();
+      });
       await tx.delete(bedHolds).where(eq(bedHolds.admissionId, e.id));
       await tx.insert(bedHolds).values({
         admissionId: e.id, bedId: target.id, heldAt: T
@@ -73,9 +75,9 @@ export async function applyDelayedTransfer(ctx: CommandContext, input: unknown):
       await tx.update(admissions).set({
         bedId: target.id, version: sql `${admissions.version}+1`, billRevision: sql `${admissions.billRevision}+1`
       }).where(eq(admissions.id, e.id));
-      const [transfer] = await tx.insert(admissionTransfers).values({
+      const [transfer] = await insertReturning(tx, admissionTransfers, {
         admissionId: e.id, transferOrderId: order.id, oldStayId: stay.id, newStayId: next.id, oldBedId: stay.bedId, targetBedId: target.id, shiftId: evidence.shiftId, handover: evidence.notes, transferredAt: T, signedBy: evidence.signedBy, signedAt: evidence.signedAt
-      }).returning();
+      });
       await tx.insert(originalBedTurnovers).values({
         bedId: stay.bedId, stayId: stay.id, admissionId: e.id, vacatedAt: T, reason: "Actual delayed transfer; original evidence and charge corrections retained", signedBy: staff.id, signedAt: new Date()
       });
@@ -100,7 +102,7 @@ export async function returnToBed(ctx: CommandContext, input: unknown): Promise<
   }).parse(input);
   return withTransaction(async (tx) => {
     const staff = await admissionOperator(ctx, ["NURSE"], tx);
-    await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+    await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
     const e = await careEpisode(tx, staff, v.admissionId, false), authority = await requireException(tx, e.id, v.exceptionId, "RETURN_TO_BED", "RETURN_TO_BED");
     return billingRequest(tx, ctx, "exception.return-to-bed", v, async () => {
       if (e.status !== "ADMITTED")
@@ -108,28 +110,28 @@ export async function returnToBed(ctx: CommandContext, input: unknown): Promise<
       const [vacation] = await tx.select().from(effectiveRoomVacations).where(eq(effectiveRoomVacations.admissionId, e.id));
       const evidence = await tx.select().from(exceptionEvidence).where(inArray(exceptionEvidence.id, [v.doctorEvidenceId, v.nurseEvidenceId]));
       const doctor = evidence.find(r => r.id === v.doctorEvidenceId), nurse = evidence.find(r => r.id === v.nurseEvidenceId);
-      const cancelled = await tx.execute(sql`select 1 from hims.exception_evidence where kind='RETURN_CANCELLED' and source_id=${v.doctorEvidenceId} limit 1`);
-      if (!vacation || !doctor || !nurse || cancelled.rows.length || doctor.admissionId !== e.id || nurse.admissionId !== e.id || doctor.kind !== "RETURN_TO_BED" || nurse.kind !== "RETURN_HANDOVER" || doctor.sourceId !== vacation.id || nurse.sourceId !== vacation.id || nurse.signedBy !== staff.id || !authority.evidenceIds.includes(doctor.id) || nurse.actualAt < doctor.signedAt || doctor.signedAt < vacation.vacatedAt)
+      const cancelled = await tx.execute(sql`select 1 from exception_evidence where kind='RETURN_CANCELLED' and source_id=${v.doctorEvidenceId} limit 1`);
+      if (!vacation || !doctor || !nurse || rowsOf(cancelled).length || doctor.admissionId !== e.id || nurse.admissionId !== e.id || doctor.kind !== "RETURN_TO_BED" || nurse.kind !== "RETURN_HANDOVER" || doctor.sourceId !== vacation.id || nurse.sourceId !== vacation.id || nurse.signedBy !== staff.id || !authority.evidenceIds.includes(doctor.id) || nurse.actualAt < doctor.signedAt || doctor.signedAt < vacation.vacatedAt)
         throw new DomainError("VALIDATION", "Fresh Doctor instruction and your actual Nurse return handover must bind the current vacancy");
       const T = nurse.actualAt;
       const [bed] = await tx.select().from(beds).where(eq(beds.id, e.bedId)).for("update");
       const [hold] = await tx.select().from(bedHolds).where(eq(bedHolds.bedId, e.bedId));
       if (!bed.active || hold?.admissionId !== e.id)
         throw new DomainError("CONFLICT", "The original reserved bed is no longer held for this episode");
-      const cleaning = await tx.execute(sql `select 1 from hims.effective_bed_turnovers t left join hims.bed_turnover_completions c on c.turnover_id=t.id where t.bed_id=${bed.id} and (c.id is null or c.completed_at>${T}) limit 1`);
-      if (cleaning.rows.length)
+      const cleaning = await tx.execute(sql `select 1 from effective_bed_turnovers t left join bed_turnover_completions c on c.turnover_id=t.id where t.bed_id=${bed.id} and (c.id is null or c.completed_at>${T}) limit 1`);
+      if (rowsOf(cleaning).length)
         throw new DomainError("PRECONDITION", "Actual cleaning must finish before return to the reserved bed");
       const versions = await tx.select().from(settingVersions).where(and(eq(settingVersions.hospitalId, e.hospitalId), lte(settingVersions.createdAt, T))).orderBy(desc(settingVersions.version));
       const tariff = versions.find(s => s.payload.type === "tariff" && s.payload.category === bed.category), category = versions.find(s => s.payload.type === "bed-category" && s.payload.code === bed.category);
       if (!tariff || category?.payload.active !== true)
         throw new DomainError("PRECONDITION", "Configure a tariff and active category for this actual return");
       roomPolicyInput.parse(tariff.payload);
-      const [stay] = await tx.insert(roomStays).values({
+      const [stay] = await insertReturning(tx, roomStays, {
         admissionId: e.id, bedId: bed.id, tariffVersionId: tariff.id, startedAt: T, lastReconciledAt: T
-      }).returning();
-      const [record] = await tx.insert(roomReturns).values({
+      });
+      const [record] = await insertReturning(tx, roomReturns, {
         admissionId: e.id, vacationId: vacation.id, stayId: stay.id, exceptionId: authority.id, doctorEvidenceId: doctor.id, nurseEvidenceId: nurse.id, returnedAt: T, signedBy: staff.id, signedAt: new Date()
-      }).returning();
+      });
       await tx.update(admissions).set({ version: sql `${admissions.version}+1`, billRevision: sql `${admissions.billRevision}+1` }).where(eq(admissions.id, e.id));
       await invalidateAffectedClearances(tx, {
         admissionId: e.id, changeKind: "CLINICAL", changedRecordIds: [record.id]
@@ -150,7 +152,7 @@ export async function correctRoomCutoff(ctx: CommandContext, input: unknown): Pr
   }).parse(input);
   return withTransaction(async (tx) => {
     const staff = await admissionOperator(ctx, ["ADMIN"], tx);
-    await tx.execute(sql `select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+    await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
     const e = await lockBillingAdmission(tx, v.admissionId);
     const authority = await requireException(tx, e.id, v.exceptionId, "ROOM_CUTOFF_CORRECTION", "AMEND");
     return billingRequest(tx, ctx, "exception.room-cutoff-corrected", v, async () => {
@@ -160,22 +162,22 @@ export async function correctRoomCutoff(ctx: CommandContext, input: unknown): Pr
       const [stay] = await tx.select().from(effectiveRoomStays).where(eq(effectiveRoomStays.id, evidence.sourceId!));
       if (!stay?.endedAt || stay.admissionId !== e.id || evidence.actualAt <= stay.startedAt)
         throw new DomainError("VALIDATION", "Correct the retained final closed stay boundary");
-      const next = await tx.execute(sql `select 1 from hims.admission_transfers where old_stay_id=${stay.id} union all select 1 from hims.room_returns r join hims.room_vacations v on v.id=r.vacation_id where v.stay_id=${stay.id} limit 1`);
-      if (next.rows.length)
+      const next = await tx.execute(sql `select 1 from admission_transfers where old_stay_id=${stay.id} union all select 1 from room_returns r join room_vacations v on v.id=r.vacation_id where v.stay_id=${stay.id} limit 1`);
+      if (rowsOf(next).length)
         throw new DomainError("PRECONDITION", "An intermediate transfer or return boundary needs its adjacent professional source corrected together");
       const departure = await actualEpisodeDeparture(tx, e.id);
       if (departure && evidence.actualAt > departure)
         throw new DomainError("VALIDATION", "Physical bed use cannot continue after actual hospital departure");
       await tx.select().from(beds).where(eq(beds.id, stay.bedId)).for("update");
-      const conflicts = await tx.execute(sql `select 1 from hims.effective_room_stays where id<>${stay.id} and (bed_id=${stay.bedId} or admission_id=${e.id}) and tstzrange(started_at,ended_at,'[)')&&tstzrange(${stay.startedAt}::timestamptz,${evidence.actualAt}::timestamptz,'[)') limit 1`);
-      const cleaning = await tx.execute(sql `select 1 from hims.bed_turnovers t join hims.bed_turnover_completions c on c.turnover_id=t.id where t.stay_id=${stay.id} and c.completed_at<${evidence.actualAt} limit 1`);
-      const uses = await tx.execute(sql `select 1 from hims.nursing_consumables where stay_id=${stay.id} and used_at>=${evidence.actualAt} limit 1`);
-      if (conflicts.rows.length || cleaning.rows.length || uses.rows.length)
+      const conflicts = await tx.execute(sql `select 1 from effective_room_stays where id<>${stay.id} and (bed_id=${stay.bedId} or admission_id=${e.id}) and (ended_at is null or ended_at>started_at) and ${evidence.actualAt}>${stay.startedAt} and started_at<${evidence.actualAt} and (ended_at is null or ended_at>${stay.startedAt}) limit 1`);
+      const cleaning = await tx.execute(sql `select 1 from bed_turnovers t join bed_turnover_completions c on c.turnover_id=t.id where t.stay_id=${stay.id} and c.completed_at<${evidence.actualAt} limit 1`);
+      const uses = await tx.execute(sql `select 1 from nursing_consumables where stay_id=${stay.id} and used_at>=${evidence.actualAt} limit 1`);
+      if (rowsOf(conflicts).length || rowsOf(cleaning).length || rowsOf(uses).length)
         throw new DomainError("CONFLICT", "Factual occupancy, cleaning or source-unit use contradicts this cutoff");
       const [prior] = await tx.select().from(stayBoundaryAmendments).where(eq(stayBoundaryAmendments.stayId, stay.id)).orderBy(desc(stayBoundaryAmendments.version)).limit(1);
-      const [amendment] = await tx.insert(stayBoundaryAmendments).values({
+      const [amendment] = await insertReturning(tx, stayBoundaryAmendments, {
         admissionId: e.id, stayId: stay.id, exceptionId: authority.id, evidenceId: evidence.id, version: (prior?.version ?? 0) + 1, startedAt: stay.startedAt, endedAt: evidence.actualAt, reason: authority.reason, signedBy: staff.id, signedAt: new Date()
-      }).returning();
+      });
       await correctAmendedRoomCharges(tx, ctx, e.id, stay.id, new Date());
       await appendAudit(tx, ctx, {
         event: "exception.room-cutoff-corrected", entityType: "stay-boundary-amendment", entityId: amendment.id, reason: authority.reason

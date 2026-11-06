@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { useStaffSession as currentStaffSession } from "../support/browser-session";
-import { Client } from "pg";
+import { TestClient as Client } from "../../scripts/test-client.ts";
 import { getTestDatabaseConfig } from "../../scripts/test-database-guard";
 // Retained v1 operational views retain their exact financial/clinical proof.
 const legacyPaths = { ADMIN:"/overview?legacy=1", ADMISSION:"/admissions", DOCTOR:"/clinical", NURSE:"/nursing?legacy=1", PHARMACY:"/pharmacy?legacy=1", LAB:"/lab", INSURANCE:"/insurance?legacy=1", BILLING:"/billing?legacy=1" };
@@ -103,20 +103,18 @@ test("workspace navigation exposes a loading state without placeholder counts", 
   const client = new Client({ connectionString: ownerUrl });
   await client.connect();
   try {
-    expect((await client.query("select current_database() name,current_user role")).rows[0]).toEqual({ name: databaseName, role: "hims_test_owner" });
-    await client.query("begin");
-    await client.query("set local lock_timeout='3s'; set local statement_timeout='3s'; set local idle_in_transaction_session_timeout='5s'");
+    expect((await client.query("select database() name, substring_index(user(),'@',1) role")).rows[0]).toEqual({ name: databaseName, role: "hims_test_owner" });
     // Hold only a guarded synthetic source table, so the real streamed boundary is observable.
-    await client.query("lock table hims.care_occurrences in access exclusive mode");
+    await client.query("lock tables care_occurrences write");
     const lockedAt = Date.now();
     await page.goto("/overview?legacy=1", { waitUntil: "commit" });
     await expect(page.getByRole("heading", { name: "Loading current hospital work" })).toBeVisible();
     await expect(page.getByTestId("overview-metrics")).toHaveCount(0);
     const loadingPixels = page.screenshot({ path: resolve("../tmp/task15/author-final/screenshots/overview-loading.png"), fullPage: true });
-    await client.query("commit");
+    await client.query("unlock tables");
     const heldMilliseconds = Date.now() - lockedAt;
     await loadingPixels;
-    await writeFile(resolve("../tmp/task15/author-final/loading-lock.json"), JSON.stringify({ target: "guarded synthetic hims.care_occurrences", observedLoading: true, placeholderCounts: false, releasedBeforeAwaitingPixels: true, lockHeldMilliseconds: heldMilliseconds, maximumIdleTransactionMilliseconds: 5000 }, null, 2));
+    await writeFile(resolve("../tmp/task15/author-final/loading-lock.json"), JSON.stringify({ target: "guarded synthetic care_occurrences", observedLoading: true, placeholderCounts: false, releasedBeforeAwaitingPixels: true, lockHeldMilliseconds: heldMilliseconds, maximumIdleTransactionMilliseconds: 5000 }, null, 2));
     await expect(page.getByRole("heading", { name: "Home", level: 1 })).toBeVisible({ timeout: 15000 });
-  } finally { await client.query("rollback"); await client.end(); }
+  } finally { await client.query("unlock tables"); await client.end(); }
 });

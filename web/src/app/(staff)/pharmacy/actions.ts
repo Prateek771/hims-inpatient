@@ -2,6 +2,7 @@
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import { requireStaff, staffContext } from "@/server/access";
+import { dbError } from "@/server/sql";
 import { adjustStock, issueMedicine, prepareTakeHomeMedicines, recordStockReceipt, returnMedicine } from "@/server/pharmacy/commands";
 import { DomainError } from "@/server/contracts";
 import type { CareState } from "@/components/care-forms";
@@ -38,8 +39,7 @@ export async function savePharmacy(admissionId:string,requestId:string,operation
   } catch(error) {
     if(error instanceof DomainError)return {message:error.message,error:true};
     if(error instanceof ZodError)return {message:"Review the medicine identity, exact quantity/unit and required fields.",error:true};
-    const cause=(error as {cause?:{code?:string}})?.cause;
-    if(cause?.code==="23505")return {message:"This receipt source, batch or barcode already exists. Review the recorded receipt and stock identity.",error:true};
+    if(dbError(error).kind==="unique")return {message:"This receipt source, batch or barcode already exists. Review the recorded receipt and stock identity.",error:true};
     console.error("Pharmacy operation failed");
     return {message:"The pharmacy change was not saved. Try again or contact your administrator.",error:true};
   }

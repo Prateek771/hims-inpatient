@@ -11,6 +11,7 @@ import { effectiveRoomVacations as roomVacations } from "./schema";
 import { billProjection, financialResponsibilityInTransaction } from "../billing/commands";
 import { formatINR } from "../billing/money";
 
+import { rowsOf } from "../sql";
 export const dependencyGate = { CLINICAL: "DOCTOR", PHARMACY: "PHARMACY", MAR: "PHARMACY", NURSING: "NURSING", MONEY: "BILLING", INSURANCE: "BILLING", ROOM: "BILLING" } as const;
 export type ChangeKind = keyof typeof dependencyGate;
 export function jsonSnapshot(value: unknown): Record<string, unknown> {
@@ -21,23 +22,23 @@ export function reviewHash(value: unknown) {
 }
 /** Caller holds the owning admission lock. Native source triggers use the same mapping. */
 export async function invalidateAffectedClearances(tx: Transaction, input: { admissionId: string; changeKind: ChangeKind; changedRecordIds: string[] }) {
-  await tx.execute(sql`select hims.invalidate_clearances(${input.admissionId}::uuid, ${dependencyGate[input.changeKind]}, ${input.changeKind}, ${JSON.stringify(input.changedRecordIds)}::jsonb)`);
+  await tx.execute(sql`select invalidate_clearances(${input.admissionId}, ${dependencyGate[input.changeKind]}, ${input.changeKind}, ${JSON.stringify(input.changedRecordIds)})`);
 }
-async function rows(tx: Transaction, query: SQL) { return (await tx.execute(query)).rows; }
+async function rows(tx: Transaction, query: SQL) { return rowsOf(await tx.execute(query)); }
 export async function clinicalClearanceInputs(tx: Transaction, id: string) {
   const [summary] = await tx.select().from(clinicalSummaries).where(eq(clinicalSummaries.admissionId, id)).orderBy(desc(clinicalSummaries.version)).limit(1);
-  const rounds = await rows(tx, sql`select * from hims.clinical_rounds where admission_id=${id} order by id`);
-  const addenda = await rows(tx, sql`select a.* from hims.clinical_addenda a join hims.clinical_rounds r on r.id=a.note_id where r.admission_id=${id} order by a.id`);
-  const orders = await rows(tx, sql`select * from hims.clinical_orders where admission_id=${id} order by id`);
-  const events = await rows(tx, sql`select e.* from hims.clinical_task_events e join hims.clinical_orders o on o.id=e.order_id where o.admission_id=${id} order by e.id`);
-  const reports = await rows(tx, sql`select * from hims.lab_reports where admission_id=${id} order by id`);
-  const reportAddenda = await rows(tx, sql`select a.* from hims.lab_report_addenda a join hims.lab_reports r on r.id=a.report_id where r.admission_id=${id} order by a.id`);
-  const dispositions = await rows(tx, sql`select * from hims.lab_dispositions where admission_id=${id} order by id`);
-  const transfers = await rows(tx, sql`select * from hims.admission_transfers where admission_id=${id} order by id`);
+  const rounds = await rows(tx, sql`select * from clinical_rounds where admission_id=${id} order by id`);
+  const addenda = await rows(tx, sql`select a.* from clinical_addenda a join clinical_rounds r on r.id=a.note_id where r.admission_id=${id} order by a.id`);
+  const orders = await rows(tx, sql`select * from clinical_orders where admission_id=${id} order by id`);
+  const events = await rows(tx, sql`select e.* from clinical_task_events e join clinical_orders o on o.id=e.order_id where o.admission_id=${id} order by e.id`);
+  const reports = await rows(tx, sql`select * from lab_reports where admission_id=${id} order by id`);
+  const reportAddenda = await rows(tx, sql`select a.* from lab_report_addenda a join lab_reports r on r.id=a.report_id where r.admission_id=${id} order by a.id`);
+  const dispositions = await rows(tx, sql`select * from lab_dispositions where admission_id=${id} order by id`);
+  const transfers = await rows(tx, sql`select * from admission_transfers where admission_id=${id} order by id`);
   const transferState = await transferAuthority(tx, id);
-  const transferOrders = await rows(tx, sql`select * from hims.transfer_orders where admission_id=${id} order by version desc`);
-  const exceptionInstructions = await rows(tx, sql`select * from hims.exception_evidence where admission_id=${id} and role='DOCTOR' order by id`);
-  const returns = await rows(tx, sql`select * from hims.room_returns where admission_id=${id} order by id`);
+  const transferOrders = await rows(tx, sql`select * from transfer_orders where admission_id=${id} order by version desc`);
+  const exceptionInstructions = await rows(tx, sql`select * from exception_evidence where admission_id=${id} and role='DOCTOR' order by id`);
+  const returns = await rows(tx, sql`select * from room_returns where admission_id=${id} order by id`);
   const blockers: string[] = [];
   if (!summary) blockers.push("Doctor must sign the clinical summary and explicit take-home prescription.");
   if (exceptionInstructions.some(p => p.kind === "RETURN_TO_BED" && !returns.some(r => r.doctor_evidence_id === p.id) && !exceptionInstructions.some(r => r.kind === "RETURN_CANCELLED" && r.source_id === p.id))) blockers.push("Current Doctor return instruction requires actual return or an explicit source-bound Doctor reconsideration before ordinary discharge.");
@@ -54,23 +55,23 @@ export async function clinicalClearanceInputs(tx: Transaction, id: string) {
 }
 export async function pharmacyClearanceInputs(tx: Transaction, episode: typeof admissions.$inferSelect) {
   const source = await pharmacyClearanceSourceInTransaction(tx, episode);
-  const mar = await rows(tx, sql`select * from hims.medication_administrations where admission_id=${episode.id} order by id`);
-  const corrections = await rows(tx, sql`select * from hims.nursing_addenda where admission_id=${episode.id} and record_type='MAR' order by id`);
-  const medicineMoney = await rows(tx, sql`select c.id,c.source_event_id,c.amount_paise,c.tariff_version_id,r.id as reversal_id,r.amount_paise as reversed_paise from hims.charges c left join hims.charge_reversals r on r.charge_id=c.id where c.admission_id=${episode.id} and c.category='medicine' order by c.id,r.id`);
+  const mar = await rows(tx, sql`select * from medication_administrations where admission_id=${episode.id} order by id`);
+  const corrections = await rows(tx, sql`select * from nursing_addenda where admission_id=${episode.id} and record_type='MAR' order by id`);
+  const medicineMoney = await rows(tx, sql`select c.id,c.source_event_id,c.amount_paise,c.tariff_version_id,r.id as reversal_id,r.amount_paise as reversed_paise from charges c left join charge_reversals r on r.charge_id=c.id where c.admission_id=${episode.id} and c.category='medicine' order by c.id,r.id`);
   return { inputs: jsonSnapshot({ orders: source.orders.toSorted((a,b)=>a.id.localeCompare(b.id)), prescription: source.prescription ?? null, preparations: source.preparations, issues: source.issues.toSorted((a,b)=>a.id.localeCompare(b.id)), medicineMoney, mar, corrections, safety: source.unresolved }), blockers: source.unresolved };
 }
 export async function nursingClearanceInputs(tx: Transaction, id: string) {
-  const observations = await rows(tx, sql`select * from hims.nursing_observations where admission_id=${id} order by id`);
-  const mar = await rows(tx, sql`select * from hims.medication_administrations where admission_id=${id} order by id`);
-  const addenda = await rows(tx, sql`select * from hims.nursing_addenda where admission_id=${id} order by id`);
-  const shifts = await rows(tx, sql`select s.*,e.id as end_id,e.ended_at,e.handover as end_handover,e.signed_by as end_signed_by,e.signed_at as end_signed_at,e.end_kind,e.operational_evidence from hims.nursing_shifts s left join hims.effective_shift_ends e on e.shift_id=s.id where s.admission_id=${id} order by s.id`);
-  const consumables = await rows(tx, sql`select * from hims.nursing_consumables where admission_id=${id} order by id`);
-  const consumableMoney = await rows(tx, sql`select c.id,c.source_event_id,c.amount_paise,r.id as reversal_id,r.amount_paise as reversed_paise from hims.charges c left join hims.charge_reversals r on r.charge_id=c.id where c.admission_id=${id} and c.category='consumable' order by c.id,r.id`);
-  const transfers = await rows(tx, sql`select * from hims.admission_transfers where admission_id=${id} order by id`);
-  const unresolved = await rows(tx, sql`select id from hims.care_billing_events where admission_id=${id} and category='consumable' and state<>'POSTED' order by id`);
-  const exceptionFacts = await rows(tx, sql`select * from hims.exception_evidence where admission_id=${id} and role='NURSE' order by id`);
+  const observations = await rows(tx, sql`select * from nursing_observations where admission_id=${id} order by id`);
+  const mar = await rows(tx, sql`select * from medication_administrations where admission_id=${id} order by id`);
+  const addenda = await rows(tx, sql`select * from nursing_addenda where admission_id=${id} order by id`);
+  const shifts = await rows(tx, sql`select s.*,e.id as end_id,e.ended_at,e.handover as end_handover,e.signed_by as end_signed_by,e.signed_at as end_signed_at,e.end_kind,e.operational_evidence from nursing_shifts s left join effective_shift_ends e on e.shift_id=s.id where s.admission_id=${id} order by s.id`);
+  const consumables = await rows(tx, sql`select * from nursing_consumables where admission_id=${id} order by id`);
+  const consumableMoney = await rows(tx, sql`select c.id,c.source_event_id,c.amount_paise,r.id as reversal_id,r.amount_paise as reversed_paise from charges c left join charge_reversals r on r.charge_id=c.id where c.admission_id=${id} and c.category='consumable' order by c.id,r.id`);
+  const transfers = await rows(tx, sql`select * from admission_transfers where admission_id=${id} order by id`);
+  const unresolved = await rows(tx, sql`select id from care_billing_events where admission_id=${id} and category='consumable' and state<>'POSTED' order by id`);
+  const exceptionFacts = await rows(tx, sql`select * from exception_evidence where admission_id=${id} and role='NURSE' order by id`);
   // Ordinary first vacancy follows this seal. Only later amended witnesses reopen its review.
-  const amendedVacancies = await rows(tx, sql`select * from hims.effective_vacation_facts where admission_id=${id} and amendment_id is not null order by id`);
+  const amendedVacancies = await rows(tx, sql`select * from effective_vacation_facts where admission_id=${id} and amendment_id is not null order by id`);
   return { inputs: jsonSnapshot({ observations, mar, addenda, shifts, consumables, consumableMoney, transfers, exceptionFacts, amendedVacancies }), blockers: unresolved.map(() => "Nursing consumable charge requires source/price reconciliation.") };
 }
 export async function latestSeals(tx: Transaction, admissionId: string) {
@@ -80,19 +81,19 @@ export async function latestSeals(tx: Transaction, admissionId: string) {
 export async function billingClearanceInputs(tx: Transaction, episode: typeof admissions.$inferSelect, reviewedBill?: Awaited<ReturnType<typeof billProjection>>) {
   const bill=reviewedBill??await billProjection(tx,episode,new Date()), financial=await financialResponsibilityInTransaction(tx,episode,bill);
   const [vacation]=await tx.select().from(roomVacations).where(eq(roomVacations.admissionId,episode.id));
-  const unresolved=await rows(tx,sql`select b.id,b.category,b.state from hims.care_billing_events b
-    left join hims.lab_dispositions d on d.order_id=b.order_id
+  const unresolved=await rows(tx,sql`select b.id,b.category,b.state from care_billing_events b
+    left join lab_dispositions d on d.order_id=b.order_id
     where b.admission_id=${episode.id} and b.state<>'POSTED' and d.id is null
-    and not (b.category='procedure' and exists(select 1 from hims.clinical_task_events e where e.order_id=b.order_id and e.status='STOPPED') and not exists(select 1 from hims.clinical_task_events e where e.order_id=b.order_id and e.status='COMPLETED')) order by b.id`);
+    and not (b.category='procedure' and exists(select 1 from clinical_task_events e where e.order_id=b.order_id and e.status='STOPPED') and not exists(select 1 from clinical_task_events e where e.order_id=b.order_id and e.status='COMPLETED')) order by b.id`);
   const blockers:string[]=[];
-  const pending=await rows(tx,sql`select c.id from hims.charges c
-    left join hims.care_billing_events b on b.id::text=c.source_event_id
-    left join hims.lab_dispositions d on d.order_id=b.order_id
+  const pending=await rows(tx,sql`select c.id from charges c
+    left join care_billing_events b on b.id=c.source_event_id
+    left join lab_dispositions d on d.order_id=b.order_id
     where c.admission_id=${episode.id} and c.initial_status='PENDING'
-    and not exists(select 1 from hims.charge_finalizations f where f.charge_id=c.id)
+    and not exists(select 1 from charge_finalizations f where f.charge_id=c.id)
     and d.id is null
-    and not (c.amount_paise>0 and c.amount_paise<=(select coalesce(sum(r.amount_paise),0) from hims.charge_reversals r where r.charge_id=c.id))
-    and not (coalesce(b.category,'')='procedure' and exists(select 1 from hims.clinical_task_events e where e.order_id=b.order_id and e.status='STOPPED') and not exists(select 1 from hims.clinical_task_events e where e.order_id=b.order_id and e.status='COMPLETED')) order by c.id`);
+    and not (c.amount_paise>0 and c.amount_paise<=(select coalesce(sum(r.amount_paise),0) from charge_reversals r where r.charge_id=c.id))
+    and not (coalesce(b.category,'')='procedure' and exists(select 1 from clinical_task_events e where e.order_id=b.order_id and e.status='STOPPED') and not exists(select 1 from clinical_task_events e where e.order_id=b.order_id and e.status='COMPLETED')) order by c.id`);
   if(!vacation)blockers.push("Nursing must record actual end of physical bed use; room charges continue while occupied.");
   if(pending.length||bill.pendingPaise>0n||unresolved.length)blockers.push("Department work has unresolved or pending financial sources.");
   if(bill.unpostedRoomPaise>0n)blockers.push("Reconcile actual room charges before final review.");

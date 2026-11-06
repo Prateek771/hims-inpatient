@@ -7,6 +7,7 @@ import { billProjection, financialResponsibilityInTransaction } from "../billing
 import { effectiveRoomVacations, departures } from "../discharge/schema";
 import { jsonSnapshot, reviewHash } from "../discharge/dependencies";
 import { mvpChecks, mvpEvents, mvpInvalidations, mvpMedicineSources,mvpExceptionEvents,mvpExceptionalDepartures,mvpRoomReturns } from "./schema";
+import { rowsOf } from "../sql";
 export type MvpEvent = typeof mvpEvents.$inferSelect;
 export async function mvpState(tx: Transaction, episode: typeof admissions.$inferSelect) {
   const history = await tx.select({ event: mvpEvents, invalidation: mvpInvalidations }).from(mvpEvents).leftJoin(mvpInvalidations, eq(mvpEvents.id,mvpInvalidations.eventId)).where(eq(mvpEvents.admissionId,episode.id)).orderBy(desc(mvpEvents.recordedAt),desc(mvpEvents.id));
@@ -27,8 +28,8 @@ export async function mvpState(tx: Transaction, episode: typeof admissions.$infe
   const bill = await billProjection(tx,episode,new Date()), financial = await financialResponsibilityInTransaction(tx,episode,bill);
   const medicineSources = await tx.select().from(mvpMedicineSources).where(eq(mvpMedicineSources.admissionId,episode.id)).orderBy(asc(mvpMedicineSources.recordedAt),asc(mvpMedicineSources.id));
   const medicine = medicineLines(medicineSources, bill.charges, bill.reversals);
-  const assignments = (await tx.execute(sql`select a.id,a.nurse_id from hims.nurse_assignments a where a.admission_id=${episode.id} and not exists(select 1 from hims.nurse_assignment_revocations r where r.assignment_id=a.id) order by a.id`)).rows;
-  const shifts = (await tx.execute(sql`select s.id,s.nurse_id,s.started_at,e.ended_at from hims.nursing_shifts s left join hims.effective_shift_ends e on e.shift_id=s.id where s.admission_id=${episode.id} order by s.started_at desc`)).rows;
+  const assignments = rowsOf(await tx.execute(sql`select a.id,a.nurse_id from nurse_assignments a where a.admission_id=${episode.id} and not exists(select 1 from nurse_assignment_revocations r where r.assignment_id=a.id) order by a.id`));
+  const shifts = rowsOf(await tx.execute(sql`select s.id,s.nurse_id,s.started_at,e.ended_at from nursing_shifts s left join effective_shift_ends e on e.shift_id=s.id where s.admission_id=${episode.id} order by s.started_at desc`));
   const blockers: string[] = [];
   if (!clinical) blockers.push("Assigned Nurse must record the named external Doctor's discharge approval and source evidence.");
   if (!physicalChecklist) blockers.push("Assigned Nurse must publish the current physical readiness checklist.");
@@ -50,5 +51,5 @@ export async function mvpState(tx: Transaction, episode: typeof admissions.$infe
   return { clinical,checklist:physicalChecklist,checks,finance,vacancy:vacancy??null,departure:departure??null,exceptionalDeparture:exceptionalDeparture??null,exceptions,returns,bill,financial,medicine,assignments,shifts,history,deliveries,blockers,reviewHash:hash };
 }
 export async function invalidateMvp(tx: Transaction, admissionId: string, checks: string[], kind: string, sourceId: string) {
-  await tx.execute(sql`insert into hims.mvp_invalidations(event_id,kind,source_id) select e.id,${kind},${sourceId} from hims.mvp_events e where e.admission_id=${admissionId} and (e.action='finance' or (e.action in ('check','n-a') and e.check_key in (${sql.join(checks.length?checks.map(c=>sql`${c}`):[sql`''`],sql`, `)}))) on conflict(event_id) do nothing`);
+  await tx.execute(sql`insert into mvp_invalidations(event_id,kind,source_id) select e.id,${kind},${sourceId} from mvp_events e where e.admission_id=${admissionId} and (e.action='finance' or (e.action in ('check','n-a') and e.check_key in (${sql.join(checks.length?checks.map(c=>sql`${c}`):[sql`''`],sql`, `)}))) and not exists(select 1 from mvp_invalidations i where i.event_id=e.id)`);
 }

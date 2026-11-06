@@ -1,23 +1,19 @@
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
-import { lstat, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { DomainError, type CommandContext } from "../contracts";
-import { withTransaction, type Transaction } from "../db";
+import { db, withTransaction, type Transaction } from "../db";
 import { insuranceDocuments } from "./schema";
 import { bumpInsuranceCase, caseInput, insuranceAudit, insuranceCaseSource, insuranceCommand, insuranceOperator, requestLock } from "./commands";
-import { protectedStorageDirectory } from "../protected-storage";
+import { getFile, putFile } from "../file-store";
+import { insertReturning } from "../sql";
 export function documentSizeLimit(){
   const value=Number(process.env.HIMS_INSURANCE_MAX_BYTES??10485760);
   if(!Number.isSafeInteger(value)||value<1024||value>52428800)throw new DomainError("PRECONDITION","Document size configuration must be between 1 KiB and 50 MiB");return value;
 }
-export function insuranceStorageDirectory(){
-  return protectedStorageDirectory("insurance");
-}
 const hash=(bytes:Uint8Array)=>createHash("sha256").update(bytes).digest("hex");
-function pathFor(key:string){return resolve(insuranceStorageDirectory(),`${z.uuid().parse(key)}.bin`);}
+const fileName=(key:string)=>`${z.uuid().parse(key)}.bin`;
 async function validateFile(file:File){
   if(!(file instanceof File)||file.size===0||file.size>documentSizeLimit())throw new DomainError("VALIDATION","Document size exceeds the configured limit or is empty");
   if(!file.name||file.name.length>180||/[\\/:\x00-\x1f\x7f]/.test(file.name)||file.name.startsWith(".")||file.name.endsWith(".")||file.name.endsWith(" "))throw new DomainError("VALIDATION","Use a plain document filename without paths");
@@ -28,8 +24,8 @@ async function validateFile(file:File){
   if(!valid)throw new DomainError("VALIDATION","Only matching PDF, JPEG and PNG signatures and file types are accepted");
   return {bytes,sha256:hash(bytes),sizeBytes:bytes.length,originalName:file.name,mime:file.type};
 }
-export async function readStoredDocument(row:typeof insuranceDocuments.$inferSelect){
-  try{const p=pathFor(row.storageKey);const stat=await lstat(p);if(!stat.isFile()||stat.isSymbolicLink()||stat.size!==row.sizeBytes)throw Error();const bytes=await readFile(p);if(hash(bytes)!==row.sha256)throw Error();return bytes;}
+export async function readStoredDocument(row:typeof insuranceDocuments.$inferSelect,reader:Pick<Transaction,"select">=db){
+  try{const bytes=await getFile("insurance",fileName(row.storageKey),reader);if(!bytes||bytes.length!==row.sizeBytes||hash(bytes)!==row.sha256)throw Error();return bytes;}
   catch{throw new DomainError("PRECONDITION","Protected document is unavailable or changed; restore the verified file or attach a replacement");}
 }
 export async function attachCaseDocument(ctx:CommandContext,input:unknown){return withTransaction(tx=>attachCaseDocumentInTransaction(tx,ctx,input));}
@@ -41,17 +37,15 @@ export async function attachCaseDocumentInTransaction(tx:Transaction,ctx:Command
   const bound={caseId:v.caseId,expectedCaseVersion:v.expectedCaseVersion,requestId:v.requestId,replacesDocumentId:v.replacesDocumentId,sha256:file.sha256,sizeBytes:file.sizeBytes,originalName:file.originalName,mime:file.mime};
   const result=await insuranceCommand(tx,ctx,"document-attached",bound,async s=>{
     if(v.replacesDocumentId){const [original]=await tx.select().from(insuranceDocuments).where(and(eq(insuranceDocuments.id,v.replacesDocumentId),eq(insuranceDocuments.caseId,v.caseId)));if(!original)throw new DomainError("FORBIDDEN","Replace only a document from this case");const [newer]=await tx.select().from(insuranceDocuments).where(eq(insuranceDocuments.replacesDocumentId,original.id));if(newer)throw new DomainError("CONFLICT","This document already has a replacement; replace its latest version");}
-    const storageKey=randomUUID(),directory=insuranceStorageDirectory();await mkdir(directory,{recursive:true});
-    const stat=await lstat(directory);if(!stat.isDirectory()||stat.isSymbolicLink())throw new DomainError("PRECONDITION","Protected storage must be a regular project directory");
-    const staging=resolve(directory,`${storageKey}.staging`);await writeFile(staging,file.bytes,{flag:"wx",mode:0o600});await rename(staging,pathFor(storageKey));
-    // File exists before committed metadata. Transaction failures may leave an unreferenced
-    // generated file; never delete on ambiguous COMMIT failure and break a committed record.
+    const storageKey=randomUUID();
+    // The file commits or rolls back together with its metadata (no orphan files).
+    await putFile(tx,"insurance",fileName(storageKey),file.bytes);
     const c=await bumpInsuranceCase(tx,v.caseId,false,true);
-    const [doc]=await tx.insert(insuranceDocuments).values({caseId:c.id,setRevision:c.documentSetRevision,replacesDocumentId:v.replacesDocumentId,storageKey,sha256:file.sha256,sizeBytes:file.sizeBytes,originalName:file.originalName,mime:file.mime,recordedBy:s.staff.id,recordedAt:new Date()}).returning();
+    const [doc]=await insertReturning(tx, insuranceDocuments, {caseId:c.id,setRevision:c.documentSetRevision,replacesDocumentId:v.replacesDocumentId,storageKey,sha256:file.sha256,sizeBytes:file.sizeBytes,originalName:file.originalName,mime:file.mime,recordedBy:s.staff.id,recordedAt:new Date()});
     await insuranceAudit(tx,ctx,"document-attached",c.id,v.replacesDocumentId?"Immutable replacement attached; original retained":"Staff-approved case material attached",c.version);return {id:doc.id};
   });
   const [doc]=await tx.select().from(insuranceDocuments).where(and(eq(insuranceDocuments.id,result.id),eq(insuranceDocuments.caseId,v.caseId)));
-  if(!doc)throw new DomainError("CONFLICT","Document retry record is inconsistent");await readStoredDocument(doc);return result;
+  if(!doc)throw new DomainError("CONFLICT","Document retry record is inconsistent");await readStoredDocument(doc,tx);return result;
 }
 export async function downloadCaseDocument(ctx:CommandContext,caseId:string,documentId:string){return withTransaction(async tx=>{
   await insuranceCaseSource(tx,ctx,z.uuid().parse(caseId));

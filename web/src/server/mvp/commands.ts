@@ -19,6 +19,9 @@ import { jsonSnapshot } from "../discharge/dependencies";
 import { mvpEvents, mvpChecks, optionalMvpChecks, mvpMedicineSources, mvpReceivableReceipts } from "./schema";
 import { mvpState } from "./dependencies";
 
+import { acquireTxLock } from "../locks";
+import { insertReturning, rowsOf } from "../sql";
+import { assertClosedReceipt } from "../deferred-checks";
 const note = z.string().trim().min(3).max(2000), time = z.iso.datetime();
 const common = { admissionId:z.uuid(),requestId:z.uuid(),expectedReviewHash:z.string().regex(/^[0-9a-f]{64}$/) };
 export const mvpActionInput = z.discriminatedUnion("action", [
@@ -37,15 +40,15 @@ async function own(tx:Transaction,ctx:CommandContext,admissionId:string,roles:St
   const actor=assertHumanActor(ctx);
   const staff=readOnly?(await tx.select({id:user.id,name:user.name,role:user.role,banned:user.banned}).from(user).where(eq(user.id,actor.staffId)))[0]:await admissionOperator(ctx,roles,tx);
   if(!staff||staff.banned||!roles.includes(staff.role as StaffRole))throw new DomainError("FORBIDDEN","Staff access denied");
-  if(!readOnly)await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`billing-request:${staff.id}:${ctx.requestId}`},0))`);
+  if(!readOnly)await acquireTxLock(tx, `billing-request:${staff.id}:${ctx.requestId}`);
   const e=readOnly?(await tx.select().from(admissions).where(eq(admissions.id,admissionId)))[0]:await lockBillingAdmission(tx,admissionId);
   if(!e)throw new DomainError("FORBIDDEN","Admission access denied");
   if(e.workflowVersion!==2) throw new DomainError("PRECONDITION","This action belongs to the version 2 inpatient workflow");
   if(staff.role==="NURSE") {
-    const assignment = await tx.execute(sql`select 1 from hims.nurse_assignments a where a.admission_id=${e.id} and a.nurse_id=${staff.id} and not exists(select 1 from hims.nurse_assignment_revocations r where r.assignment_id=a.id)`);
-    if(!assignment.rows.length)throw new DomainError("FORBIDDEN","Current episode Nurse assignment required");
+    const assignment = await tx.execute(sql`select 1 from nurse_assignments a where a.admission_id=${e.id} and a.nurse_id=${staff.id} and not exists(select 1 from nurse_assignment_revocations r where r.assignment_id=a.id)`);
+    if(!rowsOf(assignment).length)throw new DomainError("FORBIDDEN","Current episode Nurse assignment required");
   }
-  if(staff.role==="INSURANCE"&&!(await tx.execute(sql`select 1 from hims.insurance_cases where admission_id=${e.id} and assigned_staff_id=${staff.id}`)).rows.length)throw new DomainError("FORBIDDEN","Current Insurance case assignment required");
+  if(staff.role==="INSURANCE"&&!rowsOf(await tx.execute(sql`select 1 from insurance_cases where admission_id=${e.id} and assigned_staff_id=${staff.id}`)).length)throw new DomainError("FORBIDDEN","Current Insurance case assignment required");
   return {staff,e};
 }
 type Json<T> = T extends Date ? string : T extends bigint ? string : T extends (infer V)[] ? Json<V>[] : T extends object ? {[K in keyof T]:Json<T[K]>} : T;
@@ -59,8 +62,8 @@ async function exceptionalCollectionAuthority(tx:Transaction,e:typeof admissions
   else if(!originalComplete){
     if(authority.type!=="INSURANCE_DELAY")reason="Original complete party responsibility is required for this exception";
     else{
-      const result=await tx.execute<{id:string|null}>(sql`select hims.mvp_delay_allocation_amendment(${e.id},${state.financial.decisionId??null}::uuid) id`);
-      allocationAmendmentId=result.rows[0]?.id??null;
+      const result=await tx.execute(sql`select mvp_delay_allocation_amendment(${e.id},${state.financial.decisionId??null}) id`);
+      allocationAmendmentId=rowsOf<{id:string|null}>(result)[0]?.id??null;
       if(!allocationAmendmentId)reason="Exact current Admin-authorized post-exit insurance allocation amendment is required";
     }
   }
@@ -103,7 +106,7 @@ function actual(value:string,minimum?:Date) {const t=new Date(value);if(t>new Da
 async function event(tx:Transaction,ctx:CommandContext,e:typeof admissions.$inferSelect,state:Awaited<ReturnType<typeof mvpState>>,v:Extract<MvpActionInput,{action:"doctor-approval"|"checklist"|"check"|"n-a"|"finance"|"deliver"}>,extra:Record<string,unknown>={}) {
   const {action,admissionId: _admissionId,requestId:_requestId,expectedReviewHash:_expectedReviewHash,...payload}=v;void _admissionId;void _requestId;void _expectedReviewHash;
   const recorderId=ctx.actor.type==="staff"?ctx.actor.staffId:"",[recorder]=await tx.select({name:user.name}).from(user).where(eq(user.id,recorderId));
-  const [row]=await tx.insert(mvpEvents).values({admissionId:e.id,action,check:"check" in v?v.check:null,status:v.action==="n-a"?"NA":v.action==="check"?v.status:null,payload:jsonSnapshot({...payload,...extra,recorderName:recorder?.name??recorderId}),reviewHash:state.reviewHash,billVersion:e.billRevision,clinicalId:state.clinical?.id,checklistId:state.checklist?.id,recordedBy:recorderId}).returning();
+  const [row]=await insertReturning(tx, mvpEvents, {admissionId:e.id,action,check:"check" in v?v.check:null,status:v.action==="n-a"?"NA":v.action==="check"?v.status:null,payload:jsonSnapshot({...payload,...extra,recorderName:recorder?.name??recorderId}),reviewHash:state.reviewHash,billVersion:e.billRevision,clinicalId:state.clinical?.id,checklistId:state.checklist?.id,recordedBy:recorderId});
   await appendAudit(tx,ctx,{event:`mvp.${v.action}`,entityType:"mvp-event",entityId:row.id,reason:"reason" in v?v.reason:"remarks" in v?v.remarks:"Staff recorded source-bound inpatient coordination evidence"});
   return {id:row.id};
 }
@@ -153,7 +156,7 @@ export async function recordMvpAction(ctx:CommandContext,input:unknown):Promise<
         await tx.select().from(beds).where(eq(beds.id,stay.bedId)).for("update");
         await reconcileRoomChargesInTransaction(tx,{admissionId:e.id,cutoff:T,actorContext:ctx});
         await tx.update(roomStays).set({endedAt:T}).where(eq(roomStays.id,stay.id));
-        const [row]=await tx.insert(roomVacations).values({admissionId:e.id,stayId:stay.id,mvpReadinessId:nursing.event!.id,shiftId:v.shiftId,vacatedAt:T,waitingLocation:v.waitingLocation,handover:v.handover,signedBy:staff.id,signedAt:new Date()}).returning();
+        const [row]=await insertReturning(tx, roomVacations, {admissionId:e.id,stayId:stay.id,mvpReadinessId:nursing.event!.id,shiftId:v.shiftId,vacatedAt:T,waitingLocation:v.waitingLocation,handover:v.handover,signedBy:staff.id,signedAt:new Date()});
         await appendAudit(tx,ctx,{event:"mvp.vacancy",entityType:"room-vacation",entityId:row.id,reason:v.handover});return {id:row.id};
       }
       if(v.action==="finance") {
@@ -172,7 +175,7 @@ export async function recordMvpAction(ctx:CommandContext,input:unknown):Promise<
       const {actual:T}=await shiftForCare(tx,staff,v.shiftId,e.id,v.departedAt);
       if(T<new Date(String(delivery.payload.deliveredAt))||T<state.finance.recordedAt||T<state.vacancy.vacatedAt)throw new DomainError("VALIDATION","Actual exit must follow vacancy, financial authorization and paper delivery");
       await tx.select().from(beds).where(eq(beds.id,e.bedId)).for("update");
-      const [row]=await tx.insert(departures).values({admissionId:e.id,stayId:state.vacancy.stayId,mvpFinanceId:state.finance.id,billVersion:e.billRevision,departedAt:T,signedBy:staff.id,signedAt:new Date()}).returning();
+      const [row]=await insertReturning(tx, departures, {admissionId:e.id,stayId:state.vacancy.stayId,mvpFinanceId:state.finance.id,billVersion:e.billRevision,departedAt:T,signedBy:staff.id,signedAt:new Date()});
       await tx.update(admissions).set({status:"DISCHARGED",version:sql`${admissions.version}+1`}).where(eq(admissions.id,e.id));
       await tx.delete(bedHolds).where(eq(bedHolds.admissionId,e.id));
       const [turnover]=await tx.select().from(bedTurnovers).where(eq(bedTurnovers.stayId,state.vacancy.stayId));
@@ -212,7 +215,7 @@ export async function acceptPatientMedicineReturn(ctx:CommandContext,input:unkno
     const q=(already+quantity).toString().padStart(scale+1,"0"),cumulativeQuantity=scale?`${q.slice(0,-scale)}.${q.slice(-scale)}`:q;
     const cumulative=quantityAmount(charge.ratePaise,cumulativeQuantity,scale),amount=(cumulative>charge.amountPaise?charge.amountPaise:cumulative)-returned;
     if(amount<0n||reversals.reduce((n,r)=>n+r.amountPaise,0n)+amount>charge.amountPaise)throw new DomainError("CONFLICT","Existing credits require Billing review");
-    const [reversal]=amount>0n?await tx.insert(chargeReversals).values({chargeId:charge.id,amountPaise:amount,reason:v.reason,...actorColumns(ctx)}).returning():[];
+    const [reversal]=amount>0n?await insertReturning(tx, chargeReversals, {chargeId:charge.id,amountPaise:amount,reason:v.reason,...actorColumns(ctx)}):[];
     const id=randomUUID();await tx.insert(mvpMedicineSources).values({id,admissionId:e.id,kind:"RETURN",originalId:source.id,chargeId:charge.id,reversalId:reversal?.id,quantity:v.quantity,quantityScale:scale,evidence:v.evidence,reference:ctx.requestId,recordedBy:staff.id});
     await bumpBillRevision(tx,e.id);await appendAudit(tx,ctx,{event:"mvp.medicine-return",entityType:"mvp-medicine-source",entityId:id,reason:v.reason});return {id};
   });});
@@ -234,7 +237,7 @@ export async function recordInsurerReceivableReceipt(ctx:CommandContext,input:un
       if(paise(v.amountPaise)>accepted-state.bill.insurerCashPaise)throw new DomainError("PRECONDITION","Receipt exceeds the remaining accepted insurer receivable");
       const receiptCtx={...ctx,requestId:randomUUID()};
       const receipt=await recordReceiptInTransaction(tx,receiptCtx,{...v,requestId:receiptCtx.requestId},undefined,true);
-      const [row]=await tx.insert(mvpReceivableReceipts).values({admissionId:e.id,financeId:finance.id,receiptId:receipt.id,recordedBy:staff.id}).returning();return {id:row.id};
+      const [row]=await insertReturning(tx, mvpReceivableReceipts, {admissionId:e.id,financeId:finance.id,receiptId:receipt.id,recordedBy:staff.id});await assertClosedReceipt(tx,[receipt.id]);return {id:row.id};
     });
   });
 }
@@ -250,7 +253,8 @@ export async function recordExceptionalReceivableReceipt(ctx:CommandContext,inpu
       if(!collection?.eligible)throw new DomainError("PRECONDITION",collection?.reason??"Original exceptional departure authority required");
       if(paise(v.amountPaise)>(v.party==="PATIENT"?collection.patientRemainingPaise:collection.insurerRemainingPaise))throw new DomainError("PRECONDITION","Payment exceeds this party's remaining authorized exception receivable");
       const receiptCtx={...ctx,requestId:randomUUID()},receipt=await recordReceiptInTransaction(tx,receiptCtx,{...v,requestId:receiptCtx.requestId},undefined,true);
-      const [row]=await tx.insert(mvpReceivableReceipts).values({admissionId:e.id,exceptionAuthorityId:collection.exceptionAuthorityId,allocationAmendmentId:collection.allocationAmendmentId,receiptId:receipt.id,recordedBy:staff.id}).returning();
+      const [row]=await insertReturning(tx, mvpReceivableReceipts, {admissionId:e.id,exceptionAuthorityId:collection.exceptionAuthorityId,allocationAmendmentId:collection.allocationAmendmentId,receiptId:receipt.id,recordedBy:staff.id});
+      await assertClosedReceipt(tx,[receipt.id]); // commit-time rule: settle only the original party obligation
       await appendAudit(tx,ctx,{event:"mvp.exception-receivable-received",entityType:"mvp-receivable-receipt",entityId:row.id,reason:"Actual party payment settles an original retained exception obligation without rewriting departure"});return {id:row.id};
     });
   });

@@ -1,17 +1,15 @@
 import { Annotation, Command, END, interrupt, START, StateGraph } from "@langchain/langgraph";
-import type { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import type { BaseCheckpointSaver } from "@langchain/langgraph-checkpoint";
 import { ROOT, traceable } from "langsmith/traceable";
 import { Client as TraceClient } from "langsmith/client";
 import { LangChainTracer } from "@langchain/core/tracers/tracer_langchain";
-import { CHECKPOINT_SCHEMA } from "../../../scripts/paperwork-checkpointer";
 import type { PaperworkPacket, PaperworkSource } from "./paperwork-schema";
-export { CHECKPOINT_SCHEMA };
 export const MAX_PAPERWORK_REVISIONS=3;
 export const LOCAL_PAPERWORK_TRACE_URL="http://127.0.0.1:1";
 export type PaperworkDecision={decision:"ACCEPT"|"REQUEST_CHANGES"|"REJECT";comment:string;reviewId:string};
 const State=Annotation.Root({caseId:Annotation<string>(),source:Annotation<PaperworkSource>(),revision:Annotation<number>(),packet:Annotation<PaperworkPacket>(),review:Annotation<PaperworkDecision>()});
 /** Manual assembly only: no model, OCR, tools, chart access or external sender. Source text is inert data. */
-export function createPaperworkGraph(checkpointer:PostgresSaver){
+export function createPaperworkGraph(checkpointer:BaseCheckpointSaver){
   const graph=new StateGraph(State)
     .addNode("inventory_documents",s=>({source:s.source}))
     .addNode("extract_text",s=>({source:s.source}))

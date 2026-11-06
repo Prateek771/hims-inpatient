@@ -1,19 +1,21 @@
 import "server-only";
 import { createHash } from "node:crypto";
-import { Client, Pool } from "pg";
-import { PostgresSaver } from "@langchain/langgraph-checkpoint-postgres";
+import { createConnection, type RowDataPacket } from "mysql2/promise";
 import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { DomainError, type CommandContext } from "../contracts";
-import { withTransaction, type Transaction } from "../db";
+import { createMariaPool, withTransaction, type Transaction } from "../db";
+import { mariaPoolOptions } from "../maria-options";
+import { MariaDbSaver } from "./mariadb-saver";
 import { user } from "../schema/auth";
 import { billingRequest } from "../billing/commands";
 import { billingRequests } from "../billing/schema";
 import { insuranceAudit, insuranceCaseSource, insuranceOperator, requestLock } from "./commands";
 import { insuranceDecisions, insuranceDocuments, insuranceEvents } from "./schema";
 import { readStoredDocument } from "./documents";
-import { CHECKPOINT_SCHEMA, Command, createPaperworkGraph, MAX_PAPERWORK_REVISIONS, type PaperworkDecision } from "./paperwork-graph";
+import { Command, createPaperworkGraph, MAX_PAPERWORK_REVISIONS, type PaperworkDecision } from "./paperwork-graph";
 import { paperworkFollowups, paperworkPackets, paperworkProposals, paperworkReviews, paperworkRuns, type ManualSource, type PaperworkSource } from "./paperwork-schema";
+import { insertReturning, updateReturning } from "../sql";
 const manualSource=z.strictObject({documentId:z.uuid(),text:z.string().min(1).max(4000).refine(v=>v.trim().length>0,"Manual text must contain words")});
 const startInput=z.strictObject({caseId:z.uuid(),expectedDocumentVersion:z.number().int().nonnegative(),requestId:z.uuid(),manualSources:z.array(manualSource).max(20).default([])}).refine(v=>v.manualSources.reduce((n,s)=>n+s.text.length,0)<=24000&&new Set(v.manualSources.map(s=>s.documentId)).size===v.manualSources.length,"Manual text must be bounded and cite each document once");
 const reviewInput=z.strictObject({runId:z.uuid().transform(id=>id.toLowerCase()),decision:z.enum(["ACCEPT","REQUEST_CHANGES","REJECT"]),comment:z.string().max(1000),expectedDocumentVersion:z.number().int().nonnegative(),expectedProposalRevision:z.number().int().min(1).max(3),requestId:z.uuid()}).refine(v=>v.decision==="ACCEPT"||v.comment.trim().length>=3,"Describe the requested change or rejection");
@@ -65,27 +67,32 @@ async function projection(tx:Transaction,run:typeof paperworkRuns.$inferSelect){
   return {...run,proposals,reviews,packet:packet??null,followups,actors:Object.fromEntries(actors.map(a=>[a.id,a.name])),startRequestId:start?.requestId??null};
 }
 /** Dedicated lock connection and saver pool cannot consume the five-connection domain pool. */
-async function serializeRun<T>(runId:string,fn:(saver:PostgresSaver,assertSession:()=>Promise<void>)=>Promise<T>){
+async function serializeRun<T>(runId:string,fn:(saver:MariaDbSaver,assertSession:()=>Promise<void>)=>Promise<T>){
   const connectionString=process.env.DATABASE_URL;if(!connectionString)throw new DomainError("PRECONDITION","Paperwork database is unavailable");
-  const client=new Client({connectionString,connectionTimeoutMillis:3000,statement_timeout:15000});
-  const pool=new Pool({connectionString,max:2,connectionTimeoutMillis:3000,statement_timeout:5000});
-  pool.on("error",()=>console.error("Paperwork checkpoint connection unavailable"));
+  const lockName=`paperwork:${runId}`;
+  const options=mariaPoolOptions(connectionString);
+  const client=await createConnection({host:options.host,port:options.port,user:options.user,password:options.password,database:options.database,charset:options.charset,timezone:options.timezone,ssl:options.ssl,connectTimeout:3000}).catch(()=>null);
+  if(!client)throw new DomainError("PRECONDITION","Paperwork is unavailable; check explicit checkpoint setup and database access. Retry this same request after recovery; hospital work remains available.");
+  const pool=createMariaPool(connectionString);
   let locked=false,lost=false;
   client.on("error",()=>{lost=true;});
   const assertSession=async()=>{
     if(lost||!locked)throw new DomainError("PRECONDITION","Paperwork session was lost; retry this same request after recovery");
-    await client.query("select 1");
-    if(lost)throw new DomainError("PRECONDITION","Paperwork session was lost; retry this same request after recovery");
+    // The session lock dies with its connection: confirm this connection still owns it.
+    const [rows]=await client.query<RowDataPacket[]>("select is_used_lock(?)=connection_id() as owned",[lockName]);
+    if(lost||!rows[0]?.owned)throw new DomainError("PRECONDITION","Paperwork session was lost; retry this same request after recovery");
   };
   try{
-    await client.connect();await client.query("select pg_advisory_lock(hashtextextended($1,0))",[`paperwork:${runId}`]);locked=true;
-    const {rows:[r]}=await client.query(`select array_agg(v order by v) versions from ${CHECKPOINT_SCHEMA}.checkpoint_migrations`);
-    if(JSON.stringify(r.versions)!=="[0,1,2,3,4]")throw new DomainError("PRECONDITION","Paperwork checkpoint migrations need explicit owner setup");
-    return await fn(new PostgresSaver(pool,undefined,{schema:CHECKPOINT_SCHEMA}),assertSession);
+    const [[lock]]=await client.query<RowDataPacket[]>("select get_lock(?,15) as acquired",[lockName]);
+    if(Number(lock.acquired)!==1)throw new DomainError("PRECONDITION","Paperwork is busy with this run; retry this same request shortly");
+    locked=true;
+    const [versions]=await client.query<RowDataPacket[]>("select v from lg_checkpoint_migrations order by v");
+    if(JSON.stringify(versions.map(r=>Number(r.v)))!=="[0,1,2,3,4]")throw new DomainError("PRECONDITION","Paperwork checkpoint migrations need explicit owner setup");
+    return await fn(new MariaDbSaver(pool),assertSession);
   }catch(e){if(e instanceof DomainError||e instanceof z.ZodError)throw e;throw new DomainError("PRECONDITION","Paperwork is unavailable; check explicit checkpoint setup and database access. Retry this same request after recovery; hospital work remains available.");}
-  finally{if(locked)await client.query("select pg_advisory_unlock(hashtextextended($1,0))",[`paperwork:${runId}`]).catch(()=>{});await client.end();await pool.end();}
+  finally{if(locked)await client.query("select release_lock(?)",[lockName]).catch(()=>{});await client.end().catch(()=>{});await pool.end().catch(()=>{});}
 }
-async function advance(ctx:CommandContext,runId:string,saver:PostgresSaver,assertSession:()=>Promise<void>){
+async function advance(ctx:CommandContext,runId:string,saver:MariaDbSaver,assertSession:()=>Promise<void>){
   const initial=await withTransaction(async tx=>{const run=await accessibleRun(tx,ctx,runId);if(!["ACCEPTED","REJECTED"].includes(run.status))await fresh(tx,ctx,run);const [review]=run.pendingReviewId?await tx.select().from(paperworkReviews).where(eq(paperworkReviews.id,run.pendingReviewId)):[];return {run,review};});
   if(["ACCEPTED","REJECTED"].includes(initial.run.status))return getPaperworkRun(ctx,runId);
   await checkFiles(ctx,initial.run.caseId,initial.run.source.manualSources,initial.run.sourceHash);
@@ -110,20 +117,20 @@ async function advance(ctx:CommandContext,runId:string,saver:PostgresSaver,asser
     const [prior]=await tx.select().from(paperworkProposals).where(and(eq(paperworkProposals.runId,runId),eq(paperworkProposals.revision,values.revision)));
     if(prior&&prior.packetHash!==hash(values.packet))throw new DomainError("CONFLICT","Saved proposal differs from checkpoint");
     let proposal=prior;
-    if(!proposal){[proposal]=await tx.insert(paperworkProposals).values({runId,revision:values.revision,packet:values.packet,packetHash:hash(values.packet),recordedBy:run.recordedBy}).returning();}
+    if(!proposal){[proposal]=await insertReturning(tx, paperworkProposals, {runId,revision:values.revision,packet:values.packet,packetHash:hash(values.packet),recordedBy:run.recordedBy});}
     const intent=initial.review;
     if(intent){
       if(run.pendingReviewId!==intent.id||values.review?.reviewId!==intent.id)throw new DomainError("CONFLICT","Pending staff decision changed");
       if(ctx.actor.type!=="staff"||ctx.actor.staffId!==intent.recordedBy)throw new DomainError("FORBIDDEN","Only the recorded reviewer may retry this pending decision");
       if(intent.decision==="ACCEPT"){
         if(values.revision!==intent.revision||state.next.length)throw new DomainError("CONFLICT","Accepted graph has not completed this reviewed revision");
-        const [packet]=await tx.insert(paperworkPackets).values({runId,proposalId:proposal.id,reviewId:intent.id,packet:proposal.packet,recordedBy:intent.recordedBy}).returning();
+        const [packet]=await insertReturning(tx, paperworkPackets, {runId,proposalId:proposal.id,reviewId:intent.id,packet:proposal.packet,recordedBy:intent.recordedBy});
         await tx.insert(paperworkFollowups).values({runId,packetId:packet.id,ownerId:intent.recordedBy,action:proposal.packet.staffNextAction,recordedBy:intent.recordedBy});
       }else if(intent.decision==="REQUEST_CHANGES"&&(values.revision!==intent.revision+1||!state.tasks.some(t=>t.interrupts?.length)))throw new DomainError("CONFLICT","Revised draft must pause for another human review");
       await insuranceAudit(tx,ctx,`paperwork-${intent.decision.toLowerCase()}`,run.caseId,intent.comment||"Human accepted local paperwork; nothing sent");
     }
     const status=intent?.decision==="ACCEPT"?"ACCEPTED":intent?.decision==="REJECT"?"REJECTED":"AWAITING_REVIEW";
-    const [updated]=await tx.update(paperworkRuns).set({status,revision:values.revision,pendingReviewId:null}).where(eq(paperworkRuns.id,runId)).returning();
+    const [updated]=await updateReturning(tx, paperworkRuns, {status,revision:values.revision,pendingReviewId:null}, eq(paperworkRuns.id,runId));
     await assertSession();
     return projection(tx,updated);
   });
@@ -138,7 +145,7 @@ export async function startPaperworkRun(ctx:CommandContext,input:unknown){
       if(hash(current)!==hash(checked))throw new DomainError("CONFLICT","Case sources changed during preparation; reload");
       if(current.documentVersion!==v.expectedDocumentVersion)throw new DomainError("CONFLICT","Current document set changed; reload the case");
       if(ctx.actor.type!=="staff")throw new DomainError("FORBIDDEN","Staff required");
-      const [run]=await tx.insert(paperworkRuns).values({caseId:v.caseId,source:current,sourceHash:hash(current),recordedBy:ctx.actor.staffId}).returning();
+      const [run]=await insertReturning(tx, paperworkRuns, {caseId:v.caseId,source:current,sourceHash:hash(current),recordedBy:ctx.actor.staffId});
       await insuranceAudit(tx,ctx,"paperwork-started",v.caseId,"Manual source text; no model or OCR provider configured");return {id:run.id};
     });
   });
@@ -170,7 +177,7 @@ export async function reviewPaperworkRun(ctx:CommandContext,input:unknown){
         if(run.source.documentVersion!==v.expectedDocumentVersion||run.revision!==v.expectedProposalRevision)throw new DomainError("CONFLICT","Review must bind the current document set and proposal revision");
         if(v.decision==="REQUEST_CHANGES"&&run.revision>=MAX_PAPERWORK_REVISIONS)throw new DomainError("PRECONDITION","Maximum three draft revisions reached; accept, reject or start a new run");
         if(ctx.actor.type!=="staff")throw new DomainError("FORBIDDEN","Staff required");
-        const [review]=await tx.insert(paperworkReviews).values({runId:run.id,revision:run.revision,decision:v.decision,comment:v.comment,requestId:v.requestId,recordedBy:ctx.actor.staffId}).returning();
+        const [review]=await insertReturning(tx, paperworkReviews, {runId:run.id,revision:run.revision,decision:v.decision,comment:v.comment,requestId:v.requestId,recordedBy:ctx.actor.staffId});
         await tx.update(paperworkRuns).set({status:"PROCESSING",pendingReviewId:review.id}).where(eq(paperworkRuns.id,run.id));return {id:review.id};
       });
     });

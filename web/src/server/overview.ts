@@ -10,12 +10,14 @@ import { clinicalOrders, clinicalSummaries, careOccurrences, clinicalTaskEvents 
 import { nursingObservations, medicationAdministrations } from "./nursing/schema";
 import { pharmacyBatches } from "./pharmacy/schema";
 import { pharmacyClearanceSourceInTransaction, stockUnits, stockQuantity, hospitalDate } from "./pharmacy/commands";
+import { hospitalDayBounds } from "./hospital-day";
 import { billProjection, financialResponsibilityInTransaction } from "./billing/commands";
 import { clearanceStateInTransaction } from "./discharge/commands";
 import { insuranceCases, insuranceDocuments, insuranceEvents, insuranceDecisions } from "./insurance/schema";
 import { paperworkRuns } from "./insurance/paperwork-schema";
 import { transferAuthority } from "./admissions/transfer-authority";
 
+import { rowsOf } from "./sql";
 export type StaffAlert = {
   id: string; kind: string; ownerRole: StaffRole; ownerName?: string;
   admissionId?: string; caseId?: string; name?: string; ipCode?: string; bedLabel?: string;
@@ -47,19 +49,19 @@ async function projection(tx: Transaction, ctx: CommandContext, input: z.infer<t
   const categoryScope = input.bedCategory ? eq(beds.category, input.bedCategory) : undefined;
   const scopes: Partial<Record<StaffRole, SQL>> = {
     DOCTOR: eq(admissions.admittingDoctorId, staff.id),
-    NURSE: sql`exists(select 1 from hims.nurse_assignments a where a.admission_id=${admissions.id} and a.nurse_id=${staff.id} and not exists(select 1 from hims.nurse_assignment_revocations r where r.assignment_id=a.id))`,
+    NURSE: sql`exists(select 1 from nurse_assignments a where a.admission_id=${admissions.id} and a.nurse_id=${staff.id} and not exists(select 1 from nurse_assignment_revocations r where r.assignment_id=a.id))`,
     INSURANCE: eq(insuranceCases.assignedStaffId, staff.id),
-    PHARMACY: sql`(exists(select 1 from hims.clinical_orders o where o.admission_id=${admissions.id} and o.kind='MEDICINE') or exists(select 1 from hims.clinical_summaries s where s.admission_id=${admissions.id}))`,
-    LAB: sql`exists(select 1 from hims.care_tasks t where t.admission_id=${admissions.id} and t.owner_role='LAB')`,
+    PHARMACY: sql`(exists(select 1 from clinical_orders o where o.admission_id=${admissions.id} and o.kind='MEDICINE') or exists(select 1 from clinical_summaries s where s.admission_id=${admissions.id}))`,
+    LAB: sql`exists(select 1 from care_tasks t where t.admission_id=${admissions.id} and t.owner_role='LAB')`,
   };
   const currentScope = and(scopes[staff.role], categoryScope);
   const closed = ["ADMIN", "BILLING", "ADMISSION", "DOCTOR", "INSURANCE"].includes(staff.role)
     ? tx.select({ id: admissions.id }).from(admissions).innerJoin(beds, eq(beds.id, admissions.bedId)).leftJoin(insuranceCases, eq(insuranceCases.admissionId, admissions.id))
-      .where(and(currentScope, inArray(admissions.status, ["CANCELLED", "DISCHARGED"]))).orderBy(desc(admissions.registeredAt), desc(admissions.id)).limit(50) : null;
+      .where(and(currentScope, inArray(admissions.status, ["CANCELLED", "DISCHARGED"]))).orderBy(desc(admissions.registeredAt), desc(admissions.id)).limit(50).as("recent_closed") : null;
   const rows = await tx.select({ episode: admissions, name: patients.name, bedLabel: beds.label, bedCategory: beds.category, case: insuranceCases })
     .from(admissions).innerJoin(patients, eq(patients.id, admissions.patientId)).innerJoin(beds, eq(beds.id, admissions.bedId))
     .leftJoin(insuranceCases, eq(insuranceCases.admissionId, admissions.id))
-    .where(and(currentScope, sql`(${admissions.status} in ('PENDING','ADMITTED') ${closed ? sql`or ${admissions.id} in (${closed})` : sql``})`))
+    .where(and(currentScope, sql`(${admissions.status} in ('PENDING','ADMITTED') ${closed ? sql`or ${admissions.id} in (select ${closed.id} from ${closed})` : sql``})`))
     .orderBy(desc(admissions.registeredAt), desc(admissions.id));
   const active = rows.filter(r => r.episode.status === "ADMITTED"), ids = rows.map(r => r.episode.id);
   const alerts: StaffAlert[] = [], episodes: WorkEpisode[] = [];
@@ -80,10 +82,10 @@ async function projection(tx: Transaction, ctx: CommandContext, input: z.infer<t
       .leftJoin(nursingObservations, eq(nursingObservations.occurrenceId, careOccurrences.id)).leftJoin(medicationAdministrations, eq(medicationAdministrations.occurrenceId, careOccurrences.id))
       .where(and(inArray(careOccurrences.admissionId, active.map(r => r.episode.id)), sql`${careOccurrences.scheduledAt}<${asOf}`, isNull(nursingObservations.id), isNull(medicationAdministrations.id))).orderBy(asc(careOccurrences.scheduledAt));
     for (const o of due.filter(o => !stopped.has(o.orderId))) add(active.find(r => r.episode.id === o.admissionId)!, o.kind === "MEDICINE" ? "OVERDUE_MAR" : "OVERDUE_OBSERVATION", o.id, "NURSE", o.kind === "MEDICINE" ? "Record prescribed medicine outcome" : "Record prescribed observation", "Prescribed occurrence remains unrecorded across shift handover.", undefined, { dueAt: o.scheduledAt.toISOString() });
-    const handovers = (await tx.execute(sql`select e.id,s.admission_id,e.ended_at from hims.nursing_shifts s join hims.effective_shift_ends e on e.shift_id=s.id where s.admission_id in (${sql.join(active.map(r => sql`${r.episode.id}::uuid`), sql`,`)}) and e.end_kind='NURSE' and not exists(select 1 from hims.nursing_shifts n where n.admission_id=s.admission_id and n.started_at>=e.ended_at)`)).rows;
+    const handovers = rowsOf(await tx.execute(sql`select e.id,s.admission_id,e.ended_at from nursing_shifts s join effective_shift_ends e on e.shift_id=s.id where s.admission_id in (${sql.join(active.map(r => sql`${r.episode.id}`), sql`,`)}) and e.end_kind='NURSE' and not exists(select 1 from nursing_shifts n where n.admission_id=s.admission_id and n.started_at>=e.ended_at)`));
     for (const h of handovers) add(active.find(r => r.episode.id === h.admission_id)!, "HANDOVER", String(h.id), "NURSE", "Start shift and record incoming handover", "The last signed shift ended; incoming care attendance has not been recorded.", undefined, { dueAt: new Date(String(h.ended_at)).toISOString() });
   }
-  const labRows = ["LAB", "DOCTOR", "ADMIN"].includes(staff.role) && active.length ? (await tx.execute(sql`select o.id,o.admission_id,o.requested_item,s.id as sample_id,p.id as processing_id,r.id as report_id,d.id as disposition_id,b.state as billing_state from hims.clinical_orders o join hims.care_tasks t on t.order_id=o.id and t.owner_role='LAB' left join hims.lab_samples s on s.order_id=o.id left join hims.lab_processing p on p.order_id=o.id left join hims.lab_reports r on r.order_id=o.id left join hims.lab_dispositions d on d.order_id=o.id left join hims.care_billing_events b on b.order_id=o.id where o.admission_id in (${sql.join(active.map(r => sql`${r.episode.id}::uuid`), sql`,`)}) and o.kind in ('LAB','RADIOLOGY')`)).rows : [];
+  const labRows = ["LAB", "DOCTOR", "ADMIN"].includes(staff.role) && active.length ? rowsOf(await tx.execute(sql`select o.id,o.admission_id,o.requested_item,s.id as sample_id,p.id as processing_id,r.id as report_id,d.id as disposition_id,b.state as billing_state from clinical_orders o join care_tasks t on t.order_id=o.id and t.owner_role='LAB' left join lab_samples s on s.order_id=o.id left join lab_processing p on p.order_id=o.id left join lab_reports r on r.order_id=o.id left join lab_dispositions d on d.order_id=o.id left join care_billing_events b on b.order_id=o.id where o.admission_id in (${sql.join(active.map(r => sql`${r.episode.id}`), sql`,`)}) and o.kind in ('LAB','RADIOLOGY')`)) : [];
   for (const o of labRows) {
     const row = active.find(r => r.episode.id === o.admission_id)!;
     if (staff.role === "DOCTOR" && !o.report_id && !o.disposition_id) add(row, "PENDING_DIAGNOSTIC", String(o.id), "DOCTOR", "Review pending diagnostic work", `${String(o.requested_item)}: Lab / radiology owns the report or attributable unperformed disposition.`, `/clinical?admissionId=${row.episode.id}`);
@@ -120,7 +122,7 @@ async function projection(tx: Transaction, ctx: CommandContext, input: z.infer<t
         const caseId = row.case.id, caseHref = `/insurance?caseId=${caseId}`;
         // Manual staff work can remain open on a retained converted case; only
         // its latest event per workId determines current work, not case version.
-        const followups = await tx.select({ workId: sql<string>`${insuranceEvents.payload}->>'workId'`, requestType: sql<string>`${insuranceEvents.payload}->>'kind'`, status: sql<string>`${insuranceEvents.payload}->>'status'`, reference: sql<string>`${insuranceEvents.payload}->>'reference'`, reason: insuranceEvents.reason })
+        const followups = await tx.select({ workId: sql<string>`JSON_VALUE(${insuranceEvents.payload},'$.workId')`, requestType: sql<string>`JSON_VALUE(${insuranceEvents.payload},'$.kind')`, status: sql<string>`JSON_VALUE(${insuranceEvents.payload},'$.status')`, reference: sql<string>`JSON_VALUE(${insuranceEvents.payload},'$.reference')`, reason: insuranceEvents.reason })
           .from(insuranceEvents).where(and(eq(insuranceEvents.caseId, caseId), eq(insuranceEvents.kind, "FOLLOWUP"))).orderBy(desc(insuranceEvents.caseVersion));
         const seen = new Set<string>();
         for (const followup of followups) {
@@ -168,7 +170,7 @@ async function projection(tx: Transaction, ctx: CommandContext, input: z.infer<t
     }
   }
   if (staff.role === "ADMIN") {
-    const turns = (await tx.execute(sql`select t.id,b.label from hims.effective_bed_turnovers t join hims.beds b on b.id=t.bed_id where not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id) ${input.bedCategory ? sql`and b.category=${input.bedCategory}` : sql``}`)).rows;
+    const turns = rowsOf(await tx.execute(sql`select t.id,b.label from effective_bed_turnovers t join beds b on b.id=t.bed_id where not exists(select 1 from bed_turnover_completions c where c.turnover_id=t.id) ${input.bedCategory ? sql`and b.category=${input.bedCategory}` : sql``}`));
     for (const t of turns) add(null, "BED_CLEANING", String(t.id), "ADMIN", "Record confirmed bed cleaning", `${t.label}: housekeeping completion is required before reuse.`, "/discharge");
   }
   return { role: staff.role, staffName: staff.name, asOf: asOf.toISOString(), timezone, episodes, alerts: [...new Map(alerts.map(a => [a.id, a])).values()], financial, discharge,
@@ -187,8 +189,8 @@ export async function getOverview(ctx: CommandContext, input: { asOf: Date; bedC
     const work = await projection(tx, ctx, value, true);
     const categoryScope = value.bedCategory ? eq(beds.category, value.bedCategory) : undefined;
     const physical = await tx.select({ id: beds.id, category: beds.category, active: beds.active, holdId: bedHolds.admissionId,
-      occupied: sql<boolean>`exists(select 1 from hims.effective_room_stays s where s.bed_id=${beds.id} and s.ended_at is null)`,
-      cleaning: sql<boolean>`exists(select 1 from hims.effective_bed_turnovers t where t.bed_id=${beds.id} and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id))` }).from(beds).leftJoin(bedHolds, eq(bedHolds.bedId, beds.id)).where(categoryScope);
+      occupied: sql<boolean>`exists(select 1 from effective_room_stays s where s.bed_id=${beds.id} and s.ended_at is null)`.mapWith(Boolean),
+      cleaning: sql<boolean>`exists(select 1 from effective_bed_turnovers t where t.bed_id=${beds.id} and not exists(select 1 from bed_turnover_completions c where c.turnover_id=t.id))`.mapWith(Boolean) }).from(beds).leftJoin(bedHolds, eq(bedHolds.bedId, beds.id)).where(categoryScope);
     const categoryNames = new Map(work.categories.map(category => [category.code, category.name]));
     const categoryCodes = [...new Set([...categoryNames.keys(), ...physical.map(bed => bed.category)])]
       .filter(code => !value.bedCategory || code === value.bedCategory);
@@ -201,8 +203,8 @@ export async function getOverview(ctx: CommandContext, input: { asOf: Date; bedC
         ready: group.filter(bed => bed.active && !bed.holdId && !bed.occupied && !bed.cleaning).length,
         disabled: group.filter(bed => !bed.active).length };
     });
-    const day = hospitalDate(value.asOf, work.timezone);
-    const exits = (await tx.execute(sql`select d.id from (select id,admission_id,departed_at from hims.departures union all select id,admission_id,departed_at from hims.exceptional_departures union all select id,admission_id,departed_at from hims.mvp_exceptional_departures) d join hims.admissions a on a.id=d.admission_id join hims.beds b on b.id=a.bed_id where (d.departed_at at time zone ${work.timezone})::date=${day}::date ${value.bedCategory ? sql`and b.category=${value.bedCategory}` : sql``}`)).rows;
+    const [dayStart, dayEnd] = hospitalDayBounds(hospitalDate(value.asOf, work.timezone), work.timezone);
+    const exits = rowsOf(await tx.execute(sql`select d.id from (select id,admission_id,departed_at from departures union all select id,admission_id,departed_at from exceptional_departures union all select id,admission_id,departed_at from mvp_exceptional_departures) d join admissions a on a.id=d.admission_id join beds b on b.id=a.bed_id where d.departed_at>=${dayStart} and d.departed_at<${dayEnd} ${value.bedCategory ? sql`and b.category=${value.bedCategory}` : sql``}`));
     return { ...work, bedOccupancy, physicalBeds: physical.map(bed => ({ id: bed.id, category: bed.category,
       occupied: bed.occupied, reserved: !!bed.holdId && !bed.occupied, cleaning: bed.cleaning,
       ready: bed.active && !bed.holdId && !bed.occupied && !bed.cleaning, disabled: !bed.active })),

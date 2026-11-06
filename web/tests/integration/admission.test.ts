@@ -178,14 +178,14 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
       expect(
         (
           await runtime.query(
-            "select count(*)::int as count from hims.bed_holds",
+            "select count(*) as count from bed_holds",
           )
         ).rows[0].count,
       ).toBe(20);
       expect(
         (
           await runtime.query(
-            "select count(*)::int as count from hims.room_stays",
+            "select count(*) as count from room_stays",
           )
         ).rows[0].count,
       ).toBe(0);
@@ -304,7 +304,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
         }),
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
       const before = (
-        await runtime.query("select count(*)::int as count from hims.patients")
+        await runtime.query("select count(*) as count from patients")
       ).rows[0].count;
       const bad = { ...input(25), admittingDoctorId: desk.id };
       await expect(
@@ -313,19 +313,19 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
       expect(
         (
           await runtime.query(
-            "select count(*)::int as count from hims.patients",
+            "select count(*) as count from patients",
           )
         ).rows[0].count,
       ).toBe(before);
       const holdsBefore = (
-        await runtime.query("select count(*)::int as count from hims.bed_holds")
+        await runtime.query("select count(*) as count from bed_holds")
       ).rows[0].count;
       const counterBefore = (
-        await runtime.query("select value::text from hims.admission_counters")
+        await runtime.query("select value from admission_counters")
       ).rows[0].value;
       // Fail after identity, episode and hold insertions to prove transaction rollback.
       await owner.query(
-        "CREATE FUNCTION hims.synthetic_fail_admission_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event='admission.pending-created' THEN RAISE EXCEPTION 'Synthetic audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER synthetic_admission_audit_failure BEFORE INSERT ON hims.audit_events FOR EACH ROW EXECUTE FUNCTION hims.synthetic_fail_admission_audit()",
+        "create trigger synthetic_admission_audit_failure BEFORE insert on audit_events for each row begin IF NEW.event='admission.pending-created' THEN signal sqlstate '45000' set message_text='Synthetic audit failure'; END IF; end",
       );
       try {
         const failed = input(25);
@@ -337,25 +337,25 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
         ).rejects.toThrow();
       } finally {
         await owner.query(
-          "DROP TRIGGER synthetic_admission_audit_failure ON hims.audit_events; DROP FUNCTION hims.synthetic_fail_admission_audit()",
+          "drop trigger synthetic_admission_audit_failure",
         );
       }
       expect(
         (
           await runtime.query(
-            "select count(*)::int as count from hims.patients",
+            "select count(*) as count from patients",
           )
         ).rows[0].count,
       ).toBe(before);
       expect(
         (
           await runtime.query(
-            "select count(*)::int as count from hims.bed_holds",
+            "select count(*) as count from bed_holds",
           )
         ).rows[0].count,
       ).toBe(holdsBefore);
       expect(
-        (await runtime.query("select value::text from hims.admission_counters"))
+        (await runtime.query("select value from admission_counters"))
           .rows[0].value,
       ).toBe(counterBefore);
       await disableBed(ac(), {
@@ -370,7 +370,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
         ),
       ).rejects.toMatchObject({ code: "CONFLICT" });
       await owner.query(
-        "update hims.admissions set status='ADMITTED', admitted_at=now() where id=$1",
+        "update admissions set status='ADMITTED', admitted_at=UTC_TIMESTAMP(6) where id=$1",
         [episodes[2].admissionId],
       );
       await expect(
@@ -379,7 +379,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
           reason: "synthetic active denial",
         }),
       ).rejects.toMatchObject({ code: "PRECONDITION" });
-      await owner.query("update hims.admission_counters set value=99999");
+      await owner.query("update admission_counters set value=99999");
       const overflow = {
         ...input(26),
         patientDetails: {
@@ -462,7 +462,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
         }),
       );
       await owner.query(
-        "update hims.admissions set registered_at='2020-01-01T00:00:00Z' where status in ('PENDING','ADMITTED')",
+        "update admissions set registered_at='2020-01-01T00:00:00Z' where status in ('PENDING','ADMITTED')",
       );
       const historyBed = await createBed(ac(), {
         label: "Synthetic history",
@@ -495,7 +495,7 @@ describe("patient identity and admission reservations on PostgreSQL", () => {
       });
       const ongoingCount = (
         await runtime.query(
-          "select count(*)::int as count from hims.admissions where status in ('PENDING','ADMITTED')",
+          "select count(*) as count from admissions where status in ('PENDING','ADMITTED')",
         )
       ).rows[0].count;
       for (const ctx of [context(), ac(), doctorCtx]) {

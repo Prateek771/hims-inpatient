@@ -7,6 +7,7 @@ import { getMvpEpisode } from "./commands";
 import { admissions } from "../admissions/schema";
 import { z } from "zod";
 
+import { rowsOf } from "../sql";
 export type MvpQueueSource = { id: string; name: string; uhid: string; ipCode: string; status: string; billRevision:number; vacant:boolean; caseId:string|null; bedLabel: string; nurseName: string | null; insuranceOwner: string | null; registeredBy: string | null; temporaryIdentity?: boolean; intakeException?: boolean; insuranceCorrection?: boolean; medicineCount?: number };
 export type MvpCoordination = { clinical: boolean; checklist: boolean; pendingChecks: string[]; finance: boolean; finalDelivered: boolean; exception: boolean };
 export type MvpReview = Awaited<ReturnType<typeof getMvpEpisode>>;
@@ -20,21 +21,21 @@ export async function getMvpWorkspace(ctx: CommandContext) {
   const [staff] = await tx.select({ id: user.id, name: user.name, role: user.role, banned: user.banned }).from(user).where(eq(user.id, actor.staffId));
   if (!staff || staff.banned || !["ADMIN", "ADMISSION", "NURSE", "PHARMACY", "INSURANCE", "BILLING"].includes(staff.role)) throw new DomainError("FORBIDDEN", "Current inpatient workspace access denied");
   const scope = staff.role === "NURSE"
-    ? sql`exists(select 1 from hims.nurse_assignments n where n.admission_id=a.id and n.nurse_id=${staff.id} and not exists(select 1 from hims.nurse_assignment_revocations r where r.assignment_id=n.id))`
+    ? sql`exists(select 1 from nurse_assignments n where n.admission_id=a.id and n.nurse_id=${staff.id} and not exists(select 1 from nurse_assignment_revocations r where r.assignment_id=n.id))`
     : staff.role === "INSURANCE" ? sql`ic.assigned_staff_id=${staff.id}` : sql`true`;
-  const rows = (await tx.execute(sql`with scoped as (select a.id,p.name,p.uhid,a.ip_code as "ipCode",a.status,a.registered_at as "registeredAt",a.bill_revision as "billRevision",ic.id as "caseId",exists(select 1 from hims.effective_room_vacations v where v.admission_id=a.id) as vacant,b.label as "bedLabel",creator.name as "registeredBy",
-    (select string_agg(distinct s.name, ', ' order by s.name) from hims.nurse_assignments n join hims.staff_user s on s.id=n.nurse_id where n.admission_id=a.id and not exists(select 1 from hims.nurse_assignment_revocations r where r.assignment_id=n.id)) as "nurseName",
+  const rows = rowsOf(await tx.execute(sql`with scoped as (select a.id,p.name,p.uhid,a.ip_code as "ipCode",a.status,a.registered_at as "registeredAt",a.bill_revision as "billRevision",ic.id as "caseId",exists(select 1 from effective_room_vacations v where v.admission_id=a.id) as vacant,b.label as "bedLabel",creator.name as "registeredBy",
+    (select group_concat(distinct s.name order by s.name separator ', ') from nurse_assignments n join staff_user s on s.id=n.nurse_id where n.admission_id=a.id and not exists(select 1 from nurse_assignment_revocations r where r.assignment_id=n.id)) as "nurseName",
     ins.name as "insuranceOwner",p.identity_status='TEMPORARY' as "temporaryIdentity",
-    exists(select 1 from hims.admin_exceptions x where x.admission_id=a.id) as "intakeException",
-    exists(select 1 from hims.admin_exceptions x where x.admission_id=a.id and x.type='POST_DISCHARGE_CORRECTION' and x.correction_kind='INSURANCE_DECISION' and not exists(select 1 from hims.post_discharge_amendments m where m.exception_id=x.id)) as "insuranceCorrection",
-    (select count(*)::int from hims.mvp_medicine_sources m where m.admission_id=a.id) as "medicineCount"
-    from hims.admissions a join hims.effective_patients p on p.id=a.patient_id join hims.beds b on b.id=a.bed_id
-    left join hims.staff_user creator on creator.id=a.created_by left join hims.insurance_cases ic on ic.admission_id=a.id left join hims.staff_user ins on ins.id=ic.assigned_staff_id
-    where a.workflow_version=2 and ${scope} ${staff.role === "PHARMACY" ? sql`and (a.status in ('PENDING','ADMITTED') or exists(select 1 from hims.mvp_medicine_sources m where m.admission_id=a.id))` : sql``})
-    select * from scoped where status in ('PENDING','ADMITTED') or id in (select id from scoped where status in ('DISCHARGED','CANCELLED') order by "registeredAt" desc,id desc limit 50) order by "registeredAt" desc,id desc`)).rows as unknown as MvpQueueSource[];
+    exists(select 1 from admin_exceptions x where x.admission_id=a.id) as "intakeException",
+    exists(select 1 from admin_exceptions x where x.admission_id=a.id and x.type='POST_DISCHARGE_CORRECTION' and x.correction_kind='INSURANCE_DECISION' and not exists(select 1 from post_discharge_amendments m where m.exception_id=x.id)) as "insuranceCorrection",
+    (select count(*) from mvp_medicine_sources m where m.admission_id=a.id) as "medicineCount"
+    from admissions a join effective_patients p on p.id=a.patient_id join beds b on b.id=a.bed_id
+    left join staff_user creator on creator.id=a.created_by left join insurance_cases ic on ic.admission_id=a.id left join staff_user ins on ins.id=ic.assigned_staff_id
+    where a.workflow_version=2 and ${scope} ${staff.role === "PHARMACY" ? sql`and (a.status in ('PENDING','ADMITTED') or exists(select 1 from mvp_medicine_sources m where m.admission_id=a.id))` : sql``})
+    select * from scoped where status in ('PENDING','ADMITTED') or id in (select id from (select id from scoped where status in ('DISCHARGED','CANCELLED') order by "registeredAt" desc,id desc limit 50) recent) order by "registeredAt" desc,id desc`)) as unknown as MvpQueueSource[];
   // The queue reads coordination markers in one batch. Full purpose-limited review is loaded only for the selected episode.
-  const events = rows.length ? (await tx.execute(sql`select e.id,e.admission_id as "admissionId",e.action,e.check_key as check,e.status,e.clinical_id as "clinicalId",e.checklist_id as "checklistId",e.bill_version as "billVersion",e.payload->>'kind' as "paperKind",(i.id is not null) as invalid from hims.mvp_events e left join hims.mvp_invalidations i on i.event_id=e.id where e.admission_id in (${sql.join(rows.map(row => sql`${row.id}::uuid`), sql`,`)}) order by e.recorded_at desc,e.id desc`)).rows as unknown as {id:string;admissionId:string;action:string;check:string|null;status:string|null;clinicalId:string|null;checklistId:string|null;billVersion:number;paperKind:string|null;invalid:boolean}[] : [];
-  const exceptions = rows.length ? (await tx.execute(sql`select x.id,x.admission_id as "admissionId",x.action,x.type,x.source_id as "sourceId",x.bill_version as "billVersion",exists(select 1 from hims.mvp_room_returns r where r.clinical_id=x.id) as returned from hims.mvp_exception_events x where x.admission_id in (${sql.join(rows.map(row => sql`${row.id}::uuid`), sql`,`)}) order by x.recorded_at desc,x.id desc`)).rows as unknown as {id:string;admissionId:string;action:string;type:string;sourceId:string|null;billVersion:number;returned:boolean}[] : [];
+  const events = rows.length ? rowsOf(await tx.execute(sql`select e.id,e.admission_id as "admissionId",e.action,e.check_key as "check",e.status,e.clinical_id as "clinicalId",e.checklist_id as "checklistId",e.bill_version as "billVersion",JSON_VALUE(e.payload,'$.kind') as "paperKind",(i.id is not null) as invalid from mvp_events e left join mvp_invalidations i on i.event_id=e.id where e.admission_id in (${sql.join(rows.map(row => sql`${row.id}`), sql`,`)}) order by e.recorded_at desc,e.id desc`)) as unknown as {id:string;admissionId:string;action:string;check:string|null;status:string|null;clinicalId:string|null;checklistId:string|null;billVersion:number;paperKind:string|null;invalid:boolean}[] : [];
+  const exceptions = rows.length ? rowsOf(await tx.execute(sql`select x.id,x.admission_id as "admissionId",x.action,x.type,x.source_id as "sourceId",x.bill_version as "billVersion",exists(select 1 from mvp_room_returns r where r.clinical_id=x.id) as returned from mvp_exception_events x where x.admission_id in (${sql.join(rows.map(row => sql`${row.id}`), sql`,`)}) order by x.recorded_at desc,x.id desc`)) as unknown as {id:string;admissionId:string;action:string;type:string;sourceId:string|null;billVersion:number;returned:boolean}[] : [];
   const episodes: MvpQueueRow[] = rows.map(row => {
     const history = events.filter(event => event.admissionId === row.id);
     const approval = history.find(event => event.action === "doctor-approval");
@@ -74,10 +75,10 @@ export async function getMvpWorkspace(ctx: CommandContext) {
     return { ...row, stage, action, detail, owner, ownerRole, needsAction, coordination: { clinical: !!clinical, checklist: !!checklist, pendingChecks: pending, finance: financeCurrent, finalDelivered: history.some(event => event.action === "deliver" && event.paperKind === "FINAL" && event.billVersion === row.billRevision && !event.invalid), exception: exceptional.length > 0 } };
   });
   const [hospital] = await tx.select({ id: hospitalSettings.id, timezone: hospitalSettings.timezone }).from(hospitalSettings).limit(1);
-  const physical = (await tx.execute(sql`select b.id,b.active,
-    exists(select 1 from hims.effective_room_stays s where s.bed_id=b.id and s.ended_at is null) as occupied,
-    exists(select 1 from hims.bed_holds h where h.bed_id=b.id) as held,
-    exists(select 1 from hims.effective_bed_turnovers t where t.bed_id=b.id and not exists(select 1 from hims.bed_turnover_completions c where c.turnover_id=t.id)) as cleaning from hims.beds b`)).rows as unknown as { id: string; active: boolean; occupied: boolean; held: boolean; cleaning: boolean }[];
+  const physical = rowsOf(await tx.execute(sql`select b.id,b.active,
+    exists(select 1 from effective_room_stays s where s.bed_id=b.id and s.ended_at is null) as occupied,
+    exists(select 1 from bed_holds h where h.bed_id=b.id) as held,
+    exists(select 1 from effective_bed_turnovers t where t.bed_id=b.id and not exists(select 1 from bed_turnover_completions c where c.turnover_id=t.id)) as cleaning from beds b`)) as unknown as { id: string; active: boolean; occupied: boolean; held: boolean; cleaning: boolean }[];
   const versions = hospital && ["ADMIN", "PHARMACY"].includes(staff.role) ? await tx.select().from(settingVersions).where(eq(settingVersions.hospitalId, hospital.id)) : [];
   const medicinePrices = [...new Map(versions.sort((a, b) => a.version - b.version).filter(v => v.payload.type === "billable-item" && v.payload.category === "medicine").map(v => [String(v.payload.code), v] as const)).values()].filter(v => v.payload.active === true);
   return { role: staff.role as StaffRole, staffId: staff.id, staffName: staff.name, episodes, medicinePrices, timezone: hospital?.timezone ?? "Asia/Kolkata", asOf: new Date().toISOString(),
@@ -93,9 +94,9 @@ export async function getMvpIdentity(ctx: CommandContext, admissionId: string) {
     // History pagination must not make an older insurer receivable inaccessible by its exact source link.
     const review = await getMvpEpisode(ctx, admissionId);
     if (workspace.role === "PHARMACY" && !review.medicine.length) throw new DomainError("FORBIDDEN", "No retained patient medicine sources are available for this Pharmacy purpose");
-    const row = (await db.execute(sql`select a.id,p.name,p.uhid,a.ip_code as "ipCode",a.status,a.bill_revision as "billRevision",ic.id as "caseId",exists(select 1 from hims.effective_room_vacations v where v.admission_id=a.id) as vacant,b.label as "bedLabel",creator.name as "registeredBy",
-      (select string_agg(distinct s.name, ', ' order by s.name) from hims.nurse_assignments n join hims.staff_user s on s.id=n.nurse_id where n.admission_id=a.id and not exists(select 1 from hims.nurse_assignment_revocations r where r.assignment_id=n.id)) as "nurseName",ins.name as "insuranceOwner"
-      from hims.admissions a join hims.effective_patients p on p.id=a.patient_id join hims.beds b on b.id=a.bed_id left join hims.staff_user creator on creator.id=a.created_by left join hims.insurance_cases ic on ic.admission_id=a.id left join hims.staff_user ins on ins.id=ic.assigned_staff_id where a.id=${admissionId}::uuid and a.workflow_version=2`)).rows[0] as unknown as MvpQueueSource | undefined;
+    const row = rowsOf(await db.execute(sql`select a.id,p.name,p.uhid,a.ip_code as "ipCode",a.status,a.bill_revision as "billRevision",ic.id as "caseId",exists(select 1 from effective_room_vacations v where v.admission_id=a.id) as vacant,b.label as "bedLabel",creator.name as "registeredBy",
+      (select group_concat(distinct s.name order by s.name separator ', ') from nurse_assignments n join staff_user s on s.id=n.nurse_id where n.admission_id=a.id and not exists(select 1 from nurse_assignment_revocations r where r.assignment_id=n.id)) as "nurseName",ins.name as "insuranceOwner"
+      from admissions a join effective_patients p on p.id=a.patient_id join beds b on b.id=a.bed_id left join staff_user creator on creator.id=a.created_by left join insurance_cases ic on ic.admission_id=a.id left join staff_user ins on ins.id=ic.assigned_staff_id where a.id=${admissionId} and a.workflow_version=2`))[0] as unknown as MvpQueueSource | undefined;
     if (row) identity = { ...row, stage: row.status, action: "Review retained episode", detail: "Exact historical source; later receipts preserve the original exit", owner: row.nurseName ?? "Authorized staff", ownerRole: "Retained history", needsAction: false };
   }
   if (!identity) throw new DomainError("FORBIDDEN", "Episode is outside this staff workspace");

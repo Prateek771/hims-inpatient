@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { Client } from "pg";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { TestClient as Client } from "../../scripts/test-client.ts";
+import { drizzle } from "drizzle-orm/mysql2";
 import { withTestDatabase, waitForTestDatabaseIdle } from "../../scripts/test-database";
 import { loadLocalEnvironment } from "../../scripts/migrate";
 import { getTestDatabaseConfig } from "../../scripts/test-database-guard";
@@ -16,6 +16,9 @@ import { activateAdmission, createBed, transferAdmission } from "../../src/serve
 import { reconcileRoomChargesInTransaction } from "../../src/server/billing/room-charges";
 import * as database from "../../src/server/db";
 import { getStaffWorklist } from "../../src/server/overview";
+import { ruleViolation } from "../support/errors";
+import { asTx } from "../support/raw-tx";
+import { assertClosedFinancialResults } from "../../src/server/deferred-checks";
 loadLocalEnvironment();
 const ordinary = process.env.DATABASE_URL, testUrl = getTestDatabaseConfig().runtimeUrl;
 afterEach(async () => { await waitForTestDatabaseIdle(); process.env.DATABASE_URL = ordinary; delete process.env.HIMS_DOCUMENT_STORAGE; vi.restoreAllMocks(); });
@@ -75,19 +78,19 @@ it("uses real stop signing after admission contention so factual pre-stop late c
   const blocker=new Client({connectionString:testUrl}), signer=new Client({connectionString:testUrl});
   await Promise.all([blocker.connect(),signer.connect()]); let stopping:Promise<unknown>|undefined;
   try {
-    const bpid=(await blocker.query("select pg_backend_pid() pid")).rows[0].pid, spid=(await signer.query("select pg_backend_pid() pid")).rows[0].pid;
-    await blocker.query("begin"); await blocker.query("update hims.admissions set version=version where id=$1",[f.admissionId]);
-    vi.spyOn(database,"withTransaction").mockImplementationOnce(fn=>drizzle(signer,{schema}).transaction(fn));
+    const bpid=(await blocker.query("select connection_id() pid")).rows[0].pid, spid=(await signer.query("select connection_id() pid")).rows[0].pid;
+    await blocker.query("begin"); await blocker.query("update admissions set version=version where id=$1",[f.admissionId]);
+    vi.spyOn(database,"withTransaction").mockImplementationOnce(fn=>drizzle(signer.pool, { schema, mode: "default" }).transaction(fn));
     stopping=care.stopClinicalOrder(f.dc(),{orderId:order.id,reason:"Actual Doctor stop after lock"}); void stopping.catch(()=>{});
     let blocked=false;
-    for(let i=0;i<100&&!blocked;i++){blocked=(await runtime.query("select $1::int=any(pg_blocking_pids($2::int)) blocked",[bpid,spid])).rows[0].blocked;if(!blocked)await new Promise(r=>setTimeout(r,10));}
+    for(let i=0;i<100&&!blocked;i++){blocked=(await runtime.query("select exists(select 1 from information_schema.INNODB_LOCK_WAITS w join information_schema.INNODB_TRX rt on rt.trx_id=w.requesting_trx_id join information_schema.INNODB_TRX bt on bt.trx_id=w.blocking_trx_id where bt.trx_mysql_thread_id=$1 and rt.trx_mysql_thread_id=$2) blocked",[bpid,spid])).rows[0].blocked;if(!blocked)await new Promise(r=>setTimeout(r,10));}
     expect(blocked).toBe(true);
     const actual=new Date().toISOString();
     // Keep the real lock held until Date's millisecond clock distinguishes the
     // factual pre-stop instant from signing after release; retain strict ordering.
     await vi.waitFor(()=>expect(Date.now()).toBeGreaterThan(Date.parse(actual)),{timeout:1000,interval:1});
     await blocker.query("commit"); await stopping;
-    const stop=(await runtime.query("select signed_at from hims.clinical_task_events where order_id=$1 and status='STOPPED'",[order.id])).rows[0].signed_at as Date;
+    const stop=(await runtime.query("select signed_at from clinical_task_events where order_id=$1 and status='STOPPED'",[order.id])).rows[0].signed_at as Date;
     console.info("Final review real stop barrier",{bpid,spid,blockingObserved:blocked,actual,stop:stop.toISOString()});
     expect(stop.getTime()).toBeGreaterThan(Date.parse(actual));
     const n=f.nc(); await nursing.recordObservation(n,{admissionId:f.admissionId,shiftId:f.shift.id,orderId:order.id,scheduledFor:scheduled,observedAt:actual,values:{pulse:80},requestId:n.requestId});
@@ -97,10 +100,10 @@ it("uses real stop signing after admission contention so factual pre-stop late c
 it("denies generic room reversals under nonzero pinned rates preserving the occupied-time basis",async()=>withTestDatabase(async({runtime})=>{
   const f=await active();
   await database.withTransaction(tx=>reconcileRoomChargesInTransaction(tx,{admissionId:f.admissionId,cutoff:new Date(),actorContext:f.ctx()}));
-  const charge=(await runtime.query("select id,amount_paise from hims.charges where admission_id=$1 and source_event_id like 'room:%'",[f.admissionId])).rows[0];
+  const charge=(await runtime.query("select id,amount_paise from charges where admission_id=$1 and source_event_id like 'room:%'",[f.admissionId])).rows[0];
   expect(BigInt(charge.amount_paise)).toBeGreaterThan(0n);
   const c=f.ctx(); await expect(billing.reverseCharge(c,{chargeId:charge.id,amountPaise:"1",reason:"Generic occupied-time waiver",requestId:c.requestId})).rejects.toMatchObject({code:"PRECONDITION"});
-  expect((await runtime.query("select count(*)::int n from hims.charge_reversals where charge_id=$1",[charge.id])).rows[0].n).toBe(0);
+  expect((await runtime.query("select count(*) n from charge_reversals where charge_id=$1",[charge.id])).rows[0].n).toBe(0);
 }));
 it.each(["DEATH","EXTERNAL_TRANSFER","AGAINST_ADVICE","CREDIT"])("rejects selected Doctor actual fact after Nurse actual exit while permitting later retrospective signing: %s",async type=>withTestDatabase(async({runtime})=>{
   const f=await active(), exit=new Date().toISOString();
@@ -108,14 +111,14 @@ it.each(["DEATH","EXTERNAL_TRANSFER","AGAINST_ADVICE","CREDIT"])("rejects select
   const after=new Date().toISOString();
   const doctor=await exceptions.recordExceptionEvidence(f.dc(),{admissionId:f.admissionId,kind:type==="CREDIT"?"PLANNED_EXIT":type,actualAt:after,notes:"Fact actually after supplied exit"});
   const a=await authority(f,type,[physical.id,doctor.id]);
-  const before=(await runtime.query("select count(*)::int n from hims.exceptional_departures")).rows[0].n;
+  const before=(await runtime.query("select count(*) n from exceptional_departures")).rows[0].n;
   await expect(exceptions.recordExceptionalDeparture(f.admin(),{admissionId:f.admissionId,exceptionId:a.id,physicalEvidenceId:physical.id})).rejects.toMatchObject({code:"PRECONDITION"});
-  expect((await runtime.query("select count(*)::int n from hims.exceptional_departures")).rows[0].n).toBe(before);
+  expect((await runtime.query("select count(*) n from exceptional_departures")).rows[0].n).toBe(before);
   const earlier=await exceptions.recordExceptionEvidence(f.dc(),{admissionId:f.admissionId,kind:type==="CREDIT"?"PLANNED_EXIT":type,actualAt:exit,notes:"Legitimate earlier actual fact signed retrospectively"});
-  expect((await runtime.query("select signed_at from hims.exception_evidence where id=$1",[earlier.id])).rows[0].signed_at.getTime()).toBeGreaterThan(Date.parse(exit));
+  expect((await runtime.query("select signed_at from exception_evidence where id=$1",[earlier.id])).rows[0].signed_at.getTime()).toBeGreaterThan(Date.parse(exit));
   const valid=await authority(f,type,[physical.id,earlier.id]);
   expect((await exceptions.recordExceptionalDeparture(f.admin(),{admissionId:f.admissionId,exceptionId:valid.id,physicalEvidenceId:physical.id})).id).toBeDefined();
-  expect((await runtime.query("select count(*)::int n from hims.exception_evidence where id=$1",[doctor.id])).rows[0].n).toBe(1);
+  expect((await runtime.query("select count(*) n from exception_evidence where id=$1",[doctor.id])).rows[0].n).toBe(1);
 }));
 it("cannot use an old planned exit while an uncancelled return instruction remains current",async()=>withTestDatabase(async()=>{
   const f=await active(), plan=await exceptions.recordExceptionEvidence(f.dc(),{admissionId:f.admissionId,kind:"PLANNED_EXIT",actualAt:new Date().toISOString(),notes:"Original intended exit"});
@@ -126,7 +129,7 @@ it("cannot use an old planned exit while an uncancelled return instruction remai
 }));
 it("rechecks a newly pending return after Admin authority without fabricating advice for EARLY_EXIT",async()=>withTestDatabase(async({runtime})=>{
   const f=await active(),plan=await exceptions.recordExceptionEvidence(f.dc(),{admissionId:f.admissionId,kind:"PLANNED_EXIT",actualAt:new Date().toISOString(),notes:"Original intended exit"}),v=await vacancy(f);
-  const original=(await runtime.query("select vacated_at from hims.room_vacations where id=$1",[v.id])).rows[0],at=new Date().toISOString(),physical=await exceptions.recordExceptionEvidence(f.nc(),{admissionId:f.admissionId,kind:"PHYSICAL_EXIT",shiftId:f.shift.id,actualAt:at,vacatedAt:original.vacated_at.toISOString(),notes:"Actual unplanned exit despite pending return"});
+  const original=(await runtime.query("select vacated_at from room_vacations where id=$1",[v.id])).rows[0],at=new Date().toISOString(),physical=await exceptions.recordExceptionEvidence(f.nc(),{admissionId:f.admissionId,kind:"PHYSICAL_EXIT",shiftId:f.shift.id,actualAt:at,vacatedAt:original.vacated_at.toISOString(),notes:"Actual unplanned exit despite pending return"});
   const a=await authority(f,"CREDIT",[plan.id,physical.id]);
   await exceptions.recordExceptionEvidence(f.dc(),{admissionId:f.admissionId,kind:"RETURN_TO_BED",sourceId:v.id,actualAt:new Date().toISOString(),notes:"Later actual return instruction"});
   await expect(exceptions.recordExceptionalDeparture(f.admin(),{admissionId:f.admissionId,exceptionId:a.id,physicalEvidenceId:physical.id})).rejects.toMatchObject({code:"PRECONDITION"});
@@ -136,7 +139,7 @@ it("requires a fresh planned exit after an actual attributable return to bed",as
   const f=await active(),plan=await exceptions.recordExceptionEvidence(f.dc(),{admissionId:f.admissionId,kind:"PLANNED_EXIT",actualAt:new Date().toISOString(),notes:"Old plan before actual return"}),v=await vacancy(f);
   const instruction=await exceptions.recordExceptionEvidence(f.dc(),{admissionId:f.admissionId,kind:"RETURN_TO_BED",sourceId:v.id,actualAt:new Date().toISOString(),notes:"Actual return instruction"});
   const a=await exceptions.authorizeException(f.admin(),{admissionId:f.admissionId,type:"RETURN_TO_BED",disposition:"RETURN_TO_BED",authority:"Actual Admin routing",reason:"Record real professional return",evidenceIds:[instruction.id],evidence:"Actual Doctor instruction",followUpOwnerId:f.nurse.id});
-  const turnover=(await runtime.query("select id from hims.bed_turnovers where admission_id=$1",[f.admissionId])).rows[0],clean=f.admin();
+  const turnover=(await runtime.query("select id from bed_turnovers where admission_id=$1",[f.admissionId])).rows[0],clean=f.admin();
   await discharge.completeBedTurnover(clean,{turnoverId:turnover.id,completedAt:new Date().toISOString(),evidence:"Actual cleaned bed",requestId:clean.requestId});
   const handover=await exceptions.recordExceptionEvidence(f.nc(),{admissionId:f.admissionId,kind:"RETURN_HANDOVER",sourceId:v.id,shiftId:f.shift.id,actualAt:new Date().toISOString(),notes:"Actual return to cleaned bed"});
   await exceptions.returnToBed(f.nc(),{admissionId:f.admissionId,exceptionId:a.id,doctorEvidenceId:instruction.id,nurseEvidenceId:handover.id});
@@ -148,7 +151,7 @@ it("cannot withdraw a retained Nurse factual transfer handover before delayed re
   const f=await active(),c=f.dc(),order=await care.orderTransfer(c,{admissionId:f.admissionId,destinationCategory:"GENERAL",reason:"Current original move",requestId:c.requestId});
   await exceptions.recordExceptionEvidence(f.nc(),{admissionId:f.admissionId,kind:"TRANSFER_HANDOVER",sourceId:order.id,shiftId:f.shift.id,actualAt:new Date().toISOString(),notes:"Actual move witnessed before recording"});
   const cancel=f.dc();await expect(care.cancelTransferOrder(cancel,{admissionId:f.admissionId,transferOrderId:order.id,reason:"Cannot erase witnessed move",requestId:cancel.requestId})).rejects.toMatchObject({code:"PRECONDITION"});
-  await expect(runtime.query("insert into hims.transfer_order_cancellations(admission_id,transfer_order_id,reason,signed_by) values($1,$2,'Cannot bypass original Nurse fact',$3)",[f.admissionId,order.id,f.doctor.id])).rejects.toMatchObject({code:"23514"});
+  await expect(runtime.query("insert into transfer_order_cancellations(admission_id,transfer_order_id,reason,signed_by) values($1,$2,'Cannot bypass original Nurse fact',$3)",[f.admissionId,order.id,f.doctor.id])).rejects.toSatisfy(ruleViolation);
   expect((await care.getCare(f.dc(),f.admissionId)).transferOrders.find(o=>o.id===order.id)?.status).toBe("WITNESSED");
 }));
 it("withdraws only the current unperformed Doctor transfer with immutable reason and shared discharge state",async()=>withTestDatabase(async({runtime})=>{
@@ -165,24 +168,26 @@ it("withdraws only the current unperformed Doctor transfer with immutable reason
   expect((await discharge.getClearanceReview(f.dc(),f.admissionId,"DOCTOR")).blockers.some(b=>b.includes("transfer order"))).toBe(false);
   const bed=await createBed(f.admin(),{label:"Synthetic cancelled destination",category:"GENERAL",reason:"Synthetic transfer test"}), n=f.nc();
   await expect(transferAdmission(n,{admissionId:f.admissionId,transferOrderId:order.id,targetBedId:bed.id,transferredAt:new Date().toISOString(),handover:{shiftId:f.shift.id,notes:"Cannot reuse cancelled order"},requestId:n.requestId})).rejects.toMatchObject({code:"CONFLICT"});
-  await expect(runtime.query("update hims.transfer_order_cancellations set reason='Silent replacement' where id=$1",[result.id])).rejects.toThrow();
+  await expect(runtime.query("update transfer_order_cancellations set reason='Silent replacement' where id=$1",[result.id])).rejects.toThrow();
 }));
 it("amends a closed non-room charge by bounded source reversal while retaining receipts and documents",async()=>withTestDatabase(async({runtime})=>{
   const f=await active(); await f.setting({type:"billable-item",code:"FINAL_CONSULT",name:"Original consultation",category:"consultation",department:"DOCTOR",unit:"visit",quantityScale:0,active:true,amount:"100"});
   const r=f.dc(); await care.recordRound(r,{admissionId:f.admissionId,notes:"Actual retained consultation",orders:[],feeScheduleId:"FINAL_CONSULT",feeUnit:"visit",requestId:r.requestId});
   await earlyExit(f);
-  const original=(await runtime.query("select * from hims.charges where admission_id=$1 and category='consultation'",[f.admissionId])).rows[0], cash=(await runtime.query("select * from hims.receipts where admission_id=$1",[f.admissionId])).rows;
-  await expect(runtime.query("insert into hims.charge_reversals(charge_id,amount_paise,reason,actor_type,actor_id) values($1,1,'Native closed financial bypass','staff',$2)",[original.id,f.cashier.id])).rejects.toMatchObject({code:"23514"});
+  const original=(await runtime.query("select * from charges where admission_id=$1 and category='consultation'",[f.admissionId])).rows[0], cash=(await runtime.query("select * from receipts where admission_id=$1",[f.admissionId])).rows;
+  await expect(runtime.query("insert into charge_reversals(charge_id,amount_paise,reason,actor_type,actor_id) values($1,1,'Native closed financial bypass','staff',$2)",[original.id,f.cashier.id])).rejects.toSatisfy(ruleViolation);
   const a=await correctionAuthority(f,"REVERSE_CHARGE",original.id), before=await billing.getBill(f.ctx(),f.admissionId), ctx=f.ctx(), copy=await originalCopy(f);
   await runtime.query("begin");try{
-    await runtime.query("insert into hims.charge_reversals(charge_id,amount_paise,reason,actor_type,actor_id,correction_exception_id) values($1,1,'Naked effect without persisted amendment','staff',$2,$3)",[original.id,f.cashier.id,a.id]);
-    await expect(runtime.query("commit")).rejects.toMatchObject({code:"23514"});
+    await runtime.query("insert into charge_reversals(charge_id,amount_paise,reason,actor_type,actor_id,correction_exception_id) values($1,1,'Naked effect without persisted amendment','staff',$2,$3)",[original.id,f.cashier.id,a.id]);
+    const rid=(await runtime.query("select id from charge_reversals where charge_id=$1 and correction_exception_id=$2",[original.id,a.id])).rows[0].id;
+    // PostgreSQL refused this at COMMIT through a deferred constraint trigger; MariaDB has none, so the same check runs before commit.
+    await expect(assertClosedFinancialResults(asTx(runtime),{reversalIds:[rid]})).rejects.toMatchObject({sqlMessage:expect.stringContaining("exact persisted attributable amendment")});
   }finally{await runtime.query("rollback");}
   const v={admissionId:f.admissionId,exceptionId:a.id,kind:"REVERSE_CHARGE",sourceId:original.id,data:{amountPaise:"2500",reason:"Original overcharge review",expectedBillVersion:before.revision}};
   const amendment=await exceptions.applyPostDischargeCorrection(ctx,v); expect(await exceptions.applyPostDischargeCorrection(ctx,v)).toEqual(amendment);
   expect((await billing.getBill(f.ctx(),f.admissionId)).netPaise).toBe(before.netPaise-2500n);
-  expect((await runtime.query("select * from hims.charges where id=$1",[original.id])).rows[0]).toEqual(original);
-  expect((await runtime.query("select * from hims.receipts where admission_id=$1",[f.admissionId])).rows).toEqual(cash);
+  expect((await runtime.query("select * from charges where id=$1",[original.id])).rows[0]).toEqual(original);
+  expect((await runtime.query("select * from receipts where admission_id=$1",[f.admissionId])).rows).toEqual(cash);
   await amendedCopy(f,copy,amendment.id,before.netPaise-2500n);
   await expect(exceptions.applyPostDischargeCorrection(f.dc(),v)).rejects.toMatchObject({code:"FORBIDDEN"});
   await expect(exceptions.applyPostDischargeCorrection(f.ctx(),v)).rejects.toMatchObject({code:"CONFLICT"});
@@ -203,17 +208,17 @@ it.each(["consultation","consumable"] as const)("prices only retained performed 
   const properActor=category==="consultation"?f.doctor.id:f.nurse.id,wrongActor=category==="consultation"?f.nurse.id:f.doctor.id,quantity=category==="consultation"?1:2;
   for(const fault of ["quantity","role","authority","result"]) {
     await runtime.query("begin");try {
-      await runtime.query("update hims.care_billing_events set tariff_version_id=$2,state='READY' where id=$1",[sourceId,price.id]);
+      await runtime.query("update care_billing_events set tariff_version_id=$2,state='READY' where id=$1",[sourceId,price.id]);
       const units=fault==="quantity"?quantity+1:quantity;
-      const insert=()=>runtime.query("insert into hims.charges(admission_id,source_event_id,source_payload,category,item_id,description,quantity,unit,tariff_version_id,rate_paise,amount_paise,initial_status,actor_type,actor_id,correction_exception_id) values($1,$2,'Native original-source proof',$3,'FINAL_ITEM','Retained actual source',$4,'unit',$5,10000,$6,'FINAL','staff',$7,$8)",[f.admissionId,sourceId,category,String(units),price.id,units*10000,fault==="role"?wrongActor:properActor,fault==="authority"?null:a.id]);
-      if(fault==="result") {await insert();await expect(runtime.query("commit")).rejects.toMatchObject({code:"23514"});}
-      else await expect(insert()).rejects.toMatchObject({code:"23514"});
+      const insert=()=>runtime.query("insert into charges(admission_id,source_event_id,source_payload,category,item_id,description,quantity,unit,tariff_version_id,rate_paise,amount_paise,initial_status,actor_type,actor_id,correction_exception_id) values($1,$2,'Native original-source proof',$3,'FINAL_ITEM','Retained actual source',$4,'unit',$5,10000,$6,'FINAL','staff',$7,$8)",[f.admissionId,sourceId,category,String(units),price.id,units*10000,fault==="role"?wrongActor:properActor,fault==="authority"?null:a.id]);
+      if(fault==="result") {await insert();const cid=(await runtime.query("select id from charges where admission_id=$1 and source_event_id=$2 and correction_exception_id=$3",[f.admissionId,sourceId,a.id])).rows[0].id;await expect(assertClosedFinancialResults(asTx(runtime),{chargeIds:[cid]})).rejects.toMatchObject({sqlMessage:expect.stringContaining("exact persisted attributable amendment")});}
+      else await expect(insert()).rejects.toSatisfy(ruleViolation);
     }finally{await runtime.query("rollback");}
   }
   const amendment=await exceptions.applyPostDischargeCorrection(ctx,v);expect(await exceptions.applyPostDischargeCorrection(ctx,v)).toEqual(amendment);
   const after=await billing.getBill(f.ctx(),f.admissionId);expect(after.netPaise-before.netPaise).toBe(category==="consultation"?10000n:20000n);
-  expect((await runtime.query("select quantity,state from hims.care_billing_events where id=$1",[sourceId])).rows[0]).toMatchObject({quantity:category==="consultation"?"1":"2",state:"POSTED"});
-  expect((await runtime.query("select count(*)::int n from hims.charges where admission_id=$1 and source_event_id=$2",[f.admissionId,sourceId])).rows[0].n).toBe(1);
+  expect((await runtime.query("select quantity,state from care_billing_events where id=$1",[sourceId])).rows[0]).toMatchObject({quantity:category==="consultation"?"1":"2",state:"POSTED"});
+  expect((await runtime.query("select count(*) n from charges where admission_id=$1 and source_event_id=$2",[f.admissionId,sourceId])).rows[0].n).toBe(1);
   await amendedCopy(f,copy,amendment.id,after.netPaise);
   await expect(exceptions.applyPostDischargeCorrection(category==="consultation"?f.dc():f.nc(),v)).rejects.toMatchObject({code:"CONFLICT"});
 }));
@@ -238,8 +243,8 @@ it("retains withdrawal but recovers only a genuinely earlier actual transfer thr
   const witness=await exceptions.recordExceptionEvidence(f.nc(),{admissionId:f.admissionId,kind:"TRANSFER_HANDOVER",sourceId:order.id,shiftId:f.shift.id,actualAt:actual,notes:"Actual move occurred before later withdrawal"});
   const a=await exceptions.authorizeException(f.admin(),{admissionId:f.admissionId,type:"DELAYED_TRANSFER",disposition:"TRANSFER",authority:"Source-bound Admin factual recovery",reason:"Retain real earlier move and later withdrawal",evidence:"Actual original Nurse handover",evidenceIds:[witness.id],followUpOwnerId:f.nurse.id});
   await exceptions.applyDelayedTransfer(f.admin(),{admissionId:f.admissionId,exceptionId:a.id,evidenceId:witness.id,targetBedId:target.id});
-  expect((await runtime.query("select * from hims.transfer_order_cancellations where id=$1",[withdrawn.id])).rows[0]).toMatchObject({transfer_order_id:order.id});
-  expect((await runtime.query("select transferred_at from hims.admission_transfers where transfer_order_id=$1",[order.id])).rows[0].transferred_at.toISOString()).toBe(actual);
+  expect((await runtime.query("select * from transfer_order_cancellations where id=$1",[withdrawn.id])).rows[0]).toMatchObject({transfer_order_id:order.id});
+  expect((await runtime.query("select transferred_at from admission_transfers where transfer_order_id=$1",[order.id])).rows[0].transferred_at.toISOString()).toBe(actual);
   expect((await care.getCare(f.dc(),f.admissionId)).transferOrders.find(o=>o.id===order.id)?.status).toBe("COMPLETED");
 }));
 it.each(["withdrawal","transfer"] as const)("serializes actual transfer versus withdrawal with observed admission ownership: %s first",async winner=>withTestDatabase(async({runtime})=>{
@@ -249,14 +254,14 @@ it.each(["withdrawal","transfer"] as const)("serializes actual transfer versus w
   const withdraw=()=>{const ctx=f.dc();return care.cancelTransferOrder(ctx,{admissionId:f.admissionId,transferOrderId:order.id,reason:"Doctor actual reconsideration",requestId:ctx.requestId});};
   const transfer=()=>{const ctx=f.nc();return transferAdmission(ctx,{admissionId:f.admissionId,transferOrderId:order.id,targetBedId:target.id,transferredAt:new Date().toISOString(),handover:{shiftId:f.shift.id,notes:"Actual signed move"},requestId:ctx.requestId});};
   try {
-    const p1=(await first.query("select pg_backend_pid() pid")).rows[0].pid,p2=(await second.query("select pg_backend_pid() pid")).rows[0].pid;
-    vi.spyOn(database,"withTransaction").mockImplementationOnce(fn=>drizzle(first,{schema}).transaction(async tx=>{const result=await fn(tx);ready();await held;return result;})).mockImplementationOnce(fn=>drizzle(second,{schema}).transaction(fn));
+    const p1=(await first.query("select connection_id() pid")).rows[0].pid,p2=(await second.query("select connection_id() pid")).rows[0].pid;
+    vi.spyOn(database,"withTransaction").mockImplementationOnce(fn=>drizzle(first.pool, { schema, mode: "default" }).transaction(async tx=>{const result=await fn(tx);ready();await held;return result;})).mockImplementationOnce(fn=>drizzle(second.pool, { schema, mode: "default" }).transaction(fn));
     winning=winner==="withdrawal"?withdraw():transfer();void winning.catch(()=>ready());await acquired;
     losing=(winner==="withdrawal"?transfer():withdraw()).catch(e=>e);
-    let blocked=false;for(let i=0;i<100&&!blocked;i++){blocked=(await runtime.query("select $1::int=any(pg_blocking_pids($2::int)) blocked",[p1,p2])).rows[0].blocked;if(!blocked)await new Promise(r=>setTimeout(r,10));}
+    let blocked=false;for(let i=0;i<100&&!blocked;i++){blocked=(await runtime.query("select exists(select 1 from information_schema.INNODB_LOCK_WAITS w join information_schema.INNODB_TRX rt on rt.trx_id=w.requesting_trx_id join information_schema.INNODB_TRX bt on bt.trx_id=w.blocking_trx_id where bt.trx_mysql_thread_id=$1 and rt.trx_mysql_thread_id=$2) blocked",[p1,p2])).rows[0].blocked;if(!blocked)await new Promise(r=>setTimeout(r,10));}
     expect(blocked).toBe(true);console.info("Final transfer withdrawal contention",{winner,p1,p2,blockingObserved:blocked});release();await winning;
     expect(await losing).toMatchObject({code:winner==="withdrawal"?"CONFLICT":"PRECONDITION"});
-    const counts=(await runtime.query("select (select count(*) from hims.transfer_order_cancellations where transfer_order_id=$1)::int cancellations,(select count(*) from hims.admission_transfers where transfer_order_id=$1)::int transfers",[order.id])).rows[0];
+    const counts=(await runtime.query("select (select count(*) from transfer_order_cancellations where transfer_order_id=$1) cancellations,(select count(*) from admission_transfers where transfer_order_id=$1) transfers",[order.id])).rows[0];
     expect(counts).toEqual(winner==="withdrawal"?{cancellations:1,transfers:0}:{cancellations:0,transfers:1});
   }finally{release();await Promise.allSettled([winning,losing]);await Promise.all([first.end(),second.end()]);}
 }));

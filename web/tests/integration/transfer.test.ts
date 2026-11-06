@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-import { Client } from "pg";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { TestClient as Client } from "../../scripts/test-client.ts";
+import { drizzle } from "drizzle-orm/mysql2";
 import { sql } from "drizzle-orm";
 import { withTestDatabase } from "../../scripts/test-database";
 import { getTestDatabaseConfig } from "../../scripts/test-database-guard";
@@ -9,6 +9,7 @@ import { loadLocalEnvironment } from "../../scripts/migrate";
 import { billingFixture } from "../support/billing-fixture";
 import { staffContext } from "../../src/server/access";
 import * as schema from "../../src/server/schema";
+import { acquireTxLock } from "../../src/server/locks";
 loadLocalEnvironment();
 const originalUrl = process.env.DATABASE_URL;
 const runtimeUrl = getTestDatabaseConfig().runtimeUrl;
@@ -43,7 +44,7 @@ it("atomically splits room stays and pins tariffs, retains care sources, and rej
     await care.recordRound(round, { admissionId: a.admissionId, notes: "Synthetic monitoring continues", orders: [{ kind: "VITALS", requestedItem: "Synthetic pulse monitoring", schedule: { startsAt: start, intervalMinutes: 10, occurrences: 3 } }], requestId: round.requestId });
     const use = await nursing.recordConsumable(nc(), { admissionId: a.admissionId, shiftId: shift.id, usedAt: new Date().toISOString(), itemId: "TRANSFER_USE", quantity: "2", unit: "piece", reason: "Synthetic source use" });
     const before = await care.getCare(nc(), a.admissionId);
-    const oldStay = (await runtime.query("select * from hims.room_stays where admission_id=$1", [a.admissionId])).rows[0];
+    const oldStay = (await runtime.query("select * from room_stays where admission_id=$1", [a.admissionId])).rows[0];
     const orderCtx = dc();
     const orderInput = { admissionId: a.admissionId, destinationCategory: "ICU", reason: "Clinician escalation", requestId: orderCtx.requestId };
     const order = await care.orderTransfer(orderCtx, orderInput);
@@ -60,19 +61,19 @@ it("atomically splits room stays and pins tariffs, retains care sources, and rej
     await expect(admission.transferAdmission(wrong, { ...input, requestId: wrong.requestId })).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(admission.transferAdmission(ctx, { ...input, handover: { ...input.handover, shiftId: randomUUID() } })).rejects.toMatchObject({ code: "FORBIDDEN" });
     // A real failure after the room delta, old stay close and target move must roll back every effect.
-    await owner.query("CREATE FUNCTION hims.reject_transfer_test() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic transfer audit failure'; END $$; CREATE TRIGGER reject_transfer_test BEFORE INSERT ON hims.admission_transfers FOR EACH ROW EXECUTE FUNCTION hims.reject_transfer_test()");
+    await owner.query("create trigger reject_transfer_test BEFORE insert on admission_transfers for each row begin signal sqlstate '45000' set message_text='synthetic transfer audit failure'; end");
     await expect(admission.transferAdmission(ctx, input)).rejects.toMatchObject({ cause: { message: "synthetic transfer audit failure" } });
-    expect((await runtime.query("select count(*)::int n from hims.charges where admission_id=$1", [a.admissionId])).rows[0].n).toBe(0);
-    expect((await runtime.query("select * from hims.room_stays where id=$1", [oldStay.id])).rows[0]).toMatchObject({ ended_at: null, posted_paise: "0" });
-    expect((await runtime.query("select bed_id from hims.bed_holds where admission_id=$1", [a.admissionId])).rows[0].bed_id).toBe(oldStay.bed_id);
-    await owner.query("DROP TRIGGER reject_transfer_test ON hims.admission_transfers; DROP FUNCTION hims.reject_transfer_test()");
+    expect((await runtime.query("select count(*) n from charges where admission_id=$1", [a.admissionId])).rows[0].n).toBe(0);
+    expect((await runtime.query("select * from room_stays where id=$1", [oldStay.id])).rows[0]).toMatchObject({ ended_at: null, posted_paise: "0" });
+    expect((await runtime.query("select bed_id from bed_holds where admission_id=$1", [a.admissionId])).rows[0].bed_id).toBe(oldStay.bed_id);
+    await owner.query("drop trigger reject_transfer_test");
     await f.setting({ type: "tariff", category: "GENERAL", amount: "999", basis: "hour", rounding: "exact", graceMinutes: 0 });
     const result = await admission.transferAdmission(ctx, input);
     expect(await admission.transferAdmission(ctx, input)).toEqual(result);
     await expect(admission.transferAdmission(ctx, { ...input, transferredAt: new Date(T.getTime() + 1).toISOString() })).rejects.toMatchObject({ code: "CONFLICT" });
     const replay = nc();
     await expect(admission.transferAdmission(replay, { ...input, requestId: replay.requestId })).rejects.toMatchObject({ code: "CONFLICT" });
-    const stays = (await runtime.query("select * from hims.room_stays where admission_id=$1 order by started_at", [a.admissionId])).rows;
+    const stays = (await runtime.query("select * from room_stays where admission_id=$1 order by started_at", [a.admissionId])).rows;
     expect(stays).toHaveLength(2);
     expect(result).toEqual({ oldStayId: stays[0].id, newStayId: stays[1].id });
     expect(stays[0].ended_at.toISOString()).toBe(T.toISOString());
@@ -87,10 +88,10 @@ it("atomically splits room stays and pins tariffs, retains care sources, and rej
     expect(chart.occurrences.map(o => o.id)).toEqual(before.occurrences.map(o => o.id));
     expect(chart.occurrences.every(o => o.status === "OVERDUE")).toBe(true);
     expect(chart.consumables.find(c => c.id === use.id)).toMatchObject({ stayId: oldStay.id, bedId: oldStay.bed_id, unit: "piece" });
-    expect((await runtime.query("select owner_role from hims.transfer_insurance_tasks where admission_id=$1", [a.admissionId])).rows).toEqual([{ owner_role: "INSURANCE" }]);
-    await expect(owner.query("update hims.admission_transfers set handover='rewritten' where admission_id=$1", [a.admissionId])).rejects.toThrow("Transfer history is immutable");
-    await expect(owner.query("update hims.transfer_orders set reason='rewritten' where admission_id=$1", [a.admissionId])).rejects.toThrow("Transfer history is immutable");
-    await expect(owner.query("update hims.room_stays set ended_at=ended_at+interval '1 minute' where id=$1", [oldStay.id])).rejects.toThrow("Closed room boundary is immutable");
+    expect((await runtime.query("select owner_role from transfer_insurance_tasks where admission_id=$1", [a.admissionId])).rows).toEqual([{ owner_role: "INSURANCE" }]);
+    await expect(owner.query("update admission_transfers set handover='rewritten' where admission_id=$1", [a.admissionId])).rejects.toThrow("Transfer history is immutable");
+    await expect(owner.query("update transfer_orders set reason='rewritten' where admission_id=$1", [a.admissionId])).rejects.toThrow("Transfer history is immutable");
+    await expect(owner.query("update room_stays set ended_at=ended_at + interval 1 minute where id=$1", [oldStay.id])).rejects.toThrow("Closed room boundary is immutable");
     const grant = (await nursing.assignmentWorkspace(admin())).assignments.find(g => g.admissionId === a.admissionId && g.nurseId === f.nurse.id)!;
     await nursing.endShift(nc(), { shiftId: shift.id, endedAt: new Date(T.getTime() + 1800000).toISOString(), handover: "Synthetic complete shift" });
     await nursing.revokeNurseAssignment(admin(), { assignmentId: grant.id, reason: "Synthetic revoke", authority: "Synthetic admin authority" });
@@ -121,15 +122,15 @@ it("orders the shared configuration lock before staff rows and reauthenticates a
     const writer = new Client({ connectionString: runtimeUrl }), reader = new Client({ connectionString: runtimeUrl });
     await Promise.all([writer.connect(), reader.connect()]);
     try {
-      const writerPid = (await writer.query("select pg_backend_pid() p")).rows[0].p;
-      const readerPid = (await reader.query("select pg_backend_pid() p")).rows[0].p;
+      const writerPid = (await writer.query("select connection_id() p")).rows[0].p;
+      const readerPid = (await reader.query("select connection_id() p")).rows[0].p;
       expect(writerPid).not.toBe(readerPid);
-      const writeDb = drizzle(writer, { schema }), readDb = drizzle(reader, { schema });
+      const writeDb = drizzle(writer.pool, { schema, mode: "default" }), readDb = drizzle(reader.pool, { schema, mode: "default" });
       for (const person of [f.doctor, f.nurse]) {
         let pending: Promise<unknown> | undefined;
         await writeDb.transaction(async tx => {
           // Exact existing updateStaff lock order, on synthetic role/disable data only.
-          await tx.execute(sql`select pg_advisory_xact_lock(729104211)`);
+          await acquireTxLock(tx, "729104211");
           const ctx = person.role === "DOCTOR" ? dc() : nc();
           pending = readDb.transaction(async other => {
             if (person.role === "DOCTOR") await care.orderTransferInTransaction(other, ctx, { admissionId: a.admissionId, destinationCategory: "GENERAL", reason: "Concurrent doctor command", requestId: ctx.requestId });
@@ -138,17 +139,17 @@ it("orders the shared configuration lock before staff rows and reauthenticates a
           void pending.catch(() => {});
           let blocked = false;
           for (let attempt = 0; attempt < 100 && !blocked; attempt++) {
-            blocked = (await runtime.query("select wait_event_type='Lock' blocked from pg_stat_activity where pid=$1", [readerPid])).rows[0]?.blocked === true;
+            blocked = (await runtime.query("select exists(select 1 from information_schema.INNODB_TRX where trx_mysql_thread_id=$1 and trx_state='LOCK WAIT') blocked", [readerPid])).rows[0]?.blocked === true;
             if (!blocked) await new Promise(resolve => setTimeout(resolve, 20));
           }
           expect(blocked).toBe(true);
-          // This UPDATE would deadlock if the waiting command had already held user FOR SHARE.
-          await tx.execute(sql`update hims.staff_user set banned=true where id=${person.id}`);
+          // This UPDATE would deadlock if the waiting command had already held user LOCK IN SHARE MODE.
+          await tx.execute(sql`update staff_user set banned=true where id=${person.id}`);
         });
         await expect(pending!).rejects.toMatchObject({ code: "FORBIDDEN" });
       }
-      expect((await runtime.query("select count(*)::int n from hims.admission_transfers")).rows[0].n).toBe(0);
-      expect((await runtime.query("select count(*)::int n from hims.transfer_orders")).rows[0].n).toBe(1);
+      expect((await runtime.query("select count(*) n from admission_transfers")).rows[0].n).toBe(0);
+      expect((await runtime.query("select count(*) n from transfer_orders")).rows[0].n).toBe(1);
     } finally { await Promise.all([writer.end(), reader.end()]); }
   });
 }, 120000);
@@ -171,7 +172,7 @@ it("rejects wrong/latest authority, current configuration, historical care and s
     const sc = nc();
     const shift = await nursing.recordShift(sc, { admissionId: a.admissionId, startedAt: start, handover: "Synthetic received", requestId: sc.requestId });
     const bed = await admission.createBed(admin(), { label: "Synthetic guard target", category: "GENERAL", reason: "Synthetic target" });
-    const source = (await runtime.query("select * from hims.room_stays where admission_id=$1", [a.admissionId])).rows[0];
+    const source = (await runtime.query("select * from room_stays where admission_id=$1", [a.admissionId])).rows[0];
     const oc = dc();
     const oldOrder = await care.orderTransfer(oc, { admissionId: a.admissionId, destinationCategory: "GENERAL", reason: "Original clinical decision", requestId: oc.requestId });
     const superseding = dc();
@@ -182,19 +183,19 @@ it("rejects wrong/latest authority, current configuration, historical care and s
     const expectRejected = async (changes: Record<string, unknown>, code: string) => {
       const ctx = nc();
       await expect(admission.transferAdmission(ctx, { ...input(ctx), ...changes })).rejects.toMatchObject({ code });
-      expect((await runtime.query("select count(*)::int n from hims.room_stays where admission_id=$1", [a.admissionId])).rows[0].n).toBe(1);
-      expect((await runtime.query("select bed_id from hims.bed_holds where admission_id=$1", [a.admissionId])).rows[0].bed_id).toBe(source.bed_id);
+      expect((await runtime.query("select count(*) n from room_stays where admission_id=$1", [a.admissionId])).rows[0].n).toBe(1);
+      expect((await runtime.query("select bed_id from bed_holds where admission_id=$1", [a.admissionId])).rows[0].bed_id).toBe(source.bed_id);
     };
     await expectRejected({ transferOrderId: oldOrder.id }, "CONFLICT");
     await expectRejected({ transferOrderId: randomUUID() }, "CONFLICT");
     await expectRejected({ admissionId: b.admissionId }, "FORBIDDEN");
     await expectRejected({ targetBedId: source.bed_id }, "VALIDATION");
-    const reservedBed = (await runtime.query("select bed_id from hims.admissions where id=$1", [b.admissionId])).rows[0].bed_id;
+    const reservedBed = (await runtime.query("select bed_id from admissions where id=$1", [b.admissionId])).rows[0].bed_id;
     await expectRejected({ targetBedId: reservedBed }, "CONFLICT");
     await admission.disableBed(admin(), { bedId: bed.id, reason: "Synthetic target unavailable" });
     await expectRejected({}, "CONFLICT");
     // Only synthetic owner setup re-enables this test bed, never ordinary inventory.
-    await owner.query("update hims.beds set active=true where id=$1", [bed.id]);
+    await owner.query("update beds set active=true where id=$1", [bed.id]);
     await f.setting({ type: "bed-category", code: "ICU", name: "Synthetic no-price ICU", active: true });
     const unpriced = await admission.createBed(admin(), { label: "Synthetic unpriced ICU", category: "ICU", reason: "Synthetic fixture" });
     await expectRejected({ targetBedId: unpriced.id }, "VALIDATION");
@@ -213,7 +214,7 @@ it("rejects wrong/latest authority, current configuration, historical care and s
     const move = nc();
     const result = await admission.transferAdmission(move, { ...input(move), transferOrderId: generalOrder.id, transferredAt: new Date(T.getTime() + 2).toISOString() });
     expect(result.oldStayId).toBe(source.id);
-    expect((await runtime.query("select count(*)::int n from hims.transfer_insurance_tasks where admission_id=$1", [a.admissionId])).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from transfer_insurance_tasks where admission_id=$1", [a.admissionId])).rows[0].n).toBe(0);
     expect((await care.getCare(nc(), a.admissionId)).stays[0]).not.toHaveProperty("postedPaise");
   });
 }, 120000);
@@ -250,40 +251,40 @@ it("serializes target-bed races, consumed orders and worker cursors on distinct 
     const ca = new Client({ connectionString: runtimeUrl }), cb = new Client({ connectionString: runtimeUrl });
     await Promise.all([ca.connect(), cb.connect()]);
     try {
-      const pidA = (await ca.query("select pg_backend_pid() p")).rows[0].p;
-      const pidB = (await cb.query("select pg_backend_pid() p")).rows[0].p;
+      const pidA = (await ca.query("select connection_id() p")).rows[0].p;
+      const pidB = (await cb.query("select connection_id() p")).rows[0].p;
       expect(pidA).not.toBe(pidB);
-      const ta = drizzle(ca, { schema }), tb = drizzle(cb, { schema });
+      const ta = drizzle(ca.pool, { schema, mode: "default" }), tb = drizzle(cb.pool, { schema, mode: "default" });
       const input = (v: typeof first, ctx: ReturnType<typeof nc>, bedId = target.id) => ({ admissionId: v.a.admissionId, transferOrderId: v.order.id, targetBedId: bedId, handover: { shiftId: v.shift.id, notes: "Synthetic actual transfer handover" }, transferredAt: T.toISOString(), requestId: ctx.requestId });
       // Earlier transaction start must not backdate the later serialized signature.
       // The episode-specific version remains the authority ordering.
       let earlierCommitted: { id: string } | undefined;
       await ta.transaction(async tx => {
-        await tx.execute(sql`select now()`);
+        await tx.execute(sql`select UTC_TIMESTAMP(6)`);
         const early = dc();
         earlierCommitted = await tb.transaction(other => care.orderTransferInTransaction(other, early, { admissionId: first.a.admissionId, destinationCategory: "GENERAL", reason: "Earlier committed transfer decision", requestId: early.requestId }));
         const late = dc();
         first.order = await care.orderTransferInTransaction(tx, late, { admissionId: first.a.admissionId, destinationCategory: "GENERAL", reason: "Latest serialized transfer decision", requestId: late.requestId });
       });
-      const serialized = (await runtime.query("select id, signed_at, version from hims.transfer_orders where id=ANY($1::uuid[]) order by version", [[earlierCommitted!.id, first.order.id]])).rows;
+      const serialized = (await runtime.query("select id, signed_at, version from transfer_orders where id in ($1,$2) order by version", [earlierCommitted!.id, first.order.id])).rows;
       expect(serialized[1].version).toBe(serialized[0].version + 1);
-      expect((await runtime.query("select latest.signed_at >= earlier.signed_at actual_signing_order from hims.transfer_orders latest join hims.transfer_orders earlier on earlier.id=$1 where latest.id=$2", [earlierCommitted!.id, first.order.id])).rows[0].actual_signing_order).toBe(true);
+      expect((await runtime.query("select latest.signed_at >= earlier.signed_at actual_signing_order from transfer_orders latest join transfer_orders earlier on earlier.id=$1 where latest.id=$2", [earlierCommitted!.id, first.order.id])).rows[0].actual_signing_order).toBe(true);
       const obsolete = nc();
       await expect(admission.transferAdmission(obsolete, input({ ...first, order: earlierCommitted! }, obsolete))).rejects.toMatchObject({ code: "CONFLICT" });
       const x = nc(), y = nc();
       async function assertBlocked(pid: number) {
         let blocked = false;
         for (let attempt = 0; attempt < 100 && !blocked; attempt++) {
-          blocked = (await runtime.query("select wait_event_type='Lock' blocked from pg_stat_activity where pid=$1", [pid])).rows[0]?.blocked === true;
+          blocked = (await runtime.query("select exists(select 1 from information_schema.INNODB_TRX where trx_mysql_thread_id=$1 and trx_state='LOCK WAIT') blocked", [pid])).rows[0]?.blocked === true;
           if (!blocked) await new Promise(resolve => setTimeout(resolve, 20));
         }
         expect(blocked).toBe(true);
       }
       let targetContender: Promise<{ oldStayId: string; newStayId: string }> | undefined;
       await ta.transaction(async tx => {
-        await tx.execute(sql`select pg_advisory_xact_lock_shared(729104211)`);
+        await acquireTxLock(tx, "729104211", "shared");
         await lockBillingAdmission(tx, first.a.admissionId);
-        await tx.execute(sql`select id from hims.beds where id=${target.id} for update`);
+        await tx.execute(sql`select id from beds where id=${target.id} for update`);
         targetContender = tb.transaction(tx => admission.transferAdmissionInTransaction(tx, y, input(second, y)));
         void targetContender.catch(() => {});
         await assertBlocked(pidB);
@@ -304,7 +305,7 @@ it("serializes target-bed races, consumed orders and worker cursors on distinct 
       const T2 = new Date(T.getTime() + 1800000);
       let worker: Promise<bigint> | undefined;
       await ta.transaction(async tx => {
-        await tx.execute(sql`select pg_advisory_xact_lock_shared(729104211)`);
+        await acquireTxLock(tx, "729104211", "shared");
         await lockBillingAdmission(tx, loser.a.admissionId);
         worker = tb.transaction(async workerTx => {
           await lockBillingAdmission(workerTx, loser.a.admissionId);
@@ -315,7 +316,7 @@ it("serializes target-bed races, consumed orders and worker cursors on distinct 
         await admission.transferAdmissionInTransaction(tx, move, { ...input(next, move, newTarget.id), transferredAt: T2.toISOString() });
       });
       await worker;
-      const stays = (await runtime.query("select * from hims.room_stays where admission_id=$1 order by started_at", [loser.a.admissionId])).rows;
+      const stays = (await runtime.query("select * from room_stays where admission_id=$1 order by started_at", [loser.a.admissionId])).rows;
       expect(stays).toHaveLength(3);
       expect(stays[1].ended_at.toISOString()).toBe(T2.toISOString());
       expect(stays[2].started_at.toISOString()).toBe(T2.toISOString());
@@ -337,7 +338,7 @@ it("serializes target-bed races, consumed orders and worker cursors on distinct 
         await room.reconcileRoomChargesInTransaction(tx, { admissionId: loser.a.admissionId, cutoff: new Date(T3.getTime() + 600000), actorContext: { actor: { type: "system", systemId: "room-charge" }, source: "room-worker", requestId: randomUUID() } });
       });
       await expect(blockedMove!).rejects.toMatchObject({ code: "CONFLICT" });
-      expect((await runtime.query("select count(*)::int n from hims.room_stays where admission_id=$1", [loser.a.admissionId])).rows[0].n).toBe(3);
+      expect((await runtime.query("select count(*) n from room_stays where admission_id=$1", [loser.a.admissionId])).rows[0].n).toBe(3);
     } finally { await Promise.all([ca.end(), cb.end()]); }
   });
 }, 120000);

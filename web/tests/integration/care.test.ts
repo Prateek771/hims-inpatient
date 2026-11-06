@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Client } from "pg";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { TestClient as Client } from "../../scripts/test-client.ts";
+import { drizzle } from "drizzle-orm/mysql2";
 import { sql } from "drizzle-orm";
 import { withTestDatabase } from "../../scripts/test-database";
+import { ruleViolation } from "../support/errors";
 import { getTestDatabaseConfig } from "../../scripts/test-database-guard";
 import { loadLocalEnvironment } from "../../scripts/migrate";
 import { billingFixture } from "../support/billing-fixture";
@@ -80,10 +81,10 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
         secondConnection.connect(),
       ]);
       const firstPid = (
-        await firstConnection.query("SELECT pg_backend_pid() AS pid")
+        await firstConnection.query("SELECT connection_id() AS pid")
       ).rows[0].pid;
       const secondPid = (
-        await secondConnection.query("SELECT pg_backend_pid() AS pid")
+        await secondConnection.query("SELECT connection_id() AS pid")
       ).rows[0].pid;
       expect(secondPid).not.toBe(firstPid);
       let release!: () => void;
@@ -99,7 +100,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
       const spy = vi
         .spyOn(dbModule, "withTransaction")
         .mockImplementationOnce((fn) =>
-          drizzle(firstConnection, { schema }).transaction(async (tx) => {
+          drizzle(firstConnection.pool, { schema, mode: "default" }).transaction(async (tx) => {
             const result = await fn(tx);
             ready();
             await hold;
@@ -107,7 +108,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
           }),
         )
         .mockImplementationOnce((fn) =>
-          drizzle(secondConnection, { schema }).transaction(fn),
+          drizzle(secondConnection.pool, { schema, mode: "default" }).transaction(fn),
         );
       const firstContext = dc();
       const firstInput = {
@@ -129,7 +130,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
         for (let attempt = 0; attempt < 100 && !blocked; attempt++) {
           blocked = (
             await runtime.query(
-              "SELECT $1::integer = ANY(pg_blocking_pids($2::integer)) AS blocked",
+              "SELECT exists(select 1 from information_schema.INNODB_LOCK_WAITS w join information_schema.INNODB_TRX rt on rt.trx_id=w.requesting_trx_id join information_schema.INNODB_TRX bt on bt.trx_id=w.blocking_trx_id where bt.trx_mysql_thread_id=$1 and rt.trx_mysql_thread_id=$2) AS blocked",
               [firstPid, secondPid],
             )
           ).rows[0].blocked;
@@ -141,7 +142,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
         const laterPricePending = f.setting({ ...policy, amount: "999" });
         let settingsBlocked=false;
         for(let attempt=0;attempt<100&&!settingsBlocked;attempt++){
-          settingsBlocked=(await runtime.query("select exists(select 1 from pg_locks where locktype='advisory' and objid=729104211 and not granted) blocked")).rows[0].blocked;
+          settingsBlocked=(await runtime.query("select exists(select 1 from information_schema.INNODB_TRX where trx_state='LOCK WAIT' and trx_query like '%hims_locks%') blocked")).rows[0].blocked;
           if(!settingsBlocked)await new Promise(resolve=>setTimeout(resolve,10));
         }
         expect(settingsBlocked).toBe(true);
@@ -160,7 +161,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
         );
         const charges = (
           await runtime.query(
-            "SELECT amount_paise, tariff_version_id FROM hims.charges WHERE source_event_id = $1",
+            "SELECT amount_paise, tariff_version_id FROM charges WHERE source_event_id = $1",
             [source.id],
           )
         ).rows;
@@ -317,13 +318,11 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
         text: "Retained correction",
       });
       for (const statement of [
-        "UPDATE hims.clinical_rounds SET notes='changed'",
-        "DELETE FROM hims.clinical_rounds",
-        "UPDATE hims.clinical_orders SET requested_item='changed'",
+        "UPDATE clinical_rounds SET notes='changed'",
+        "DELETE FROM clinical_rounds",
+        "UPDATE clinical_orders SET requested_item='changed'",
       ])
-        await expect(runtime.query(statement)).rejects.toMatchObject({
-          code: "42501",
-        });
+        await expect(runtime.query(statement)).rejects.toSatisfy(ruleViolation);
       let chart = await care.getCare(dc(), a.admissionId);
       expect(chart.rounds[0].notes).toBe(input.notes);
       expect(chart.addenda[0].text).toBe("Retained correction");
@@ -357,7 +356,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
       });
       const charge = (
         await runtime.query(
-          "SELECT * FROM hims.charges WHERE source_event_id=$1",
+          "SELECT * FROM charges WHERE source_event_id=$1",
           [procedure.id],
         )
       ).rows[0];
@@ -469,7 +468,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
       expect(
         (
           await runtime.query(
-            "SELECT count(*)::int n FROM hims.charges WHERE category='medicine'",
+            "SELECT count(*) n FROM charges WHERE category='medicine'",
           )
         ).rows[0].n,
       ).toBe(0);
@@ -638,7 +637,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
       });
       const useCharge = (
         await runtime.query(
-          "SELECT * FROM hims.charges WHERE source_event_id=$1",
+          "SELECT * FROM charges WHERE source_event_id=$1",
           [used.id],
         )
       ).rows[0];
@@ -663,7 +662,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
       expect(
         (
           await runtime.query(
-            "SELECT initial_status FROM hims.charges WHERE source_event_id=$1",
+            "SELECT initial_status FROM charges WHERE source_event_id=$1",
             [labSource.id],
           )
         ).rows[0].initial_status,
@@ -694,7 +693,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
       ).rejects.toMatchObject({ code: "FORBIDDEN" });
       const testCharge = (
         await runtime.query(
-          "SELECT id FROM hims.charges WHERE source_event_id=$1",
+          "SELECT id FROM charges WHERE source_event_id=$1",
           [labSource.id],
         )
       ).rows[0];
@@ -781,9 +780,9 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
       await Promise.all([clientA.connect(), clientB.connect()]);
       try {
         expect(
-          (await clientA.query("SELECT pg_backend_pid() p")).rows[0].p,
+          (await clientA.query("SELECT connection_id() p")).rows[0].p,
         ).not.toBe(
-          (await clientB.query("SELECT pg_backend_pid() p")).rows[0].p,
+          (await clientB.query("SELECT connection_id() p")).rows[0].p,
         );
         const race = dc();
         const payload = {
@@ -793,10 +792,10 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
           requestId: race.requestId,
         };
         const results = await Promise.all([
-          drizzle(clientA, { schema }).transaction((tx) =>
+          drizzle(clientA.pool, { schema, mode: "default" }).transaction((tx) =>
             care.recordRoundInTransaction(tx, race, payload),
           ),
-          drizzle(clientB, { schema }).transaction((tx) =>
+          drizzle(clientB.pool, { schema, mode: "default" }).transaction((tx) =>
             care.recordRoundInTransaction(tx, race, payload),
           ),
         ]);
@@ -804,7 +803,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
         expect(
           (
             await runtime.query(
-              "SELECT count(*)::int n FROM hims.clinical_rounds WHERE notes='Concurrent round'",
+              "SELECT count(*) n FROM clinical_rounds WHERE notes='Concurrent round'",
             )
           ).rows[0].n,
         ).toBe(1);
@@ -824,13 +823,13 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
           reason: "Synthetic attributable refusal",
         };
         const marRace = await Promise.allSettled([
-          drizzle(clientA, { schema }).transaction((tx) =>
+          drizzle(clientA.pool, { schema, mode: "default" }).transaction((tx) =>
             nursing.recordAdministrationInTransaction(tx, administrationA, {
               ...refused,
               requestId: administrationA.requestId,
             }),
           ),
-          drizzle(clientB, { schema }).transaction((tx) =>
+          drizzle(clientB.pool, { schema, mode: "default" }).transaction((tx) =>
             nursing.recordAdministrationInTransaction(tx, administrationB, {
               ...refused,
               requestId: administrationB.requestId,
@@ -845,7 +844,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
         expect(
           (
             await runtime.query(
-              "SELECT count(*)::int n FROM hims.medication_administrations m JOIN hims.care_occurrences o ON o.id=m.occurrence_id WHERE o.order_id=$1",
+              "SELECT count(*) n FROM medication_administrations m JOIN care_occurrences o ON o.id=m.occurrence_id WHERE o.order_id=$1",
               [wardOnly.id],
             )
           ).rows[0].n,
@@ -942,18 +941,18 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
       ]);
       try {
         const revokerPid = (
-          await revokeConnection.query("SELECT pg_backend_pid() p")
+          await revokeConnection.query("SELECT connection_id() p")
         ).rows[0].p;
         const writerPid = (
-          await writeConnection.query("SELECT pg_backend_pid() p")
+          await writeConnection.query("SELECT connection_id() p")
         ).rows[0].p;
         expect(revokerPid).not.toBe(writerPid);
         let pendingWrite: Promise<{ id: string }> | undefined;
-        await drizzle(revokeConnection, { schema }).transaction(async (tx) => {
+        await drizzle(revokeConnection.pool, { schema, mode: "default" }).transaction(async (tx) => {
           await tx.execute(
-            sql`SELECT id FROM hims.admissions WHERE id=${a.admissionId} FOR UPDATE`,
+            sql`SELECT id FROM admissions WHERE id=${a.admissionId} FOR UPDATE`,
           );
-          pendingWrite = drizzle(writeConnection, { schema }).transaction(
+          pendingWrite = drizzle(writeConnection.pool, { schema, mode: "default" }).transaction(
             (tx) =>
               nursing.addNursingAddendumInTransaction(tx, nc(), {
                 admissionId: a.admissionId,
@@ -969,7 +968,7 @@ describe("assigned clinical and nursing care on PostgreSQL", () => {
             blocked =
               (
                 await runtime.query(
-                  "SELECT wait_event_type='Lock' AS blocked FROM pg_stat_activity WHERE pid=$1",
+                  "SELECT EXISTS(SELECT 1 FROM information_schema.INNODB_TRX WHERE trx_mysql_thread_id=$1 AND trx_state='LOCK WAIT') AS blocked",
                   [writerPid],
                 )
               ).rows[0]?.blocked === true;

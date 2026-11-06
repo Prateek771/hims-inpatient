@@ -3,29 +3,34 @@ import { existsSync, lstatSync, mkdirSync, realpathSync, writeFileSync } from "n
 import { dirname, resolve, relative, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
-import pg from "pg";
+import { createConnection } from "mysql2/promise";
+import { mariaPoolOptions } from "../src/server/maria-options.ts";
 import { assertDemoTarget, assertEmptyDemoDatabase } from "./demo-hospital-guard.ts";
 
 const app = fileURLToPath(new URL("../", import.meta.url));
 const output = resolve(app, "tmp");
 const credentials = resolve(output, "clone-demo-logins.txt");
-const quote = value => '"' + value.replaceAll('"', '""') + '"';
+const quote = value => '`' + value.replaceAll('`', '``') + '`';
 
 async function initialize() {
-  if (existsSync(resolve(app, ".env.local"))) process.loadEnvFile(resolve(app, ".env.local"));
+  if (existsSync(resolve(app, ".env.mariadb.local"))) process.loadEnvFile(resolve(app, ".env.mariadb.local"));
   assertDemoTarget(process.env.DATABASE_URL ?? "", process.env);
-  const client = new pg.Client({ connectionString: process.env.DATABASE_URL, connectionTimeoutMillis: 3000, statement_timeout: 5000 });
+  const { connectionLimit, maxIdle, idleTimeout, waitForConnections, ...options } = mariaPoolOptions(process.env.DATABASE_URL);
+  void connectionLimit; void maxIdle; void idleTimeout; void waitForConnections;
+  const client = await createConnection({ ...options, connectTimeout: 3000 });
   try {
-    await client.connect();
-    await client.query("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY");
-    const { rows: [identity] } = await client.query('SELECT current_database() database, current_user role, rolsuper "superuser", rolcreatedb "createDatabase", rolcreaterole "createRole", rolbypassrls "bypassRls" FROM pg_roles WHERE rolname=current_user');
-    const { rows: tables } = await client.query("SELECT schemaname, tablename FROM pg_tables WHERE schemaname='hims' OR (schemaname='hims_paperwork_checkpoints' AND tablename <> 'checkpoint_migrations') ORDER BY 1,2");
+    await client.query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
+    await client.query("START TRANSACTION");
+    const [[identity]] = await client.query("SELECT DATABASE() AS `database`, CURRENT_USER() AS user");
+    // The migration ledger, lock and checkpoint-version tables are infrastructure, not hospital data.
+    const [tableRows] = await client.query("SELECT TABLE_NAME AS name FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_NAME");
+    const tables = tableRows.map(row => row.name).filter(name => !["hims_migrations", "hims_locks", "lg_checkpoint_migrations"].includes(name));
     const populated = [];
     for (const table of tables) {
-      const result = await client.query(`SELECT EXISTS(SELECT 1 FROM ${quote(table.schemaname)}.${quote(table.tablename)} LIMIT 1) populated`);
-      if (result.rows[0].populated) populated.push(`${table.schemaname}.${table.tablename}`);
+      const [result] = await client.query(`SELECT EXISTS(SELECT 1 FROM ${quote(table)} LIMIT 1) AS populated`);
+      if (Number(result[0].populated)) populated.push(table);
     }
-    assertEmptyDemoDatabase(identity, tables.filter(t => t.schemaname === "hims").map(t => t.tablename), populated);
+    assertEmptyDemoDatabase(identity, tables, populated);
     await client.query("COMMIT");
   } finally { await client.end().catch(() => {}); }
 

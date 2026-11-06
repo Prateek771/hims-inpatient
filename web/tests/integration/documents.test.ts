@@ -14,11 +14,12 @@ import * as billing from "../../src/server/billing/commands";
 import { randomUUID, createHash } from "node:crypto";
 import { readFile, writeFile, mkdir, readdir, appendFile, rename, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
-import { Client } from "pg";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { TestClient as Client } from "../../scripts/test-client.ts";
+import { drizzle } from "drizzle-orm/mysql2";
 import * as schema from "../../src/server/schema";
 import { sql } from "drizzle-orm";
 
+import { ruleViolation } from "../support/errors";
 loadLocalEnvironment();
 // Observe the pinned renderer's real layout in tests, without a production PDF
 // parser or a second rendering path. Text-line advance exposes narrow overflow.
@@ -77,9 +78,9 @@ async function fixture(exceptional = false, temporary = false, medicine = false,
   if (capacity) {
     // Historical native fixture setup only, before activation or clinical history.
     arrivedAt = new Date(Date.now() - 7 * 86400000 - 20000).toISOString();
-    await capacity.runtime.query("update hims.admissions set registered_at=$2 where id=$1", [admissionId, arrivedAt]);
-    const hold = (await capacity.runtime.query("delete from hims.bed_holds where admission_id=$1 returning bed_id", [admissionId])).rows[0];
-    await capacity.runtime.query("insert into hims.bed_holds(bed_id,admission_id,held_at) values($1,$2,$3)", [hold.bed_id, admissionId, arrivedAt]);
+    await capacity.runtime.query("update admissions set registered_at=$2 where id=$1", [admissionId, arrivedAt]);
+    const hold = (await capacity.runtime.query("delete from bed_holds where admission_id=$1 returning bed_id", [admissionId])).rows[0];
+    await capacity.runtime.query("insert into bed_holds(bed_id,admission_id,held_at) values($1,$2,$3)", [hold.bed_id, admissionId, arrivedAt]);
   }
   const ac = f.deskCtx();
   await activateAdmission(ac, { admissionId, arrivedAt, expectedVersion: 1, requestId: ac.requestId, ...(urgentId ? { exceptionId: urgentId } : {}) });
@@ -125,17 +126,17 @@ async function fixture(exceptional = false, temporary = false, medicine = false,
 
 async function heldSource<T>(runtime: Client, first: (tx: import("../../src/server/db").Transaction) => Promise<T>, second: (client: Client) => Promise<unknown>) {
   const writer = new Client({ connectionString: testUrl }), challenger = new Client({ connectionString: testUrl }); await Promise.all([writer.connect(), challenger.connect()]);
-  const pid = (await writer.query("select pg_backend_pid() pid")).rows[0].pid;
+  const pid = (await writer.query("select connection_id() pid")).rows[0].pid;
   let release = () => {}, ready = () => {};
   const held = new Promise<void>(r => release = r), acquired = new Promise<void>(r => ready = r);
   let left: Promise<T> | undefined, right: Promise<unknown> | undefined;
   try {
-    left = drizzle(writer, { schema }).transaction(async tx => { const result = await first(tx); ready(); await held; return result; });
+    left = drizzle(writer.pool, { schema, mode: "default" }).transaction(async tx => { const result = await first(tx); ready(); await held; return result; });
     await Promise.race([acquired, left.then(() => {})]);
     right = second(challenger).catch(e => e);
     let blockedPid: number | undefined;
     for (let i = 0; i < 100; i++) {
-      const observed = await runtime.query("select pid from pg_stat_activity where $1::int=any(pg_blocking_pids(pid)) and usename=current_user", [pid]);
+      const observed = await runtime.query("select rt.trx_mysql_thread_id as pid from information_schema.INNODB_LOCK_WAITS w join information_schema.INNODB_TRX rt on rt.trx_id=w.requesting_trx_id join information_schema.INNODB_TRX bt on bt.trx_id=w.blocking_trx_id where bt.trx_mysql_thread_id=$1", [pid]);
       if (observed.rows.length) { blockedPid = observed.rows[0].pid; break; }
       await new Promise(r => setTimeout(r, 10));
     }
@@ -228,10 +229,10 @@ describe("immutable protected discharge documents", () => {
   }), 60000); // 10,083 entries and multiple source captures; individual SQL remains bounded.
   it("appends a current version when a mutable physical source reverts to older superseded content", async () => withTestDatabase(async ({ runtime }) => {
     const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId), first = await d.createDischargeDocument(f.ctx(), r.input);
-    const bed = (await runtime.query("select b.id,b.label from hims.beds b join hims.admissions a on a.bed_id=b.id where a.id=$1", [f.admissionId])).rows[0];
-    await runtime.query("update hims.beds set label=$2 where id=$1", [bed.id, `Later label ${randomUUID()}`]);
+    const bed = (await runtime.query("select b.id,b.label from beds b join admissions a on a.bed_id=b.id where a.id=$1", [f.admissionId])).rows[0];
+    await runtime.query("update beds set label=$2 where id=$1", [bed.id, `Later label ${randomUUID()}`]);
     const changed = await d.getDischargeDocumentReview(f.ctx(), f.admissionId), second = await d.createDischargeDocument(f.ctx(), changed.input);
-    await runtime.query("update hims.beds set label=$2 where id=$1", [bed.id, bed.label]);
+    await runtime.query("update beds set label=$2 where id=$1", [bed.id, bed.label]);
     const reverted = await d.getDischargeDocumentReview(f.ctx(), f.admissionId); expect(reverted.input.expectedSourceHash).toBe(r.input.expectedSourceHash);
     const third = await d.createDischargeDocument(f.ctx(), reverted.input); expect(third.version).toBe(3);
     expect((await d.getDischargeDocument(f.ctx(), third.documentId)).replacesDocumentId).toBe(second.documentId);
@@ -243,7 +244,7 @@ describe("immutable protected discharge documents", () => {
     const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId);
     const copies = await Promise.all([d.createDischargeDocument(f.ctx(), r.input), d.createDischargeDocument(f.ctx(), r.input)]);
     expect(copies[0]).toEqual(copies[1]);
-    expect((await runtime.query("select count(*)::int n from hims.discharge_documents where admission_id=$1", [f.admissionId])).rows[0].n).toBe(1);
+    expect((await runtime.query("select count(*) n from discharge_documents where admission_id=$1", [f.admissionId])).rows[0].n).toBe(1);
   }));
   it("prepares locally and refuses source changes or role revocation before final publication", async () => withTestDatabase(async ({ runtime, owner }) => {
     const f = await fixture(), d = await documents();
@@ -254,18 +255,18 @@ describe("immutable protected discharge documents", () => {
     if (prepared.existing) throw Error("Fresh fixture unexpectedly has a document");
     // The real renderer consumes the captured snapshot outside DB ownership.
     const bytes = await renderDischargePDF(prepared.snapshot, prepared.hash);
-    const note = (await runtime.query("select id from hims.clinical_rounds where admission_id=$1", [f.admissionId])).rows[0].id;
-    await runtime.query("insert into hims.clinical_addenda(note_id,text,reason,signed_by) values($1,'Change during local rendering','Exact original linked note',$2)", [note, f.doctor.id]);
+    const note = (await runtime.query("select id from clinical_rounds where admission_id=$1", [f.admissionId])).rows[0].id;
+    await runtime.query("insert into clinical_addenda(note_id,text,reason,signed_by) values($1,'Change during local rendering','Exact original linked note',$2)", [note, f.doctor.id]);
     await expect(withTransaction(tx => d.publishDischargeDocumentInTransaction(tx, f.ctx(), prepared, bytes))).rejects.toMatchObject({ code: "CONFLICT" });
-    expect((await runtime.query("select count(*)::int n from hims.discharge_documents")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from discharge_documents")).rows[0].n).toBe(0);
     const latest = await d.getDischargeDocumentReview(f.ctx(), f.admissionId), next = await withTransaction(tx => d.prepareDischargeDocumentInTransaction(tx, f.ctx(), latest.input));
     if (next.existing) throw Error("Failed publication created a document");
     const nextBytes = await renderDischargePDF(next.snapshot, next.hash);
     const fabricated = structuredClone(next); fabricated.snapshot.clinical.summary!.advice = "Fabricated unrelated prepared advice";
     await expect(withTransaction(tx => d.publishDischargeDocumentInTransaction(tx, f.ctx(), fabricated, nextBytes))).rejects.toMatchObject({ code: "PRECONDITION" });
-    await owner.query("update hims.staff_user set role='LAB' where id=$1", [f.cashier.id]);
+    await owner.query("update staff_user set role='LAB' where id=$1", [f.cashier.id]);
     await expect(withTransaction(tx => d.publishDischargeDocumentInTransaction(tx, f.ctx(), next, nextBytes))).rejects.toMatchObject({ code: "FORBIDDEN" });
-    expect((await runtime.query("select count(*)::int n from hims.discharge_documents")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from discharge_documents")).rows[0].n).toBe(0);
   }));
   it("provides the protected versioned discharge creation operation", async () => {
     // A missing feature fails an explicit assertion rather than hiding an import error.
@@ -278,7 +279,7 @@ describe("immutable protected discharge documents", () => {
     const old = await d.getDischargeDocument(f.ctx(), created.documentId);
     expect(old.snapshot.clinical.summary).toMatchObject({ diagnosis: "Pneumonia José - सावधानी", advice: "आराम करें" });
     expect(old.snapshot.seals.filter(s => s.seal)).toHaveLength(4);
-    const historical = (await runtime.query("select id,gate,review_hash,inputs from hims.clearance_seals where admission_id=$1", [f.admissionId])).rows;
+    const historical = (await runtime.query("select id,gate,review_hash,inputs from clearance_seals where admission_id=$1", [f.admissionId])).rows;
     expect(old.snapshot.seals.every(s => s.seal?.reviewHash === historical.find(h => h.id === s.seal?.id)?.review_hash)).toBe(true);
     expect(old.snapshot.money.totals).toContainEqual({ label: "Actual insurer payment received", paise: "0" });
     expect(old.snapshot.money.totals).toContainEqual({ label: "Insurer authorization (not money received)", paise: "0" });
@@ -288,12 +289,13 @@ describe("immutable protected discharge documents", () => {
     expect(old.pdfHash).not.toBe(created.hash);
     expect(await d.createDischargeDocument(f.ctx(), review.input)).toEqual(created);
     expect(await d.verifyDocument(f.ctx(), created.documentId)).toMatchObject({ status: "CURRENT", version: 1, hash: created.hash, pdfHash: old.pdfHash });
-    await expect(owner.query("update hims.discharge_documents set version=2 where id=$1", [created.documentId])).rejects.toMatchObject({ code: "P0001" });
-    await expect(runtime.query("delete from hims.discharge_documents where id=$1", [created.documentId])).rejects.toMatchObject({ code: "42501" });
+    await expect(owner.query("update discharge_documents set version=2 where id=$1", [created.documentId])).rejects.toSatisfy(ruleViolation);
+    await expect(runtime.query("delete from discharge_documents where id=$1", [created.documentId])).rejects.toSatisfy(ruleViolation);
     await mkdir(resolve("../tmp/task13"), { recursive: true }); await writeFile(resolve("../tmp/task13/ordinary.pdf"), file.bytes);
     await writeFile(resolve("../tmp/task13/ordinary-snapshot.json"), JSON.stringify(old.snapshot));
     const readback = historical.map(h => ({ gate: h.gate, sealId: h.id, recordedReviewHash: h.review_hash, reEncodedJSONBHash: billing.fingerprint(h.inputs), retainedDocumentReviewHash: old.snapshot.seals.find(s => s.seal?.id === h.id)?.seal?.reviewHash, readbackKeys: Object.keys(h.inputs) }));
-    expect(readback.some(r => r.recordedReviewHash !== r.reEncodedJSONBHash)).toBe(true);
+    // MariaDB keeps JSON as exact text, so unlike PostgreSQL jsonb the stored inputs re-encode to the recorded review hash.
+    expect(readback.every(r => r.recordedReviewHash === r.reEncodedJSONBHash)).toBe(true);
     await writeFile(resolve("../tmp/task13/historical-hash-readback.json"), JSON.stringify(readback, null, 2));
   }));
   it("denies guessed references and revalidates current final-copy purpose on every operation", async () => withTestDatabase(async ({ owner }) => {
@@ -307,7 +309,7 @@ describe("immutable protected discharge documents", () => {
     await expect(d.verifyDocument(f.ctx(), randomUUID())).rejects.toMatchObject({ code: "FORBIDDEN" });
     const verified = await d.verifyDocument(f.ctx(), created.documentId);
     expect(JSON.stringify(verified)).not.toMatch(/Pneumonia|patient|insurer|Synthetic billing/);
-    await owner.query("update hims.staff_user set role='LAB' where id=$1", [f.cashier.id]);
+    await owner.query("update staff_user set role='LAB' where id=$1", [f.cashier.id]);
     await expect(d.downloadDischargeDocument(f.ctx(), created.documentId)).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(d.createDischargeDocument(f.ctx(), r.input)).rejects.toMatchObject({ code: "FORBIDDEN" });
   }));
@@ -315,11 +317,11 @@ describe("immutable protected discharge documents", () => {
     const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId);
     await expect(d.createDischargeDocument(f.ctx(), { ...r.input, billVersion: r.input.billVersion + 1 })).rejects.toMatchObject({ code: "CONFLICT" });
     await expect(d.createDischargeDocument(f.ctx(), { ...r.input, clearanceVersions: { ...r.input.clearanceVersions, DOCTOR: randomUUID() } })).rejects.toMatchObject({ code: "CONFLICT" });
-    expect((await runtime.query("select count(*)::int n from hims.discharge_documents")).rows[0].n).toBe(0);
+    expect((await runtime.query("select count(*) n from discharge_documents")).rows[0].n).toBe(0);
   }));
   it("retains the original clinical source, old bytes and seals after an attributable amendment", async () => withTestDatabase(async ({ runtime }) => {
     const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId), first = await d.createDischargeDocument(f.ctx(), r.input), original = await d.downloadDischargeDocument(f.ctx(), first.documentId);
-    const source = (await runtime.query("select id from hims.clinical_rounds where admission_id=$1", [f.admissionId])).rows[0].id;
+    const source = (await runtime.query("select id from clinical_rounds where admission_id=$1", [f.admissionId])).rows[0].id;
     const authority = await exceptions.authorizeException(f.admin(), { admissionId: f.admissionId, type: "POST_DISCHARGE_CORRECTION", disposition: "AMEND", sourceId: source, correctionKind: "CLINICAL_ADDENDUM", authority: "Administrator named correction", reason: "Correct original findings with Doctor addendum", evidence: "Exact original signed note", evidenceIds: [], followUpOwnerId: f.doctor.id });
     await exceptions.applyPostDischargeCorrection(f.dc(), { admissionId: f.admissionId, exceptionId: authority.id, kind: "CLINICAL_ADDENDUM", sourceId: source, data: { text: "Later Doctor correction - no invented new seal", reason: "Correct original source" } });
     expect(await d.verifyDocument(f.ctx(), first.documentId)).toMatchObject({ status: "SOURCE_CHANGED" });
@@ -364,7 +366,7 @@ describe("immutable protected discharge documents", () => {
     const bytes = await renderDischargePDF(prepared.snapshot, prepared.hash);
     await exceptions.recordExceptionFollowup(f.admin(), { exceptionId: f.exceptionId, ownerId: f.doctor.id, note: "Actual follow-up changes during local rendering" });
     await expect(withTransaction(tx => d.publishDischargeDocumentInTransaction(tx, f.ctx(), prepared, bytes))).rejects.toMatchObject({ code: "CONFLICT" });
-    expect((await runtime.query("select count(*)::int n from hims.discharge_documents where admission_id=$1", [f.admissionId])).rows[0].n).toBe(2);
+    expect((await runtime.query("select count(*) n from discharge_documents where admission_id=$1", [f.admissionId])).rows[0].n).toBe(2);
   }));
   it("prints unknown payer allocation and authorization truthfully on an unpaid insured exceptional exit", async () => withTestDatabase(async () => {
     const f = await fixture(true, false, false, "INSURED"), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId), created = await d.createDischargeDocument(f.ctx(), r.input), doc = await d.getDischargeDocument(f.ctx(), created.documentId);
@@ -374,33 +376,16 @@ describe("immutable protected discharge documents", () => {
     expect(doc.snapshot.money.totals).toContainEqual({ label: "Outstanding posted bill", paise: "120040" });
     expect(doc.snapshot.money.totals).toContainEqual({ label: "Actual insurer payment received", paise: "0" });
   }));
-  it("refuses changed or unavailable protected bytes without losing the immutable record", async () => withTestDatabase(async ({ runtime }) => {
+  it("refuses changed or unavailable protected bytes without losing the immutable record", async () => withTestDatabase(async ({ owner, runtime }) => {
     const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId), created = await d.createDischargeDocument(f.ctx(), r.input), doc = await d.getDischargeDocument(f.ctx(), created.documentId);
-    const path = resolve(d.documentStorageDirectory(), `${doc.storageKey}.pdf`), bytes = await readFile(path);
-    await writeFile(path, Buffer.from("%PDF-corrupted"));
+    const name = `${doc.storageKey}.pdf`, bytes = (await runtime.query("select content from protected_files where kind='discharge' and name=$1", [name])).rows[0].content;
+    const store = (content: Buffer) => owner.query("update protected_files set content=$1 where kind='discharge' and name=$2", [content, name]);
+    await store(Buffer.from("%PDF-corrupted"));
     await expect(d.downloadDischargeDocument(f.ctx(), created.documentId)).rejects.toMatchObject({ code: "PRECONDITION" });
     expect(await d.verifyDocument(f.ctx(), created.documentId)).toMatchObject({ status: "FILE_UNAVAILABLE" });
-    await writeFile(path, bytes);
+    await store(bytes);
     expect(await d.verifyDocument(f.ctx(), created.documentId)).toMatchObject({ status: "CURRENT" });
-    expect((await runtime.query("select count(*)::int n from hims.discharge_documents")).rows[0].n).toBe(1);
-  }));
-  it("refuses unsafe storage configuration before publication and supports a clean retry", async () => withTestDatabase(async ({ runtime }) => {
-    const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId);
-    delete process.env.HIMS_DOCUMENT_STORAGE;
-    await expect(d.createDischargeDocument(f.ctx(), r.input)).rejects.toMatchObject({ code: "PRECONDITION" });
-    expect((await runtime.query("select count(*)::int n from hims.discharge_documents")).rows[0].n).toBe(0);
-    process.env.HIMS_DOCUMENT_STORAGE = "synthetic";
-    expect((await d.createDischargeDocument(f.ctx(), r.input)).version).toBe(1);
-  }));
-  it("fails closed on an actual filesystem obstruction and retries after storage recovery", async () => withTestDatabase(async ({ runtime }) => {
-    const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId), directory = d.documentStorageDirectory(), recovery = `${directory}-${randomUUID()}`;
-    await mkdir(directory, { recursive: true }); await rename(directory, recovery);
-    try {
-      await writeFile(directory, "Synthetic regular-file obstruction", { flag: "wx" });
-      await expect(d.createDischargeDocument(f.ctx(), r.input)).rejects.toThrow();
-      expect((await runtime.query("select count(*)::int n from hims.discharge_documents")).rows[0].n).toBe(0);
-    } finally { await unlink(directory); await rename(recovery, directory); }
-    expect((await d.createDischargeDocument(f.ctx(), r.input)).version).toBe(1);
+    expect((await runtime.query("select count(*) n from discharge_documents")).rows[0].n).toBe(1);
   }));
   it("rejects unsupported glyphs and indivisible oversize rows instead of dropping source content", async () => withTestDatabase(async () => {
     const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId), { withTransaction } = await import("../../src/server/db"), { renderDischargePDF } = await import("../../src/server/documents/pdf");
@@ -416,8 +401,8 @@ describe("immutable protected discharge documents", () => {
   }));
   it("serializes native source changes through actual file publication and preserves old bytes", async () => withTestDatabase(async ({ runtime }) => {
     const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId);
-    const source = (await runtime.query("select id from hims.clinical_rounds where admission_id=$1", [f.admissionId])).rows[0].id;
-    const raced = await heldSource(runtime, await preparedPublication(f.ctx(), r.input), client => client.query("insert into hims.clinical_addenda(note_id,text,reason,signed_by) values($1,'Concurrent native correction','Exact linked original note',$2)", [source, f.doctor.id]));
+    const source = (await runtime.query("select id from clinical_rounds where admission_id=$1", [f.admissionId])).rows[0].id;
+    const raced = await heldSource(runtime, await preparedPublication(f.ctx(), r.input), client => client.query("insert into clinical_addenda(note_id,text,reason,signed_by) values($1,'Concurrent native correction','Exact linked original note',$2)", [source, f.doctor.id]));
     expect(raced.result).not.toHaveProperty("code");
     expect(await d.verifyDocument(f.ctx(), raced.written.documentId)).toMatchObject({ status: "SOURCE_CHANGED" });
     expect((await d.getDischargeDocument(f.ctx(), raced.written.documentId)).snapshot.clinical.addenda).toEqual([]);
@@ -427,25 +412,21 @@ describe("immutable protected discharge documents", () => {
   }));
   it("serializes mutable physical bed labels through document publication", async () => withTestDatabase(async ({ runtime }) => {
     const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId);
-    const bed = (await runtime.query("select b.id,b.label from hims.beds b join hims.admissions a on a.bed_id=b.id where a.id=$1", [f.admissionId])).rows[0];
-    const race = await heldSource(runtime, await preparedPublication(f.ctx(), r.input), client => client.query("update hims.beds set label=$2 where id=$1", [bed.id, `Changed actual bed ${randomUUID()}`]));
+    const bed = (await runtime.query("select b.id,b.label from beds b join admissions a on a.bed_id=b.id where a.id=$1", [f.admissionId])).rows[0];
+    const race = await heldSource(runtime, await preparedPublication(f.ctx(), r.input), client => client.query("update beds set label=$2 where id=$1", [bed.id, `Changed actual bed ${randomUUID()}`]));
     expect(race.result).not.toHaveProperty("code");
     expect((await d.getDischargeDocument(f.ctx(), race.written.documentId)).snapshot.stays[0].bedLabel).toBe(bed.label);
     expect(await d.verifyDocument(f.ctx(), race.written.documentId)).toMatchObject({ status: "SOURCE_CHANGED" });
   }));
   it("retains a recovery manifest after metadata failure and publishes no false valid copy", async () => withTestDatabase(async ({ runtime, owner }) => {
-    const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId), directory = d.documentStorageDirectory();
-    await mkdir(directory, { recursive: true }); const before = new Set(await readdir(directory));
-    await owner.query("create function hims.synthetic_document_failure() returns trigger language plpgsql as $$ begin raise exception 'Synthetic metadata failure'; end $$; create trigger synthetic_document_failure before insert on hims.discharge_documents for each row execute function hims.synthetic_document_failure()");
+    const f = await fixture(), d = await documents(), r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId);
+    await owner.query("create trigger synthetic_document_failure before insert on discharge_documents for each row begin signal sqlstate '45000' set message_text='Synthetic metadata failure'; end");
     try {
       await expect(d.createDischargeDocument(f.ctx(), r.input)).rejects.toThrow("Failed query");
-      expect((await runtime.query("select count(*)::int n from hims.discharge_documents")).rows[0].n).toBe(0);
-      const orphan = (await readdir(directory)).find(p => !before.has(p) && p.endsWith(".manifest.json"))!;
-      expect(orphan).toBeTruthy(); const manifest = JSON.parse(await readFile(resolve(directory, orphan), "utf8"));
-      expect(manifest).toMatchObject({ admissionId: f.admissionId, version: 1, sourceHash: r.input.expectedSourceHash });
-      expect(createHash("sha256").update(await readFile(resolve(directory, `${manifest.storageKey}.pdf`))).digest("hex")).toBe(manifest.pdfHash);
-      await expect(d.verifyDocument(f.ctx(), manifest.documentId)).rejects.toMatchObject({ code: "FORBIDDEN" });
-    } finally { await owner.query("drop trigger synthetic_document_failure on hims.discharge_documents; drop function hims.synthetic_document_failure()"); }
+      expect((await runtime.query("select count(*) n from discharge_documents")).rows[0].n).toBe(0);
+      // The PDF and manifest are written in the same transaction as the record, so nothing is left behind.
+      expect((await runtime.query("select count(*) n from protected_files where kind='discharge'")).rows[0].n).toBe(0);
+    } finally { await owner.query("drop trigger synthetic_document_failure"); }
     expect((await d.createDischargeDocument(f.ctx(), r.input)).version).toBe(1);
   }));
   it("keeps a safe historical medicine departure printable after the batch expires on a later hospital date", async () => withTestDatabase(async () => {
@@ -458,22 +439,22 @@ describe("immutable protected discharge documents", () => {
   }));
   it("serializes a patient-wide native identity correction across two episodes and rereads after waiting", async () => withTestDatabase(async ({ runtime }) => {
     const f = await fixture(true, true), d = await documents();
-    const patientId = (await runtime.query("select patient_id from hims.admissions where id=$1", [f.admissionId])).rows[0].patient_id;
+    const patientId = (await runtime.query("select patient_id from admissions where id=$1", [f.admissionId])).rows[0].patient_id;
     const bed = await createBed(f.admin(), { label: randomUUID(), category: "GENERAL", reason: "Second episode of same patient" }), desk = f.deskCtx();
     const second = await createLegacyAdmission(desk, { patientId, admittingDoctorId: f.doctor.id, clinicianAssessment: { clinicianId: f.doctor.id, assessedAt: new Date().toISOString(), chiefComplaint: "Actual later assessment", vitals: "Actual vitals", triage: "Actual urgent routing", destinationCategory: "GENERAL" }, bedId: bed.id, paymentRoute: "SELF_PAY", expectedStayDays: 1, requestId: desk.requestId });
     const urgent = await exceptions.authorizeException(f.admin(), { admissionId: second.admissionId, type: "URGENT_ADMISSION", disposition: "ACTIVATE", authority: "Administrator second urgent routing", reason: "Same temporary patient later episode", evidenceIds: [], evidence: "Actual original temporary identity", followUpOwnerId: f.desk.id });
     const r = await d.getDischargeDocumentReview(f.ctx(), f.admissionId);
-    const race = await heldSource(runtime, await preparedPublication(f.ctx(), r.input), client => client.query("insert into hims.patient_identifications(patient_id,admission_id,exception_id,version,name,date_of_birth,sex,evidence,reason,signed_by) values($1,$2,$3,1,'Actual verified patient identity','1980-01-01','FEMALE','Original identity inspected','Later actual identification',$4)", [patientId, second.admissionId, urgent.id, f.desk.id]));
+    const race = await heldSource(runtime, await preparedPublication(f.ctx(), r.input), client => client.query("insert into patient_identifications(patient_id,admission_id,exception_id,version,name,date_of_birth,sex,evidence,reason,signed_by) values($1,$2,$3,1,'Actual verified patient identity','1980-01-01','FEMALE','Original identity inspected','Later actual identification',$4)", [patientId, second.admissionId, urgent.id, f.desk.id]));
     expect(race.result).not.toHaveProperty("code");
     expect(await d.verifyDocument(f.ctx(), race.written.documentId)).toMatchObject({ status: "SOURCE_CHANGED" });
     expect((await d.getDischargeDocument(f.ctx(), race.written.documentId)).snapshot.patient?.identityStatus).toBe("TEMPORARY");
-    const observed = await heldSource(runtime, tx => tx.execute(sql`insert into hims.patient_identifications(patient_id,admission_id,exception_id,version,name,date_of_birth,sex,evidence,reason,signed_by) values(${patientId}::uuid,${second.admissionId}::uuid,${urgent.id}::uuid,2,'Second verified global identity','1980-01-01','FEMALE','Actual later identity evidence','Later current identity',${f.desk.id})`), () => d.getDischargeDocumentReview(f.ctx(), f.admissionId));
+    const observed = await heldSource(runtime, tx => tx.execute(sql`insert into patient_identifications(patient_id,admission_id,exception_id,version,name,date_of_birth,sex,evidence,reason,signed_by) values(${patientId},${second.admissionId},${urgent.id},2,'Second verified global identity','1980-01-01','FEMALE','Actual later identity evidence','Later current identity',${f.desk.id})`), () => d.getDischargeDocumentReview(f.ctx(), f.admissionId));
     expect(observed.result).toMatchObject({ name: "Second verified global identity" });
     const next = await d.getDischargeDocumentReview(f.ctx(), f.admissionId), amended = await d.createDischargeDocument(f.ctx(), next.input);
     expect(amended.version).toBe(2); expect((await d.getDischargeDocument(f.ctx(), amended.documentId)).snapshot.patient?.name).toBe("Second verified global identity");
     // A native writer in episode one owns the patient-wide source. The application writer
     // in episode two must wait BEFORE reading its expected current identity version.
-    const stale = await heldSource(runtime, tx => tx.execute(sql`insert into hims.patient_identifications(patient_id,admission_id,exception_id,version,name,date_of_birth,sex,evidence,reason,signed_by) values(${patientId}::uuid,${f.admissionId}::uuid,${f.urgentId}::uuid,3,'Third current global identity','1980-01-01','FEMALE','Actual original identity evidence','Later current identity',${f.desk.id})`), () => exceptions.identifyTemporaryPatient(f.deskCtx(), { admissionId: second.admissionId, exceptionId: urgent.id, expectedVersion: 2, name: "Stale proposed identity", dateOfBirth: "1980-01-01", sex: "FEMALE", evidence: "Actual reviewed original identification", reason: "Current factual identification" }));
+    const stale = await heldSource(runtime, tx => tx.execute(sql`insert into patient_identifications(patient_id,admission_id,exception_id,version,name,date_of_birth,sex,evidence,reason,signed_by) values(${patientId},${f.admissionId},${f.urgentId},3,'Third current global identity','1980-01-01','FEMALE','Actual original identity evidence','Later current identity',${f.desk.id})`), () => exceptions.identifyTemporaryPatient(f.deskCtx(), { admissionId: second.admissionId, exceptionId: urgent.id, expectedVersion: 2, name: "Stale proposed identity", dateOfBirth: "1980-01-01", sex: "FEMALE", evidence: "Actual reviewed original identification", reason: "Current factual identification" }));
     expect(stale.result).toMatchObject({ code: "CONFLICT" });
   }));
 });

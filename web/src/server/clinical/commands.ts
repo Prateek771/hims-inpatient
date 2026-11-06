@@ -46,6 +46,8 @@ import {
   text,
   type PrescriptionLine,
 } from "./input";
+import { acquireTxLock } from "../locks";
+import { insertOrNothing, insertReturning } from "../sql";
 export function requestKey(ctx: CommandContext, requestId: string) {
   if (ctx.requestId !== requestId)
     throw new DomainError("VALIDATION", "Request keys disagree");
@@ -240,14 +242,11 @@ export async function recordRoundInTransaction(
   const staff = await admissionOperator(ctx, ["DOCTOR"], tx);
   return careRequest(tx, ctx, staff, "care.round", value, async () => {
     const episode = await careEpisode(tx, staff, value.admissionId);
-    const [round] = await tx
-      .insert(clinicalRounds)
-      .values({
+    const [round] = await insertReturning(tx, clinicalRounds, {
         admissionId: episode.id,
         notes: value.notes,
         signedBy: staff.id, signedAt: new Date(),
-      })
-      .returning();
+      });
     if (value.feeScheduleId)
       await createCareBillingEvent(
         tx,
@@ -298,9 +297,7 @@ export async function recordRoundInTransaction(
           }
         }
       }
-      const [order] = await tx
-        .insert(clinicalOrders)
-        .values({
+      const [order] = await insertReturning(tx, clinicalOrders, {
           admissionId: episode.id,
           roundId: round.id,
           kind: details.kind,
@@ -309,8 +306,7 @@ export async function recordRoundInTransaction(
           medicineItemId,
           medicineCatalogVersionId,
           signedBy: staff.id, signedAt: new Date(),
-        })
-        .returning();
+        });
       const ownerRole = {
         MEDICINE: "PHARMACY",
         LAB: "LAB",
@@ -377,7 +373,7 @@ export async function orderTransferInTransaction(tx: Transaction, ctx: CommandCo
   const value = z.strictObject({ admissionId: z.uuid(), destinationCategory: z.string().regex(/^[A-Z0-9_-]{2,32}$/), reason: text, requestId: z.uuid() }).parse(input);
   requestKey(ctx, value.requestId);
   // Composing callers take this settings/staff lock before staff or admission row locks.
-  await tx.execute(sql`select pg_advisory_xact_lock_shared(729104211)`);
+  await acquireTxLock(tx, "729104211", "shared");
     const staff = await admissionOperator(ctx, ["DOCTOR"], tx);
     return careRequest(tx, ctx, staff, "care.transfer-ordered", value, async () => {
       const episode = await careEpisode(tx, staff, value.admissionId);
@@ -387,7 +383,7 @@ export async function orderTransferInTransaction(tx: Transaction, ctx: CommandCo
       const category = versions.find(v => v.payload.type === "bed-category" && v.payload.code === value.destinationCategory);
       if (category?.payload.active !== true) throw new DomainError("PRECONDITION", "Select an active configured destination category");
       const [previous] = await tx.select({ version: transferOrders.version }).from(transferOrders).where(eq(transferOrders.admissionId, episode.id)).orderBy(desc(transferOrders.version)).limit(1);
-      const [order] = await tx.insert(transferOrders).values({ admissionId: episode.id, sourceStayId: stay.id, version: (previous?.version ?? 0) + 1, destinationCategory: value.destinationCategory, reason: value.reason, signedBy: staff.id, signedAt: new Date() }).returning();
+      const [order] = await insertReturning(tx, transferOrders, { admissionId: episode.id, sourceStayId: stay.id, version: (previous?.version ?? 0) + 1, destinationCategory: value.destinationCategory, reason: value.reason, signedBy: staff.id, signedAt: new Date() });
       await clinicalAudit(tx, ctx, "transfer-ordered", order.id, value.reason);
       return { id: order.id };
     });
@@ -404,7 +400,7 @@ export async function cancelTransferOrderInTransaction(tx: Transaction, ctx: Com
     const state = await transferAuthority(tx, value.admissionId);
     if (state.orders[0]?.id !== value.transferOrderId || state.orders[0].status !== "PENDING")
       throw new DomainError("PRECONDITION", "Only current unperformed transfer authority can be withdrawn; retain and record any actual handover");
-    const [record] = await tx.insert(transferOrderCancellations).values({ admissionId: value.admissionId, transferOrderId: value.transferOrderId, reason: value.reason, signedBy: staff.id, signedAt: new Date() }).returning();
+    const [record] = await insertReturning(tx, transferOrderCancellations, { admissionId: value.admissionId, transferOrderId: value.transferOrderId, reason: value.reason, signedBy: staff.id, signedAt: new Date() });
     await clinicalAudit(tx, ctx, "transfer-withdrawn", record.id, value.reason);
     return { id: record.id };
   });
@@ -423,10 +419,7 @@ export async function addClinicalAddendum(ctx: CommandContext, input: unknown) {
       if (!round)
         throw new DomainError("FORBIDDEN", "Clinical note access denied");
       await careEpisode(tx, staff, round.admissionId);
-      const [addendum] = await tx
-        .insert(clinicalAddenda)
-        .values({ ...value, signedBy: staff.id, signedAt: new Date() })
-        .returning();
+      const [addendum] = await insertReturning(tx, clinicalAddenda, { ...value, signedBy: staff.id, signedAt: new Date() });
       await clinicalAudit(
         tx,
         ctx,
@@ -478,15 +471,12 @@ export async function completeClinicalTask(
           throw new DomainError("PRECONDITION", "Order has been stopped");
         if (events.some((e) => e.status === "COMPLETED"))
           return { id: events.find((e) => e.status === "COMPLETED")!.id };
-        const [event] = await tx
-          .insert(clinicalTaskEvents)
-          .values({
+        const [event] = await insertReturning(tx, clinicalTaskEvents, {
             orderId: order.id,
             status: "COMPLETED",
             reason: value.reason,
             signedBy: staff.id, signedAt: new Date(),
-          })
-          .returning();
+          });
         const [source] = await tx
           .select()
           .from(careBillingEvents)
@@ -517,16 +507,12 @@ export async function stopClinicalOrder(ctx: CommandContext, input: unknown) {
           .where(eq(clinicalOrders.id, value.orderId));
         if (!order) throw new DomainError("FORBIDDEN", "Order access denied");
         await careEpisode(tx, staff, order.admissionId);
-        const [event] = await tx
-          .insert(clinicalTaskEvents)
-          .values({
+        const event = await insertOrNothing(tx, clinicalTaskEvents, {
             orderId: order.id,
             status: "STOPPED",
             reason: value.reason,
             signedBy: staff.id, signedAt: new Date(),
-          })
-          .onConflictDoNothing()
-          .returning();
+          });
         if (event)
           await clinicalAudit(tx, ctx, "order-stopped", event.id, value.reason);
         return { id: event?.id ?? order.id };
@@ -711,9 +697,7 @@ export async function signClinicalSummary(ctx: CommandContext, input: unknown) {
             dispensingUnit: d.dispensingUnit!,
           });
         }
-        const [summary] = await tx
-          .insert(clinicalSummaries)
-          .values({
+        const [summary] = await insertReturning(tx, clinicalSummaries, {
             admissionId: value.admissionId,
             diagnosis: value.diagnosis,
             course: value.course,
@@ -723,8 +707,7 @@ export async function signClinicalSummary(ctx: CommandContext, input: unknown) {
             version: value.expectedVersion + 1,
             prescription,
             signedBy: staff.id, signedAt: new Date(),
-          })
-          .returning();
+          });
         await clinicalAudit(
           tx,
           ctx,
