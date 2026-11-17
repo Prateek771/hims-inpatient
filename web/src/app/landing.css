@@ -78,3 +78,14 @@
   .landing-logo strong { font-size: 24px; }
 }
 @media (max-width: 420px) { .landing-logo small { display: none; } .login-card { border-radius: 18px; } }
+
+.landing-badges { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 0; }
+.landing-badges li { display: flex; align-items: center; gap: 12px; padding: 2px 28px 2px 0; margin-right: 28px; border-right: 1px solid rgba(255, 255, 255, .28); }
+.landing-badges li:last-child { border-right: 0; margin-right: 0; padding-right: 0; }
+.landing-badges svg { color: #8fe0d2; flex-shrink: 0; }
+.landing-badges span { display: grid; line-height: 1.2; }
+.landing-badges strong { font-size: 16px; font-weight: 700; color: #fff; }
+.landing-badges small { font-size: 12.5px; color: #cfe6f5; }
+.login-demo { margin-top: 10px; text-align: center; font-size: 11.5px; color: #5a6f8e; }
+@media (max-width: 860px) { .landing-badges li { padding-right: 16px; margin-right: 16px; } }
+@media (max-width: 480px) { .landing-badges li { border-right: 0; margin-right: 12px; padding-right: 0; } .landing-badges svg { width: 24px; height: 24px; } }
