@@ -117,6 +117,8 @@ export function AccountControls({ staff }: { staff: Staff }) {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [storageMessage, setStorageMessage] = useState("");
+  const [signingOut, setSigningOut] = useState(false);
+  const [signOutMessage, setSignOutMessage] = useState("");
   const profile = useRef<HTMLDialogElement>(null);
   const customize = useRef<HTMLDialogElement>(null);
   const router = useRouter();
@@ -151,10 +153,27 @@ export function AccountControls({ staff }: { staff: Staff }) {
     window.dispatchEvent(new Event(appearanceEvent));
   }
 
+  async function signOut() {
+    setSigningOut(true);
+    setSignOutMessage("");
+    try {
+      const response = await fetch("/api/auth/sign-out", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+      if (response.ok) {
+        router.replace("/login");
+        router.refresh();
+        return;
+      }
+      setSignOutMessage("Unable to sign out. Please try again.");
+    } catch { setSignOutMessage("Unable to connect. Please try again."); }
+    setSigningOut(false);
+  }
+
   return (
     <div className="account-controls">
       <button type="button" className="button secondary account-trigger" aria-haspopup="dialog" onClick={() => customize.current?.showModal()}>Customize</button>
-      <button type="button" className="button quiet account-trigger" aria-haspopup="dialog" aria-label={`Profile for ${staff.name}`} onClick={() => profile.current?.showModal()}>{staff.name} <span aria-hidden="true">▾</span></button>
+      <button type="button" className="button quiet account-trigger" aria-haspopup="dialog" aria-label={`Profile for ${staff.name}`} onClick={() => profile.current?.showModal()}>{roleNames[staff.role]} <span aria-hidden="true">▾</span></button>
+      <button type="button" className="button secondary account-trigger account-logout" disabled={signingOut} onClick={signOut}>{signingOut ? "Signing out…" : "Logout"}</button>
+      {signOutMessage && <p role="alert" className="account-signout-error">{signOutMessage}</p>}
       <dialog ref={profile} className="account-dialog" aria-labelledby="profile-heading" onClick={(event) => { if (event.target === event.currentTarget) profile.current?.close(); }}>
         <div className="account-dialog-content">
           <div className="account-heading"><h2 id="profile-heading">Profile</h2><button type="button" className="button quiet" onClick={() => profile.current?.close()}>Close</button></div>
@@ -222,26 +241,6 @@ export function AccountControls({ staff }: { staff: Staff }) {
           <label>Confirm password<input name="confirmPassword" type="password" autoComplete="new-password" minLength={12} maxLength={128} required /></label>
           <div className="account-actions">
             <button className="button secondary" disabled={busy}>{busy ? "Working…" : "Change password"}</button>
-            <button
-              type="button"
-              className="button danger"
-              disabled={busy}
-              onClick={async () => {
-                setBusy(true);
-                setMessage("");
-                try {
-                  const response = await fetch("/api/auth/sign-out", {
-                    method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
-                  });
-                  if (response.ok) {
-                    profile.current?.close();
-                    router.replace("/login");
-                    router.refresh();
-                  } else setMessage("Unable to sign out. Please try again.");
-                } catch { setMessage("Unable to connect. Please try again."); }
-                finally { setBusy(false); }
-              }}
-            >Logout</button>
           </div>
         </form>
           <p role="status">{message}</p>

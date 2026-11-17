@@ -20,7 +20,7 @@ export default function LoginPage() {
     <div className="landing">
       <main className="landing-main">
         <section className="landing-copy" aria-labelledby="landing-headline">
-          <h1 id="landing-headline">Smarter Healthcare<br />Starts With <span>Saavantus</span></h1>
+          <h1 id="landing-headline">Smarter Healthcare<br />Starts With<br /><span>Saavantus Excellence</span></h1>
           <p className="landing-lead">An AI-powered healthcare platform to streamline operations, enhance patient care and drive better clinical outcomes.</p>
           <ul className="landing-features">
             {features.map((feature) => (
@@ -43,7 +43,7 @@ export default function LoginPage() {
         <section className="login-card" aria-labelledby="login-heading">
           <div className="login-card-brand">
             <Image src="/brand/saavantus-mark.png" alt="" width={76} height={68} unoptimized />
-            <span>Saavantus<sup>®</sup></span>
+            <span>Saavantus Excellence<sup>®</sup></span>
           </div>
           <h2 id="login-heading">Healthcare Portal</h2>
           <p className="login-subtitle">Sign in to access your healthcare workspace</p>
@@ -56,7 +56,7 @@ export default function LoginPage() {
       <header className="landing-header">
         <a className="landing-logo" href="https://www.saavantus.com" rel="noopener">
           <Image src="/brand/saavantus-mark.png" alt="" width={76} height={68} unoptimized />
-          <span><strong>Saavantus<sup>®</sup></strong><small>AI | Automation | Digital Transformation</small></span>
+          <span><strong>Saavantus Excellence<sup>®</sup></strong><small>AI | Automation | Digital Transformation</small></span>
         </a>
         <a className="landing-site" href="https://www.saavantus.com" rel="noopener">www.saavantus.com <span aria-hidden="true">→</span></a>
       </header>

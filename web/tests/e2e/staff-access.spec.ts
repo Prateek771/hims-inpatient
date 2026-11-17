@@ -152,7 +152,6 @@ test("actual login, admin staff creation, settings history and wrong-role direct
   });
   expect(csrf.status()).toBe(403);
   await page.goto("/workspace");
-  await page.getByRole("button", { name: "Profile for Synthetic E2E ADMIN" }).click();
   await page.getByRole("button", { name: "Logout", exact: true }).click();
   await expect(page).toHaveURL(/login/);
   await page.getByLabel("Email").fill("doctor@e2e.fixture.invalid");

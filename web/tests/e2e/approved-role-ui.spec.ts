@@ -139,7 +139,8 @@ test("profile changes a dedicated synthetic password and Logout revokes that act
   await profile.getByLabel("Confirm password", { exact: true }).fill(updated);
   await profile.getByRole("button", { name: "Change password", exact: true }).click();
   await expect(profile.getByRole("status")).toContainText("Password changed");
-  await profile.getByRole("button", { name: "Logout", exact: true }).click();
+  await profile.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "Logout", exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
   await page.goto("/clinical");
   await expect(page).toHaveURL(/\/login$/);

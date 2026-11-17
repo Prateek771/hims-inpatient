@@ -15,8 +15,8 @@ const publicSans = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Saavantus Healthcare Portal",
-  description: "Saavantus healthcare portal: a hospital staff workspace from admission to discharge.",
+  title: "Saavantus Excellence · Healthcare Portal",
+  description: "Saavantus Excellence healthcare portal: a hospital staff workspace from admission to discharge.",
   robots: { index: false, follow: false },
 };
 

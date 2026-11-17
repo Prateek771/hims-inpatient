@@ -219,3 +219,10 @@ summary { color: var(--brand-blue); }
 .actions > a:not(.button) { display: inline-flex; align-items: center; min-height: 36px; padding: 6px 14px; border-radius: 999px; background: #fff; border: 1px solid #c3d4e8; color: var(--brand-blue); font-weight: 600; font-size: 13.5px; text-decoration: none; box-shadow: var(--shadow-sm); }
 .actions > a:not(.button):hover { background: var(--brand-sky); border-color: #9dbbdc; color: var(--brand-navy); }
 main > a:first-child, .page-heading + a { font-weight: 600; text-decoration: none; }
+
+/* ---- Top-bar sign out -------------------------------------------------------------------------------------------- */
+.mvp-shell .topbar .account-logout { color: #8f2a24; background: #fff; border: 1px solid #e2b8b4; }
+.mvp-shell .topbar .account-logout:hover { background: #fdeceb; color: #7a1f1a; }
+.account-signout-error { position: absolute; top: 58px; right: 28px; margin: 0; padding: 8px 12px; background: #fdeceb; border: 1px solid #e2b8b4; border-radius: 8px; color: #8f2a24; font-size: 12.5px; font-weight: 600; z-index: 6; }
+.account-actions { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 800px) { .account-signout-error { right: 16px; } }
