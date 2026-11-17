@@ -29,10 +29,13 @@ it("reports unavailable when an integrity function is missing", async () => with
   try { synthetic(); await owner.query("drop function mvp_assigned"); await unavailable(); }
   finally { await dirty(owner); }
 }));
-it("reports unavailable when the runtime cannot record actual money", async () => withTestDatabase(async ({ owner }) => {
+it("reports unavailable when the runtime cannot record actual money", async () => withTestDatabase(async ({ owner, runtime }) => {
+  // The account host differs between a local install (127.0.0.1) and CI (any host), so take it from the live connection.
+  const [name, host] = String((await runtime.query("select current_user() u")).rows[0].u).split("@");
+  const account = `'${name}'@'${host}'`;
   try {
     synthetic();
-    await owner.query("revoke insert on hims_test.* from 'hims_test_runtime'@'127.0.0.1'");
+    await owner.query(`revoke insert on hims_test.* from ${account}`);
     await unavailable();
-  } finally { await owner.query("grant select, insert, update, delete, execute on hims_test.* to 'hims_test_runtime'@'127.0.0.1'"); await dirty(owner); }
+  } finally { await owner.query(`grant select, insert, update, delete, execute on hims_test.* to ${account}`); await dirty(owner); }
 }));
