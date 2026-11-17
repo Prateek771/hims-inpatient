@@ -6,7 +6,7 @@ test("staff login exposes labeled fields and denies public registration and priv
 }, testInfo) => {
   await page.goto("/login");
   await expect(
-    page.getByRole("heading", { name: "Staff sign in" }),
+    page.getByRole("heading", { name: "Healthcare Portal" }),
   ).toBeVisible();
   await expect(page.getByLabel("Email")).toBeVisible();
   await expect(page.getByLabel("Password", { exact: true })).toBeVisible();

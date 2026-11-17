@@ -6,7 +6,7 @@ test("unsigned root opens the real staff sign-in with keyboard access", async ({
   await page.goto("/");
   await expect(page.getByRole("main")).toBeVisible();
   await expect(page).toHaveURL(/\/login$/);
-  await expect(page.getByRole("heading", { name: "Staff sign in", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Healthcare Portal", exact: true })).toBeVisible();
   await expect(page.getByText(/Patient records and hospital workflows will be added/)).toHaveCount(0);
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: testInfo.outputPath("workspace-desktop.png"), fullPage: true });
@@ -18,7 +18,7 @@ test("unsigned root opens the real staff sign-in with keyboard access", async ({
 test("workspace fits a narrow screen without horizontal page overflow", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Staff sign in", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Healthcare Portal", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.evaluate(() => document.fonts.ready);
   await page.screenshot({ path: testInfo.outputPath("workspace-narrow.png"), fullPage: true });

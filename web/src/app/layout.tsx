@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import "./brand.css";
+import "./landing.css";
 
 const publicSans = localFont({
   src: [
@@ -13,8 +15,8 @@ const publicSans = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "HIMS · Inpatient workspace",
-  description: "A hospital staff workspace from admission to discharge.",
+  title: "Saavantus Healthcare Portal",
+  description: "Saavantus healthcare portal: a hospital staff workspace from admission to discharge.",
   robots: { index: false, follow: false },
 };
 

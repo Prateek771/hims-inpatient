@@ -19,7 +19,7 @@ export default async function DocumentsPage({ searchParams }: { searchParams: Pr
   if (admissionId) try { review = await getDischargeDocumentReview(ctx, admissionId); } catch (e) { if (e instanceof DomainError && e.code === "FORBIDDEN") notFound(); throw e; }
   return <><p className="eyebrow">Final documents · Admin / Billing</p><h1>Final documents</h1><p className="page-description">Immutable signed versions, verified PDF downloads, print copies and authenticated verification.</p>
     <details className="card discharge-worklist" open={!review}><summary>{review ? "Choose another recorded departure" : "Recorded hospital departures"}</summary>
-      <p className="caption">Ordinary MVP exit requires authorized final papers delivered first. Exceptional departures retain any missing-paper obligations. Open the episode for exact retained versions; earlier workflows keep their original document review.</p>
+      <p className="caption">Ordinary exit requires authorized final papers delivered first. Exceptional departures retain any missing-paper obligations. Open the episode for exact retained versions; earlier workflows keep their original document review.</p>
       {episodes.length ? <div className="table-scroll" tabIndex={0} role="region" aria-label="Recorded departures for documents"><table><thead><tr><th>Admission</th><th>Next work</th></tr></thead><tbody>{episodes.map(e => <tr key={e.id}><td>{e.ipCode}</td><td><Link href={mvpEpisodes.has(e.id) ? `/mvp/${e.id}?tab=exit` : `/documents?admissionId=${e.id}`}>{mvpEpisodes.has(e.id) ? "Open retained episode papers" : "Review sources and retained versions"}</Link></td></tr>)}</tbody></table></div> : <p>No hospital departures are recorded.</p>}
     </details>
     {review && <>

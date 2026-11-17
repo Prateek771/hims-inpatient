@@ -76,7 +76,7 @@ test("personal appearance persists for its staff member and profile never grants
   await page.keyboard.press("Escape");
   await signInStaffSession(page, "DOCTOR");
   await page.getByRole("button", { name: "Customize", exact: true }).click();
-  await expect(customize.getByLabel("Hospital forest", { exact: true })).toBeChecked();
+  await expect(customize.getByLabel("Saavantus brand", { exact: true })).toBeChecked();
   await expect(customize.getByRole("combobox", { name: "Density", exact: true })).toHaveValue("comfortable");
   await page.keyboard.press("Escape");
   expect((await page.request.post("/api/auth/update-user", { data: { role: "ADMIN", name: "Forged" } })).status()).toBe(403);
@@ -88,7 +88,7 @@ test("all personal accents keep actual small action and selected-tab text readab
   for (const role of ["DOCTOR", "NURSE"] as const) {
     await signInStaffSession(page,role);
     if(role === "DOCTOR") await page.goto(`/clinical?admissionId=${fixture.admissionId}`);
-  for (const accent of ["Hospital forest", "Reporting blue", "Soft purple"]) {
+  for (const accent of ["Saavantus brand", "Reporting blue", "Soft purple"]) {
     await page.getByRole("button", { name: "Customize", exact: true }).click();
     const customize = page.getByRole("dialog", { name: "Customize my view" });
     await customize.getByLabel(accent, { exact: true }).check();

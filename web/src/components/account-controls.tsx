@@ -8,10 +8,11 @@ import { loginEmail } from "./login-identifier";
 export function LoginForm() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
   return (
     <form
-      className="fields"
+      className="fields login-form"
       onSubmit={async (event) => {
         event.preventDefault();
         setBusy(true);
@@ -42,23 +43,30 @@ export function LoginForm() {
         }
       }}
     >
-      <label>
-        Email or role
-        <input name="email" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} required />
-      </label>
-      <label>
-        Password
-        <input
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          required
-        />
-      </label>
-      <button className="button" disabled={busy}>
-        {busy ? "Signing in…" : "Sign in"}
+      <div className="field">
+        <label className="field-label" htmlFor="login-identifier">Email or role</label>
+        <span className="field-box">
+          <svg className="field-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5" /><path d="m4 7 8 6 8-6" /></svg>
+          <input id="login-identifier" name="email" type="text" autoComplete="username" autoCapitalize="none" spellCheck={false} placeholder="e.g. nurse or name@hospital.org" required />
+        </span>
+      </div>
+      <div className="field">
+        <label className="field-label" htmlFor="login-password">Password</label>
+        <span className="field-box">
+          <svg className="field-icon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5" /><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" /></svg>
+          <input id="login-password" name="password" type={showPassword ? "text" : "password"} autoComplete="current-password" placeholder="Enter your password" required />
+          <button type="button" className="field-toggle" aria-label={showPassword ? "Hide password" : "Show password"} aria-pressed={showPassword} onClick={() => setShowPassword(!showPassword)}>
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              {showPassword ? <><path d="M2.5 12S6 5.500 12 5.500 21.500 12 21.500 12 18 18.500 12 18.500 2.500 12 2.500 12Z" /><circle cx="12" cy="12" r="3" /></> : <><path d="M3 3l18 18" /><path d="M10.600 6a9.500 9.500 0 0 1 1.400-.1C18 5.900 21.500 12 21.500 12a17 17 0 0 1-3 3.800M6.500 7.600A16.500 16.500 0 0 0 2.500 12S6 18.100 12 18.100c1.300 0 2.500-.3 3.500-.7" /></>}
+            </svg>
+          </button>
+        </span>
+      </div>
+      <button className="button login-submit" disabled={busy}>
+        <span>{busy ? "Signing in…" : "Sign in"}</span>
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" /></svg>
       </button>
-      <p role="alert">{message}</p>
+      <p role="alert" className="login-alert">{message}</p>
     </form>
   );
 }
@@ -244,7 +252,7 @@ export function AccountControls({ staff }: { staff: Staff }) {
           <div className="account-heading"><h2 id="customize-heading">Customize my view</h2><button type="button" className="button quiet" onClick={() => customize.current?.close()}>Close</button></div>
           <p className="account-subtitle">{staff.name} · {roleNames[staff.role]}</p>
           <fieldset className="accent-options"><legend>Personal appearance</legend>{([
-            ["teal", "Hospital forest"], ["blue", "Reporting blue"], ["purple", "Soft purple"],
+            ["teal", "Saavantus brand"], ["blue", "Reporting blue"], ["purple", "Soft purple"],
           ] as const).map(([accent, label]) => <label key={accent} className="accent-option"><input type="radio" name="appearance-accent" value={accent} checked={appearance.accent === accent} onChange={() => updateAppearance({ ...appearance, accent })} /><span className={`accent-swatch accent-${accent}`} aria-hidden="true" /><span>{label}</span></label>)}</fieldset>
           <div className="fields">
             <label>Density<select value={appearance.density} onChange={(event) => updateAppearance({ ...appearance, density: event.target.value as Appearance["density"] })}><option value="comfortable">Comfortable</option><option value="compact">Compact</option></select></label>

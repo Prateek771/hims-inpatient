@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { StaffRole } from "@/server/contracts";
@@ -35,7 +36,7 @@ export function AppShell({ children, role, staff, hospitalName, timezone = "Asia
       <a className="skip-link" href="#main-content">Skip to main content</a>
       <div className="workspace mvp-shell">
         <header className="topbar">
-          <Link className="brand" href={roleHome(role)}><strong>HIMS</strong><span>{hospitalName ?? "Hospital workspace"} · Inpatient staff</span></Link>
+          <Link className="brand" href={roleHome(role)}><Image className="brand-mark" src="/brand/saavantus-mark.png" alt="" width={76} height={68} priority unoptimized /><span className="brand-text"><strong>Saavantus</strong><span>Healthcare Portal · {hospitalName ?? "Hospital workspace"}</span></span></Link>
           <time className="topbar-time" dateTime={asOf} title="Time this workspace was opened">{new Intl.DateTimeFormat("en-IN", { timeZone: timezone, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZoneName: "short" }).format(new Date(asOf))}</time>
           <AccountControls key={staff.id} staff={staff} />
         </header>
